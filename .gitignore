@@ -1,8 +1,11 @@
 # Gradle
 .gradle/
 build/
+**/gradle-user-home/
 !gradle/wrapper/gradle-wrapper.jar
 !gradle/wrapper/gradle-wrapper.properties
+!plugins/classskills/gradle/wrapper/gradle-wrapper.jar
+!plugins/classskills/gradle/wrapper/gradle-wrapper.properties
 
 # IntelliJ
 .idea/
@@ -15,6 +18,8 @@ out/
 *.class
 *.jar
 !gradle/wrapper/gradle-wrapper.jar
+# ClassSkills requires this small precompiled Paper-26 dialog compatibility library.
+!plugins/classskills/libs/classskills-dialog-prebuilt.jar
 
 # OS
 .DS_Store

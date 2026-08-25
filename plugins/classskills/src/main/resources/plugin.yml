@@ -1,0 +1,26 @@
+name: ClassSkills
+version: '${version}'
+main: dev.thorb.classskills.ClassSkillsPlugin
+api-version: '1.21'
+author: thorb
+description: Difficulty-gated class skill trees for dungeon progression.
+softdepend: [DungeonForge]
+commands:
+  class:
+    description: Open class selection or choose a class.
+    usage: /class [warrior|archer|paladin|mage]
+  skills:
+    description: ClassSkills utility and administration commands.
+    usage: /skills <levelup|difficulty|unlockdifficulty|give|testreset|hardreset|focusdraw>
+  skillshard:
+    description: Give a Skill Shard for testing.
+    usage: /skillshard [player] [amount]
+    aliases: [giveskillshard]
+  soulshard:
+    description: Give a Soul Shard for testing.
+    usage: /soulshard [player] [amount]
+    aliases: [givesoulshard]
+permissions:
+  classskills.admin:
+    description: Allows development and administration commands.
+    default: op

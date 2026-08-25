@@ -1,0 +1,104 @@
+# Each dungeon mob banks this amount of XP. All banked mob XP is granted together when
+# the dungeon completes, together with the completion bonus below.
+xp-per-difficulty:
+  '1': 12
+  '2': 18
+  '3': 26
+  '4': 36
+  '5': 48
+  '6': 63
+  '7': 81
+  '8': 102
+  '9': 126
+
+# Awarded to both Minecraft's XP bar and the skill-level progression when DungeonForge
+# reports that a run has ended. Higher difficulties reward progressively more XP.
+completion-xp-per-difficulty:
+  '1': 100
+  '2': 125
+  '3': 155
+  '4': 190
+  '5': 230
+  '6': 275
+  '7': 325
+  '8': 380
+  '9': 440
+
+# Applied once to the combined banked mob XP and completion XP at the end of a run.
+# Lower this to slow levelling further; 1.0 restores the original amounts.
+dungeon-xp-multiplier: 0.22
+
+# Linear placeholder curve; replace only after dungeon pacing has been play-tested.
+xp-to-next-level:
+  base: 100
+  per-current-level: 35
+  # Applied to every level requirement. 1.12 is 12% more XP per level.
+  requirement-multiplier: 1.12
+
+# One independent weighted roll for each shard type is made when a dungeon completes.
+# Skill Shards rise from 10% to 50%; Soul Shards rise from 2% to 10%. A run can never
+# award more than one of either.
+shared-drop-table:
+  '1': { skill-shard: 10, soul-shard: 2, nothing: 88 }
+  '2': { skill-shard: 15, soul-shard: 3, nothing: 82 }
+  '3': { skill-shard: 20, soul-shard: 4, nothing: 76 }
+  '4': { skill-shard: 25, soul-shard: 5, nothing: 70 }
+  '5': { skill-shard: 30, soul-shard: 6, nothing: 64 }
+  '6': { skill-shard: 35, soul-shard: 7, nothing: 58 }
+  '7': { skill-shard: 40, soul-shard: 8, nothing: 52 }
+  '8': { skill-shard: 45, soul-shard: 9, nothing: 46 }
+  '9': { skill-shard: 50, soul-shard: 10, nothing: 40 }
+
+balance:
+  shard-drop-table-version: 2
+  arcane-bolt-splash-version: 2
+
+# Whole-tree wipes cost ceil(total points spent * this rate), so they are always cheaper
+# than revoking every node separately but naturally scale with a build's investment.
+bulk-reset-shard-rate: 0.60
+
+# Archer Focus: applied only at 10/10 Focus. This is the effective reduction in the
+# draw time needed to reach a given bow force; 25 means 25% faster effective draw.
+focus:
+  full-draw-speed-percent: 25.0
+  # Focus I-V shorten the charge from 9 to 5 hits. Focus VI retains 5 hits and
+  # upgrades the Left-Click Focus Shot from +50% damage to double damage.
+
+# Each arrow adds the Archer's Attack stat, then this multiplier is applied.
+archer:
+  attack-stat-damage-multiplier: 1.0
+
+# Rage is retained while a Warrior remains in combat. After 15 seconds without
+# damage dealt or received, it drains at this rate each second.
+warrior:
+  rage-decay-delay-seconds: 15.0
+  rage-decay-per-second: 10.0
+
+# Mage baseline: Mana and Arcane Bolt are usable from Difficulty 1. Difficulty 3
+# unlocks Arcane Charge, which makes each bolt stronger and expands the Mana pool.
+mage:
+  base-max-mana: 200.0
+  mana-regeneration-per-second: 10.0
+  arcane-bolt-mana-cost: 10.0
+  arcane-bolt-base-damage: 5.0
+  arcane-bolt-damage-per-rank: 1.5
+  arcane-bolt-cooldown-ticks: 8
+  # On impact, nearby DungeonForge mobs take this fraction of the bolt's direct damage.
+  arcane-bolt-splash-radius: 1.5
+  arcane-bolt-splash-damage-percent: 50.0
+
+# Paladin Taunt builds from axe damage after the Tier-3 signature unlock. The
+# newest Taunt owner has aggro from all loaded mobs in their current world.
+paladin:
+  taunt-damage-threshold: 75.0
+  taunt-duration-seconds: 8.0
+  # Mirrors the Turtle Master trade-off: high resistance with heavy slowness.
+  turtle-master-resistance-amplifier: 2
+  turtle-master-slowness-amplifier: 3
+
+# F-key keeps Mage Blink. Right-clicking the tagged Mage staff casts Healing Spell.
+abilities:
+  mage:
+    heal-cooldown-seconds: 30.0
+    heal-mana-cost: 50.0
+    heal-range: 20.0
