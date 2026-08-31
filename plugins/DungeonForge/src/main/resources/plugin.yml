@@ -1,0 +1,25 @@
+name: DungeonForge
+version: '${version}'
+main: ${mainClass}
+api-version: '${apiVersion}'
+authors: [ RidderNix ]
+description: Procedural dungeon testing with parties, a difficulty menu, and Dungeon Lords.
+website: https://cloudworld.gg
+softdepend: [ WorldEdit, BetterModel ]
+
+commands:
+  dungeon:
+    description: Manage your test dungeon.
+    usage: /dungeon [test|generate|compare|rooms|corridors|schematics|models|animate|panel|skills|api|party|start|settings|npc|goals|markers|summon|tp|leave|delete|list|reload]
+    aliases: [ dg, df ]
+    permission: dungeonforge.use
+
+permissions:
+  dungeonforge.use:
+    description: Access to every /dungeon subcommand.
+    default: op
+  dungeonforge.admin:
+    description: Spawn and remove Dungeon Lord NPCs.
+    default: op
+    children:
+      dungeonforge.use: true

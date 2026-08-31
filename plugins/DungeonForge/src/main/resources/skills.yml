@@ -1,0 +1,123 @@
+# =====================================================================
+#  Skill tree definitions
+# =====================================================================
+# Trees and classes are separate on purpose: a class points at a tree, so
+# giving each class its own layout later is a data change here, not code.
+#
+# Node positions are grid units around the root, multiplied by the panel's
+# scale (skill-panel.radius-step for the standard variant, fixed for big):
+#   x: right of the root (negative = left)      y: above the root
+# The older angle/radius form still works; x/y wins when both are present.
+#
+# Connections come from "requires". A node with several entries needs ALL of
+# them unlocked, unless "any-of: true", which makes ANY one of them enough -
+# that is what lets paths split and rejoin. "routes" bends a connection:
+# per prerequisite a list of [x, y] corner points the line passes through.
+#
+# Node ids are the contract with other plugins: they see class id, node id
+# and level through the API, never what a node does. The ids and costs below
+# are ClassSkills' specification; the positions, connections and names are
+# this tree's own and were mapped onto, not reshaped to fit.
+#
+# a0 is Passive Rank I and the anchor of the whole tree: all three branches
+# hang off it, so nothing can be bought until it is held. It is an ordinary
+# purchase at 1 point - it used to cost nothing and be granted on clearing
+# Difficulty 3, but nothing ever granted it, so the gate is now a real one on
+# a1 instead.
+#
+# "requires-difficulty" gates a node behind a cleared dungeon difficulty. The
+# rule lives here because it is part of what a node requires, but the answer
+# does not: the difficulty a player has cleared is ClassSkills' to know, read
+# through its hasUnlockedDifficulty. Without ClassSkills every gate passes, so
+# a server running DungeonForge alone is unaffected. Omit it, or use 0, for a
+# node with no such requirement. A grant through the API ignores it, the same
+# way it ignores cost; prerequisites are the only thing a grant still honours.
+#
+# When the plugin ships a newer tree design, a file with an older
+# skills-version is backed up and replaced on startup - mirror of the
+# config.yml mechanism. Your own edits live on in the .bak next to it.
+skills-version: 5
+
+classes:
+  warrior:
+    name: "<gradient:#c9a227:#f2e39b><bold>Warrior"
+    description: "Front line. Trades subtlety for reach, rage and the refusal to fall over."
+    tree: core
+  archer:
+    name: "<gradient:#c9a227:#f2e39b><bold>Archer"
+    description: "Distance and patience. Wins the fight before it arrives."
+    tree: core
+  paladin:
+    name: "<gradient:#c9a227:#f2e39b><bold>Paladin"
+    description: "The shield others stand behind. Slow, certain, very hard to move."
+    tree: core
+  mage:
+    name: "<gradient:#c9a227:#f2e39b><bold>Mage"
+    description: "Fragile and decisive. Turns a room around in one cast."
+    tree: core
+
+trees:
+  core:
+    branches:
+      rage:
+        label: "<color:#c9a227><bold>Rage <color:#8a7f5c>(Ability)"
+        x: -4.8
+        y: 5.2
+      weapon:
+        label: "<color:#c9a227><bold>Weapon"
+        x: 0.0
+        y: 6.0
+      survival:
+        label: "<color:#c9a227><bold>Survival"
+        x: 4.7
+        y: 5.8
+    nodes:
+      a0: { name: "Path of the Class", description: "Passive Rank I. Opens all three branches.", cost: 1, x: 0.0, y: 0.0, branch: weapon }
+
+      # --- Weapon: centre column with a diamond and two side wings ---
+      w1: { name: "Keen Edge", description: "+1 Attack", cost: 1, requires: [a0], x: 0.0, y: 1.0, branch: weapon }
+      w2: { name: "Heavy Swing", description: "+1 Attack", cost: 1, requires: [w1], x: 0.0, y: 2.0, branch: weapon }
+      w3: { name: "Cleave", description: "+1 Attack", cost: 2, requires: [w2], x: -1.0, y: 2.5, branch: weapon }
+      w4: { name: "Riposte", description: "+1 Attack", cost: 3, requires: [w2], x: 1.0, y: 2.5, branch: weapon }
+      w5: { name: "Follow-Through", description: "+2 Attack", cost: 4, requires: [w3, w4], any-of: true, x: 0.0, y: 3.2, branch: weapon }
+      w6: { name: "Whirlwind", description: "+2 Attack", cost: 5, requires: [w3], x: -1.6, y: 3.4, branch: weapon }
+      w7: { name: "Duelist", description: "+2 Attack", cost: 6, requires: [w4], x: 1.6, y: 3.4, branch: weapon }
+      w8: { name: "Executioner", description: "+2 Attack", cost: 7, requires: [w5], x: 0.0, y: 4.2, branch: weapon }
+      w9: { name: "Reaper", description: "+3 Attack", cost: 8, requires: [w6, w8], any-of: true, routes: { w6: [[-1.6, 4.6]] }, x: -0.9, y: 4.6, branch: weapon }
+      w10: { name: "Challenger", description: "+3 Attack", cost: 9, requires: [w7, w8], any-of: true, routes: { w7: [[1.6, 4.6]] }, x: 0.9, y: 4.6, branch: weapon }
+      w11: { name: "Weapon Master", description: "+3 Attack", cost: 9, requires: [w8], x: 0.0, y: 5.3, branch: weapon }
+
+      # --- Ability: left fan. The five passive ranks sit on the one
+      # strictly linear chain the branch has, so a rank can never be
+      # skipped; the stat nodes fill the positions around them. ---
+      a1: { name: "First Fury", description: "Passive Rank II. Needs Difficulty 3 cleared.", cost: 4, requires: [a0], requires-difficulty: 3, routes: { a0: [[-1.2, 0.0]] }, x: -1.2, y: 0.4, branch: rage }
+      a2: { name: "Hot Blood", description: "Passive Rank III", cost: 5, requires: [a1], x: -2.2, y: 0.8, branch: rage }
+      a6: { name: "War Cry", description: "+1 Attack", cost: 3, requires: [a2], x: -2.2, y: 1.8, branch: rage }
+      a3: { name: "Crushing Blows", description: "Passive Rank IV", cost: 6, requires: [a2], x: -3.4, y: 0.8, branch: rage }
+      a7: { name: "Relentless", description: "+1 Attack", cost: 3, requires: [a3], x: -3.4, y: 1.8, branch: rage }
+      a8: { name: "Berserk", description: "+2 Attack", cost: 4, requires: [a6, a7], any-of: true, routes: { a6: [[-2.8, 1.8]], a7: [[-2.8, 1.8]] }, x: -2.8, y: 2.6, branch: rage }
+      a4: { name: "Intimidate", description: "Passive Rank V", cost: 7, requires: [a3], x: -4.4, y: 1.4, branch: rage }
+      a5: { name: "Terrify", description: "Passive Rank VI", cost: 8, requires: [a4], routes: { a4: [[-4.6, 1.4]] }, x: -4.6, y: 2.6, branch: rage }
+      a9: { name: "Rampage", description: "+2 Attack", cost: 5, requires: [a8], x: -3.6, y: 3.4, branch: rage }
+      a10: { name: "Blood Scent", description: "+3 Attack", cost: 6, requires: [a8], x: -2.4, y: 3.6, branch: rage }
+      a12: { name: "Dread Aura", description: "+2 Armor", cost: 8, requires: [a5], x: -4.8, y: 3.6, branch: rage }
+      a13: { name: "Avatar of Rage", description: "+2 Max Health / +1 heart", cost: 9, requires: [a9, a12], any-of: true, x: -4.2, y: 4.4, branch: rage }
+      a14: { name: "Frenzy", description: "+2 Armor", cost: 9, requires: [a10], x: -2.9, y: 4.5, branch: rage }
+      a11: { name: "Titan Grip", description: "+2 Max Health / +1 heart", cost: 7, requires: [a4], x: -5.6, y: 1.8, branch: rage }
+
+      # --- Survival: a ladder that hugs the trunk, closes into a square
+      # that folds back on itself, then hooks outward before climbing. ---
+      s1: { name: "Thick Skin", description: "+1 Max Health / +½ heart", cost: 1, requires: [a0], x: 1.8, y: 0.5, branch: survival }
+      s2: { name: "Endure", description: "+1 Armor", cost: 1, requires: [s1], x: 1.8, y: 1.5, branch: survival }
+      s3: { name: "Second Wind", description: "+1 Max Health / +½ heart", cost: 2, requires: [s2], x: 3.0, y: 1.5, branch: survival }
+      s4: { name: "Iron Will", description: "+1 Armor", cost: 2, requires: [s3], x: 3.0, y: 2.5, branch: survival }
+      s5: { name: "Stone Stance", description: "+2 Max Health / +1 heart", cost: 3, requires: [s2, s4], any-of: true, x: 1.8, y: 2.5, branch: survival }
+      s6: { name: "Fortress", description: "+2 Armor", cost: 3, requires: [s5], x: 2.6, y: 3.3, branch: survival }
+      s7: { name: "Vigor", description: "+2 Max Health / +1 heart", cost: 4, requires: [s3], routes: { s3: [[4.2, 1.5]] }, x: 4.2, y: 1.0, branch: survival }
+      s8: { name: "Deep Reserves", description: "+2 Armor", cost: 5, requires: [s7], x: 5.2, y: 1.7, branch: survival }
+      s9: { name: "Bulwark", description: "+3 Max Health / +1½ hearts", cost: 6, requires: [s4], routes: { s4: [[4.3, 2.5]] }, x: 4.3, y: 2.9, branch: survival }
+      s10: { name: "Last Stand", description: "+3 Armor", cost: 7, requires: [s8], x: 5.2, y: 3.1, branch: survival }
+      s11: { name: "Regrowth", description: "+3 Max Health / +1½ hearts", cost: 8, requires: [s6, s9], any-of: true, x: 3.4, y: 4.2, branch: survival }
+      s12: { name: "Immovable", description: "+3 Armor", cost: 9, requires: [s10], routes: { s10: [[4.7, 3.1]] }, x: 4.7, y: 4.1, branch: survival }
+      s13: { name: "Guardian", description: "+3 Max Health / +1½ hearts", cost: 9, requires: [s11], x: 2.2, y: 4.7, branch: survival }
+      s14: { name: "Juggernaut", description: "+3 Armor", cost: 9, requires: [s11, s12], any-of: true, x: 4.3, y: 5.1, branch: survival }
