@@ -1,0 +1,35 @@
+name: DungeonPlugin
+version: '${version}'
+main: nl.riddernix.dungeonplugin.DungeonPlugin
+api-version: '${apiVersion}'
+description: RPG dungeon instances with class progression - DungeonForge and ClassSkills merged.
+authors: [Riddernix, thorb]
+softdepend: [WorldEdit, BetterModel]
+libraries:
+  - org.jetbrains.kotlin:kotlin-stdlib:2.4.10
+commands:
+  dungeon:
+    description: DungeonPlugin main command.
+    aliases: [dg, df]
+    permission: dungeonplugin.use
+  class:
+    description: Open class selection or choose a class.
+    usage: /class [warrior|archer|paladin|mage]
+  skills:
+    description: Class-layer utility and administration commands.
+    usage: /skills <soul|staff|reset|difficulty|give|levelup|testreset|hardreset|focusdraw>
+  skillshard:
+    description: Give a Skill Shard for testing.
+    usage: /skillshard [player] [amount]
+    aliases: [giveskillshard]
+  soulshard:
+    description: Give a Soul Shard for testing.
+    usage: /soulshard [player] [amount]
+    aliases: [givesoulshard]
+permissions:
+  dungeonplugin.use:
+    description: Use the dungeon command.
+    default: op
+  dungeonplugin.admin:
+    description: Administrative dungeon commands.
+    default: op

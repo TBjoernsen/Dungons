@@ -1,0 +1,1444 @@
+# =====================================================================
+#  DungeonForge configuration
+#  Everything here is live-editable: edit, save, /dungeon reload
+# =====================================================================
+
+config-version: 1
+
+world:
+  # Every dungeon world is this prefix + the player's name.
+  # WARNING: on startup, every folder in the server root starting with this
+  # prefix that is not currently loaded gets deleted. Pick something you do
+  # not use anywhere else.
+  prefix: "dungeon_"
+
+  difficulty: NORMAL
+
+  # Fixed time of day (0 = morning, 6000 = noon, 18000 = night)
+  time: 18000
+
+  clear-weather: true
+
+  # Any valid vanilla gamerule may be listed here.
+  gamerules:
+    doDaylightCycle: false
+    doWeatherCycle: false
+    doMobSpawning: false
+    doFireTick: false
+    mobGriefing: false
+    doMobLoot: true
+    keepInventory: true
+    announceAdvancements: false
+    fallDamage: true
+    # Dense mob groups should never damage or kill themselves before a
+    # party arrives. This applies only to disposable dungeon worlds.
+    maxEntityCramming: 0
+
+box:
+  size: 48
+  origin:
+    x: 0
+    y: 64
+    z: 0
+  hollow: true
+  material: STONE
+  floor-material: STONE_BRICKS
+  lights:
+    enabled: true
+    material: SEA_LANTERN
+    spacing: 8
+
+# Placeholder procedural dungeon generation. These boxes and tunnels will be
+# replaced by prefab pasting in a later step, while retaining this layout logic.
+generation:
+  # The entrance room always starts at exactly this minimum corner for a
+  # normal generated dungeon, regardless of seed or difficulty.
+  entrance:
+    origin:
+      x: 0
+      y: 64
+      z: 0
+    size:
+      x: 35
+      y: 18
+      z: 35
+    # The first corridor always leaves this face. Valid values: NORTH, SOUTH,
+    # EAST, WEST. Later critical-path segments may still turn left or right.
+    exit-direction: SOUTH
+
+  # Counts include the fixed entrance and the final boss room. A difficulty
+  # with a composition below ignores its entry here: its room count follows
+  # from the composed path instead.
+  rooms-per-difficulty:
+    1: 4
+    2: 5
+    3: 6
+    4: 7
+    5: 8
+    6: 9
+    7: 10
+    8: 11
+    9: 12
+
+  # A composed difficulty replaces random layout and marker-driven mob mixes
+  # with an authored sequence. Each path entry names a room role between the
+  # spawn room and the boss arena, in walking order. What a role spawns is
+  # defined under mobs.room-roles; which prefab it prefers comes from the
+  # role token in the schematic filename (normal_<role>_<shape>).
+  # Difficulties without a composition keep the old behaviour untouched.
+  composition:
+    1:
+      path: [swarm, pack, rest, swarm-champion, approach]
+      # The composed path turns like any other, so corner and junction rooms
+      # appear instead of one straight run. A role slot whose own prefab does
+      # not exist in the required shape falls back to the generic pool, so
+      # only turn this off if you want every role in exactly one shape.
+      allow-turns: true
+      # A mandatory detour: the corridor after path room door-after is sealed
+      # until the guardian at the end of this branch dies. The branch leaves
+      # the path room at from and its rooms are walked in order, so the
+      # parkour sits between the main path and the key.
+      key-branch:
+        enabled: true
+        from: 3
+        door-after: 3
+        rooms: [parkour, guardian]
+
+  # Fallback dimensions used when no valid prefab exists for a slot. Loaded
+  # room schematics are free to use their own dimensions; the generator plans
+  # against the largest loaded footprint and places each room at its real size.
+  prefab-room:
+    size: { x: 67, y: 34, z: 67 }
+
+  # Filename prefix chooses the eligible slot: normal_* is NORMAL only and
+  # branch_* is BRANCH only. Empty export padding is trimmed automatically.
+  rooms:
+    markers:
+      doorway:
+        # One centred block or a contiguous centred strip on an outside wall.
+        # DungeonForge finds the real air opening below the marker, then aligns
+        # the flat corridor platform with that opening automatically.
+        material: RED_WOOL
+        description: "Marks a doorway wall; the air opening below it is detected automatically."
+        minimum-opening-width: 3
+        minimum-opening-height: 3
+      entrance:
+        # Placed exactly like a red doorway marker, but green pins the room's
+        # orientation: the generator only uses rotations where players come
+        # in through this opening. At most one green doorway per room, and it
+        # needs at least one red doorway as the exit.
+        material: GREEN_WOOL
+        description: "Marks the doorway players must enter through; the room is rotated to honour it."
+      trap-floor:
+        # Mark only the visible walking-floor blocks. The wool is swapped for
+        # a copy of its neighbouring floor at build time, so the trap is
+        # invisible. Any pressure plate in a room with these markers becomes
+        # the trigger.
+        #
+        # What falls is worked out from the marker: everything under it down
+        # to the room's foundation, so the hole opens into the void, plus
+        # everything standing on it - straight up through anything that is
+        # not air, stopping at the first gap. A pillar or a step on a marked
+        # block comes down with it without being marked; a platform floating
+        # above the trap keeps its gap and stays put. /dungeon rooms reports
+        # the resulting block count per file, so an over-eager column is
+        # visible before testing in game.
+        material: YELLOW_WOOL
+        description: "A floor block that drops, taking whatever stands on it, when a pressure plate is stood on."
+      player-spawn:
+        # Place exactly one at the desired player feet position, with solid
+        # ground directly below it. Players face the room's exit after removal.
+        material: GRAY_WOOL
+        description: "Marks the player arrival position in a spawn-room schematic."
+      boss-spawn:
+        # Optional: place one on the boss-room floor to choose the exact boss
+        # position. Without it, DungeonForge finds clear floor nearest centre.
+        material: LIGHT_BLUE_WOOL
+        description: "Optionally marks the exact boss position in a boss-room schematic."
+      replacements:
+        # Combat spawn markers sit in open floor and disappear after loading.
+        spawn: AIR
+        # These are forced to air by the loader even if changed here: entities
+        # now spawn at the marker's exact position.
+        player-spawn: AIR
+        boss-spawn: AIR
+        # Doorway markers sit inside a wall. WALL_MATCHING copies a neighbouring
+        # non-air wall block, so mixed stone/deepslate rooms keep their finish.
+        doorway: WALL_MATCHING
+        entrance: WALL_MATCHING
+        # Trap floor wool becomes a copy of the floor around it, so the drop
+        # zone cannot be read from the room.
+        trap-floor: WALL_MATCHING
+        # Purple wool in room files is reported as an old marker convention,
+        # never interpreted as a champion marker, and removed from the build.
+        legacy-purple: AIR
+
+  room-variants:
+    plain: { weight: 4 }
+    # Retired in favour of the composed key branch, whose parkour role uses a
+    # real branch_parkour_* prefab. The old variant produced an empty
+    # procedural box, so it stays at 0 unless deliberately revived.
+    parkour: { weight: 0 }
+    # Regular room slots use schematics by default. A parkour variant remains
+    # procedural until it has its own prefab format.
+    allow-normal-parkour: false
+
+  boss-room:
+    min-size: { x: 63, y: 34, z: 63 }
+    max-size: { x: 71, y: 40, z: 71 }
+
+  corridor:
+    # Legacy opening dimensions, still used by procedural rooms and doorway validation.
+    inner-width: 7
+    inner-height: 8
+    # The placeholder corridor is a floor platform, not a tunnel. Width is
+    # rounded up to odd so it stays centred on doorway markers.
+    platform-width: 7
+    floor-material: STONE
+    safety-lips:
+      enabled: true
+      material: STONE
+      height: 1
+    # Space from one room wall to the next. It must leave room for a shaft.
+    # A schematic tile with connector centres six blocks apart needs a multiple
+    # of six here. The default 18 creates three joined tiles per corridor.
+    length: 18
+    schematic:
+      # Files in plugins/DungeonForge/corridors/ are repeatable middle segments.
+      # Purple groups are the two physical connectors. Cyan is a guide strip;
+      # both are stored as metadata, then replaced while placing the tile.
+      markers:
+        connector:
+          material: PURPLE_WOOL
+          description: "A contiguous endpoint group that aligns exactly to a room doorway marker."
+        guide:
+          material: CYAN_WOOL
+          description: "A corridor alignment guide between the two endpoint groups."
+        replacements:
+          connector: AIR
+          guide: AIR
+      # Procedural spawn, branch, boss, and fallback rooms have no red wool in
+      # their source build. These virtual markers follow the standard prefab
+      # marker-to-floor offset and let the same corridor tile connect to them.
+      virtual-door-marker:
+        width: 3
+        height-above-floor: 30
+
+  critical-path:
+    # The main path holds a heading for this many rooms before it may turn.
+    min-rooms-before-turn: 2
+    max-rooms-before-turn: 4
+
+  branching:
+    # 0.0 = every room belongs to the critical path.
+    # 1.0 = use every room beyond the minimum critical path as a side room.
+    branch-frequency: 0.55
+    # One branch may use this longer limit. A room directly off the critical
+    # path has length 1, so the default permits one two-room detour.
+    long-branch-max-length: 2
+    # Every other branch uses this shorter limit.
+    short-branch-max-length: 1
+    # Includes the entrance and boss. Keeps the critical path meaningful even
+    # when branch frequency is 1.0.
+    minimum-critical-path-rooms: 4
+
+  multi:
+    # /dungeon generate <difficulty> <amount> [seed] is capped at this amount.
+    max-amount: 64
+    # Extra gap after the largest planned bounds when packing a generation grid.
+    padding: 96
+
+  # Extra clearance between room shells. Larger values make layouts spread out.
+  room-padding: 2
+  max-placement-attempts: 600
+
+  # The comparison command uses a 3 by 3 arrangement with this extra gap.
+  comparison:
+    padding: 48
+
+  # Placeholder shell materials, one colour per visible layout role.
+  materials:
+    entrance: MOSS_BLOCK
+    normal-room: STONE
+    branch: STONE
+    corridor: COBBLESTONE
+    boss: REDSTONE_BLOCK
+
+party:
+  max-size: 4
+  invite-expiry-seconds: 60
+  # An active party world is removed after this long when every occupant is offline.
+  offline-instance-timeout-seconds: 600
+
+rooms:
+  # Periodic room detection avoids the high frequency of PlayerMoveEvent.
+  detection-interval-ticks: 10
+
+hunger:
+  # Stops exhaustion, saturation loss, and food-level loss in every dungeon world.
+  # Food gained by eating is still allowed.
+  freeze-in-dungeons: true
+
+combat:
+  # Keeps party testing cooperative: player-caused melee, projectile, potion,
+  # explosion, and custom DamageSource damage is cancelled in dungeon worlds.
+  # It has no effect in ordinary server worlds.
+  disable-player-damage-in-dungeons: true
+
+death:
+  # dungeon-entrance respawns inside the active dungeon; main-world-spawn is harsher.
+  respawn-mode: dungeon-entrance
+
+completion:
+  # The party has this long to enjoy the victory scene before safe return and
+  # world cleanup begin. The active instance remains locked during this time.
+  grace-period-ticks: 160
+  # Repeated forced-respawn attempts for anyone on the death screen when the
+  # grace period ends. One tick is allowed between attempts.
+  respawn-settle-attempts: 20
+  title:
+    fade-in-millis: 400
+    stay-millis: 3000
+    fade-out-millis: 600
+  sound:
+    type: UI_TOAST_CHALLENGE_COMPLETE
+    volume: 1.0
+    pitch: 1.0
+
+# Native Paper Dialog settings screen, opened with /dungeon settings by admins.
+settings:
+  title: "<dark_gray>DungeonForge <gold>Settings"
+  home-description: "<gray>Select a settings category. Sliders show the valid range and current value."
+  range-description: "<gray>Choose values within the displayed ranges, then save or reset this page."
+  toggles-description: "<gray>Toggle simple runtime options, then save or reset this page."
+  boolean-on: "On"
+  boolean-off: "Off"
+  pages:
+    room-counts: "<gold>Room counts by difficulty"
+    generation: "<gold>Generation dimensions and branching"
+    mobs-low: "<gold>Mob counts and tiers: difficulties 1-5"
+    mobs-high: "<gold>Mob counts and tiers: difficulties 6-9"
+    toggles: "<gold>Runtime toggles"
+  buttons:
+    room-counts: "<green>Room counts"
+    generation: "<green>Generation"
+    mobs-low: "<green>Mobs 1-5"
+    mobs-high: "<green>Mobs 6-9"
+    toggles: "<green>Toggles"
+    save: "<green>Save changes"
+    reset: "<yellow>Reset this page"
+    back: "<gray>Back"
+  labels:
+    room-count: "Difficulty <difficulty> room count"
+    prefab-width: "Fallback prefab room width"
+    prefab-height: "Fallback prefab room height"
+    prefab-depth: "Fallback prefab room depth"
+    corridor-length: "Corridor length"
+    branch-chance: "Branch chance"
+    short-branch: "Regular branch maximum depth"
+    long-branch: "One long branch maximum depth"
+    turn-min: "Minimum rooms before a path turn"
+    turn-max: "Maximum rooms before a path turn"
+    swarm-count: "Difficulty <difficulty> swarm group count"
+    pack-count: "Difficulty <difficulty> pack group count"
+    champion-count: "Difficulty <difficulty> champion group count"
+    tier: "Difficulty <difficulty> mob tier"
+    hunger: "Freeze hunger in dungeon worlds"
+    party-pvp: "Disable player damage in dungeon worlds"
+    spawn-room: "Spawn mobs in the spawn room"
+    teleport-create: "Teleport after test/layout generation"
+
+# Marker-driven combat groups. One marker always creates one complete group;
+# no room rolls a named group or a random fallback.
+
+# Combat rooms seal their exits while anything inside is alive; the boss
+# arena seals its entrance for the fight. The way back is never sealed in a
+# normal room, and a room with nothing alive in it never seals at all.
+room-gating:
+  enabled: true
+  normal: true
+  # Branch rooms: the parkour room has no mobs and the guardian's lair is
+  # already governed by the sealed key door, so gating adds nothing there.
+  branch: false
+  # The boss spawns the moment every player stands in the arena, and the
+  # entrance seals in the same breath. A wipe opens it; a full party seals it
+  # again. Turning this off restores the old flow: the boss spawns on
+  # approach and the arena never closes.
+  boss: true
+  # Fills only passable blocks of the doorway plane, so authored walls stay.
+  # See-through on purpose: a player should see where they are going next.
+  material: IRON_BARS
+  # A sealed gate opens by itself after this long, whatever is still counted
+  # alive. The failsafe of last resort; 0 disables it.
+  timeout-seconds: 300
+  glow-last-mobs:
+    # The stragglers of a long-sealed room light up, so the fight ends at the
+    # last mob instead of at a search party.
+    enabled: true
+    at-most: 2
+    after-seconds: 30
+  sounds:
+    seal: BLOCK_IRON_DOOR_CLOSE
+    open: BLOCK_IRON_DOOR_OPEN
+    deny: BLOCK_CHEST_LOCKED
+
+mobs:
+  spawn-room: false
+  spawn-per-tick: 4
+  recount-interval-ticks: 40
+
+  # Everything below multiplies the numbers in mobs.difficulties rather than
+  # replacing them, so the per-difficulty table stays the place to shape one
+  # band and this stays the place to move the whole game at once.
+  scaling:
+    # Applied to every configured health value, every category and the boss's
+    # minions.
+    health: 3.0
+    # Extra health on top of `health`, for the three that should be walls
+    # rather than merely tougher. Boss health is champion health times the
+    # theme's health-multiplier, so the champion figure already reaches the
+    # boss; boss-health-extra lands on top of that and compounds with it.
+    # At 1.5 across the board a boss ends up 6.75x its old health.
+    champion-health-extra: 1.5
+    guardian-health-extra: 1.5
+    boss-health-extra: 1.5
+    # Group size. Only swarms double; pack, champion and guardian counts are
+    # whatever mobs.difficulties says.
+    swarm-count-multiplier: 2.0
+    party:
+      # multiplier = 1 + (players - 1) x factor. A factor of 1.0 is fully
+      # linear - four players get four times as much. Below 1.0 each extra
+      # player counts for less than a whole one, which is the point: a group
+      # stacks damage better than mobs stack threat, so a linear rule makes
+      # four players easier per head than one.
+      #
+      # Counts apply to swarm and pack, health to champion, guardian and boss.
+      # Never both to one category: they multiply into total effective health
+      # and a category with both outruns what the extra players bring.
+      count-per-player: 0.6
+      health-per-player: 0.75
+      # Beyond this the multipliers stop growing.
+      max-party-size: 8
+      # A solo run is the baseline at x1.0. There is no solo discount: the
+      # numbers in mobs.difficulties are the solo numbers, so tune those.
+  boss-bars:
+    # Appears when the first player enters the boss arena, then remains visible
+    # to every player still inside that dungeon world.
+    enabled: true
+  markers:
+    # These materials are consumed into room metadata immediately after the
+    # build. They do not overlap any existing doorway marker system.
+    # Champion moved off PURPLE_WOOL: purple doubles as the corridor connector
+    # marker and was never readable inside a room because of it.
+    materials: { swarm: LIME_WOOL, pack: ORANGE_WOOL, champion: MAGENTA_WOOL, guardian: BLACK_WOOL }
+    descriptions:
+      swarm: "Spawns one fast, low-health swarm group around this marker."
+      pack: "Spawns one resilient group of solid enemies around this marker."
+      champion: "Spawns one slow, heavy champion around this marker."
+      guardian: "Spawns the key guardian of a composed dungeon around this marker."
+    # A group forms around its own marker. Failed points widen only as far as
+    # maximum-group-radius so the result remains clearly tied to that marker.
+    group-radius: 5
+    # Raised with the doubled swarms and party scaling: a nine-block ring holds
+    # roughly 85 members at the distance below, and a full party on difficulty
+    # 9 asks for close to seventy.
+    maximum-group-radius: 12
+    minimum-group-distance: 1.75
+    outward-search-step: 2
+    attempts-per-ring: 20
+    generated:
+      # Placeholder stone rooms receive markers procedurally. Hand-built
+      # prefabs already contain their own markers and use the same scanner.
+      minimum-distance: 8
+      doorway-clearance: 5
+      edge-clearance: 3
+      placement-attempts: 100
+      per-difficulty:
+        1: { swarm: 1, pack: 0, champion: 0 }
+        2: { swarm: 1, pack: 1, champion: 0 }
+        3: { swarm: 1, pack: 1, champion: 0 }
+        4: { swarm: 1, pack: 1, champion: 1 }
+        5: { swarm: 1, pack: 1, champion: 1 }
+        6: { swarm: 1, pack: 1, champion: 1 }
+        7: { swarm: 1, pack: 1, champion: 1 }
+        8: { swarm: 1, pack: 1, champion: 1 }
+        9: { swarm: 1, pack: 1, champion: 1 }
+  # What one composed room role spawns: category -> number of complete groups.
+  # Group sizes and stats stay under mobs.difficulties.<d>.categories. A
+  # marker of a matching colour in the chosen prefab anchors a group at its
+  # own spot; roles needing more groups than the prefab marks get anchors on
+  # clear floor found at runtime, deterministic per seed. An empty role
+  # spawns nothing - the pause is the point.
+  room-roles:
+    swarm:          { swarm: 1 }
+    pack:           { pack: 1 }
+    rest:           {}
+    swarm-champion: { swarm: 1, champion: 1 }
+    approach:       {}
+    parkour:        {}
+    guardian:       { guardian: 1 }
+  boss-summoning:
+    # The sequence begins when a player enters the boss room. It always
+    # completes, even if the arena becomes empty, so minions cannot remain
+    # pending forever. The boss is invulnerable during it by default.
+    duration-ticks: 60
+    hold-ticks: 15
+    pulse-interval-ticks: 5
+    particle: SOUL_FIRE_FLAME
+    particle-count: 18
+    particle-radius: 1.5
+    particle-height: 1.5
+    start-sound: ENTITY_WITHER_AMBIENT
+    peak-sound: ENTITY_WITHER_SPAWN
+    sound-volume: 2.0
+    sound-pitch: 1.0
+    invulnerable: true
+    # Scripted entrance replacing the default particle pulse. Known values:
+    # rift_tear, none. A theme may override this in its own summoning block.
+    animation: none
+    animations:
+      # The Rift Devourer's entrance. A tear of block displays opens in the
+      # floor, its shards orbit and lean inward, and the boss is dragged up out
+      # of the ground. Nothing here touches the world: it is all display
+      # entities whose transformations the client interpolates between.
+      rift_tear:
+        shard-material: CRYING_OBSIDIAN
+        disc-material: OBSIDIAN
+        shards: 8
+        radius: 3.2
+        shard-width: 0.35
+        shard-height: 2.4
+        orbit-degrees-per-second: 70.0
+        # Grows the ring and the burial depth with the boss's SCALE attribute,
+        # so a scaled-up boss does not dwarf its own entrance.
+        scale-with-boss: true
+        # Raising the boss out of the floor. Ignored unless the summoning
+        # sequence is invulnerable, because a buried boss must not be hurt.
+        rise: true
+        rise-depth: 3.5
+        particle: REVERSE_PORTAL
+        ambient-sound: BLOCK_PORTAL_AMBIENT
+        emerge-sound: ENTITY_WARDEN_EMERGE
+        glow-colour: "8A2BE2"
+  boss-minions:
+    # Ring positions find their own floor beneath the boss platform before
+    # checking clearance, so uneven boss arenas remain safe to use.
+    floor-search-down: 12
+    alternate-search-radius: 16
+  parkour-rooms:
+    # Parkour is traversal first: leave it peaceful unless explicitly enabled.
+    spawn-mobs: false
+  # Leave this empty for normal vanilla names. Available tags: <tier>, <role>, <mob>.
+  name-format: ""
+  name-visible: false
+
+  # All dungeon-mob drops are cleared on death. Experience is set per
+  # difficulty below; zero is the default until the gameplay economy is ready.
+  safety:
+    cancel-vex-spawns: true
+    prevent-dungeon-mob-teleport: true
+    # Endermen remain recognisable, but every teleport source is confined to
+    # their registered room so they cannot escape a sealed room.
+    constrain-enderman-teleport: true
+    # Prevents the damage-avoidance escape that makes endermen immune to
+    # projectiles. Their ordinary teleports remain confined to their room.
+    prevent-enderman-damage-escape: true
+    # Breezes normally deflect player projectiles. Dungeon breezes take a
+    # regular ranged hit instead, using the projectile's native damage.
+    disable-breeze-projectile-deflection: true
+    prevent-enderman-block-changes: true
+    prevent-zombification: true
+
+  # The room spawn search checks this much clear space before creating a mob.
+  # Large mobs are therefore placed only in rooms where they fit.
+  entity-clearance:
+    default: { width: 1, height: 2 }
+    WITHER_SKELETON: { width: 1, height: 3 }
+    RAVAGER: { width: 3, height: 4 }
+    GHAST: { width: 5, height: 5 }
+    SHULKER: { width: 1, height: 3 }
+    IRON_GOLEM: { width: 2, height: 3 }
+    WARDEN: { width: 2, height: 3 }
+
+  # Theme bands: Crypt (1-2), Nest (3-4), Nether Redoubt (5-6),
+  # Illager Citadel (7-8), and Rift (9). Types and visible names belong to a
+  # theme; category stats and group counts are below per difficulty.
+  themes:
+    crypt:
+      categories:
+        swarm: { entity: ZOMBIE, name: "<gray>Shambler", name-visible: true }
+        pack: { entity: SKELETON, name: "<gray>Gravewatch", name-visible: true }
+        champion: { entity: ZOMBIE, name: "<dark_gray>Bonelord", name-visible: true }
+        guardian: { entity: SKELETON, name: "<dark_gray>Gravekeeper", name-visible: true }
+      boss:
+        type: ZOMBIE
+        name: "<dark_gray>Crypt Colossus"
+        name-visible: true
+        health-multiplier: 2.5
+        bar-color: WHITE
+        minion-count: 3
+        minion-name: "<gray>Crypt Boneguard"
+        minion-name-visible: true
+        minions: [SKELETON]
+        minion-gap: 0.35
+        minion-minimum-separation: 2.5
+        summoning: { start-sound: ENTITY_ZOMBIE_AMBIENT, peak-sound: ENTITY_ZOMBIE_AMBIENT }
+    nest:
+      categories:
+        swarm: { entity: CAVE_SPIDER, name: "<dark_green>Broodling", name-visible: true }
+        pack: { entity: SPIDER, name: "<dark_green>Weaver", name-visible: true }
+        champion: { entity: SPIDER, name: "<dark_green>Matriarch", name-visible: true }
+        guardian: { entity: SPIDER, name: "<dark_green>Broodkeeper", name-visible: true }
+      boss:
+        type: SPIDER
+        name: "<dark_green>Nest Matriarch"
+        name-visible: true
+        health-multiplier: 2.5
+        bar-color: GREEN
+        minion-count: 3
+        minion-name: "<dark_green>Venom Weaver"
+        minion-name-visible: true
+        minions: [CAVE_SPIDER]
+        minion-gap: 0.35
+        minion-minimum-separation: 2.5
+        summoning: { start-sound: ENTITY_SPIDER_AMBIENT, peak-sound: ENTITY_SPIDER_AMBIENT }
+    nether-redoubt:
+      categories:
+        swarm: { entity: MAGMA_CUBE, name: "<gold>Ember Spawn", name-visible: true }
+        pack: { entity: PIGLIN_BRUTE, name: "<gold>Ashguard", name-visible: true }
+        champion: { entity: PIGLIN_BRUTE, name: "<gold>Cinderbrute", name-visible: true }
+        guardian: { entity: PIGLIN_BRUTE, name: "<gold>Vaultwarden", name-visible: true }
+      boss: { type: HOGLIN, name: "<gold>Redoubt Behemoth", name-visible: true, health-multiplier: 2.5, bar-color: RED, minion-count: 0, minions: [] }
+    illager-citadel:
+      categories:
+        swarm: { entity: PILLAGER, name: "<blue>Rabble", name-visible: true }
+        pack: { entity: VINDICATOR, name: "<blue>Warband", name-visible: true }
+        champion: { entity: RAVAGER, name: "<blue>Warcaller", name-visible: true }
+        guardian: { entity: VINDICATOR, name: "<blue>Keywarden", name-visible: true }
+      boss:
+        type: IRON_GOLEM
+        name: "<blue>Citadel Warden"
+        name-visible: true
+        health-multiplier: 2.5
+        bar-color: BLUE
+        minion-count: 3
+        minion-name: "<blue>Citadel Copper Sentinel"
+        minion-name-visible: true
+        minions: [COPPER_GOLEM]
+        minion-gap: 0.35
+        minion-minimum-separation: 2.75
+        summoning: { start-sound: ENTITY_IRON_GOLEM_DAMAGE, peak-sound: ENTITY_RAVAGER_ROAR }
+        scenery: { copper-golem-statues: false, material: WAXED_OXIDIZED_COPPER, count: 3 }
+    rift:
+      categories:
+        swarm: { entity: ZOMBIE, name: "<dark_purple>Splinter", name-visible: true }
+        pack: { entity: BREEZE, name: "<light_purple>Echo", name-visible: true }
+        champion: { entity: ENDERMAN, name: "<dark_purple>Remnant", name-visible: true }
+        guardian: { entity: ENDERMAN, name: "<dark_purple>Riftkeeper", name-visible: true }
+      boss:
+        type: WARDEN
+        name: "<dark_purple>Rift Devourer"
+        name-visible: true
+        health-multiplier: 2.5
+        bar-color: PURPLE
+        minion-count: 3
+        minion-name: "<dark_purple>Rift Bone Herald"
+        minion-name-visible: true
+        minions: [WITHER_SKELETON]
+        minion-gap: 0.35
+        minion-minimum-separation: 3.0
+        summoning: { start-sound: ENTITY_WARDEN_ROAR, peak-sound: ENTITY_WARDEN_ROAR, animation: rift_tear, duration-ticks: 90, hold-ticks: 0 }
+
+  # Every value below applies to one marker group. Swarms are fast, small and
+  # numerous; packs resist knockback; champions are slow one-mob mini-bosses.
+  difficulties:
+    1:
+      theme: crypt
+      tier: 1
+      experience: 0
+      categories:
+        swarm: { count: 6, health: 14, damage: 2, speed: 0.30, scale: 0.85, attack-speed: 1.40, knockback-resistance: 0.0 }
+        pack: { count: 2, health: 32, damage: 4, speed: 0.22, scale: 1.25, attack-speed: 1.00, knockback-resistance: 0.35 }
+        # Lowered with the scaling pass: the multipliers land hardest here,
+        # where a player has the least damage. This figure also sets the
+        # difficulty 1 boss, at champion x 2.5 x boss-health-extra.
+        champion: { count: 1, health: 45, damage: 8, speed: 0.18, scale: 1.60, attack-speed: 0.75, knockback-resistance: 0.65 }
+        guardian: { count: 1, health: 90, damage: 7, speed: 0.24, scale: 1.45, attack-speed: 0.90, knockback-resistance: 0.70 }
+      boss: { damage: 8, speed: 0.25, scale: 3.0, attack-reach: 7.5, weapon: AIR, minions: { health: 28, damage: 4, speed: 0.22, scale: 2.0, weapon: AIR } }
+    2:
+      theme: crypt
+      tier: 2
+      experience: 0
+      categories:
+        swarm: { count: 7, health: 16, damage: 2.5, speed: 0.31, scale: 0.85, attack-speed: 1.35, knockback-resistance: 0.0 }
+        pack: { count: 2, health: 38, damage: 5, speed: 0.23, scale: 1.28, attack-speed: 1.00, knockback-resistance: 0.40 }
+        champion: { count: 1, health: 55, damage: 9, speed: 0.18, scale: 1.65, attack-speed: 0.75, knockback-resistance: 0.65 }
+        guardian: { count: 1, health: 105, damage: 8, speed: 0.24, scale: 1.48, attack-speed: 0.90, knockback-resistance: 0.70 }
+      boss: { damage: 10, speed: 0.26, scale: 3.2, attack-reach: 8.0, weapon: AIR, minions: { health: 34, damage: 5, speed: 0.23, scale: 2.0, weapon: AIR } }
+    3:
+      theme: nest
+      tier: 3
+      experience: 0
+      categories:
+        swarm: { count: 7, health: 18, damage: 3, speed: 0.33, scale: 0.85, attack-speed: 1.30, knockback-resistance: 0.0 }
+        pack: { count: 2, health: 44, damage: 6, speed: 0.24, scale: 1.30, attack-speed: 0.95, knockback-resistance: 0.40 }
+        champion: { count: 1, health: 90, damage: 10, speed: 0.19, scale: 1.70, attack-speed: 0.72, knockback-resistance: 0.68 }
+        guardian: { count: 1, health: 115, damage: 9, speed: 0.25, scale: 1.50, attack-speed: 0.88, knockback-resistance: 0.72 }
+      boss: { damage: 9, speed: 0.28, scale: 3.0, weapon: AIR, minions: { health: 30, damage: 5, speed: 0.30, scale: 1.15, weapon: AIR } }
+    4:
+      theme: nest
+      tier: 4
+      experience: 0
+      categories:
+        swarm: { count: 8, health: 20, damage: 3.5, speed: 0.34, scale: 0.85, attack-speed: 1.25, knockback-resistance: 0.0 }
+        pack: { count: 2, health: 50, damage: 7, speed: 0.24, scale: 1.32, attack-speed: 0.92, knockback-resistance: 0.42 }
+        champion: { count: 1, health: 110, damage: 12, speed: 0.19, scale: 1.75, attack-speed: 0.70, knockback-resistance: 0.70 }
+        guardian: { count: 1, health: 140, damage: 11, speed: 0.25, scale: 1.52, attack-speed: 0.88, knockback-resistance: 0.72 }
+      boss: { damage: 12, speed: 0.29, scale: 3.2, weapon: AIR, minions: { health: 38, damage: 6, speed: 0.31, scale: 1.2, weapon: AIR } }
+    5:
+      theme: nether-redoubt
+      tier: 5
+      experience: 0
+      categories:
+        swarm: { count: 8, health: 22, damage: 4, speed: 0.31, scale: 0.85, attack-speed: 1.20, knockback-resistance: 0.0 }
+        pack: { count: 2, health: 58, damage: 8, speed: 0.23, scale: 1.34, attack-speed: 0.90, knockback-resistance: 0.45 }
+        champion: { count: 1, health: 130, damage: 14, speed: 0.18, scale: 1.80, attack-speed: 0.68, knockback-resistance: 0.72 }
+        guardian: { count: 1, health: 170, damage: 13, speed: 0.25, scale: 1.55, attack-speed: 0.86, knockback-resistance: 0.74 }
+      boss: { damage: 14, speed: 0.25, scale: 3.0, weapon: AIR, minions: { health: 1, damage: 0, speed: 0, scale: 1, weapon: AIR } }
+    6:
+      theme: nether-redoubt
+      tier: 6
+      experience: 0
+      categories:
+        swarm: { count: 9, health: 24, damage: 4.5, speed: 0.32, scale: 0.85, attack-speed: 1.15, knockback-resistance: 0.0 }
+        pack: { count: 3, health: 66, damage: 10, speed: 0.23, scale: 1.36, attack-speed: 0.88, knockback-resistance: 0.48 }
+        champion: { count: 1, health: 150, damage: 16, speed: 0.18, scale: 1.85, attack-speed: 0.66, knockback-resistance: 0.75 }
+        guardian: { count: 1, health: 195, damage: 14, speed: 0.25, scale: 1.58, attack-speed: 0.86, knockback-resistance: 0.74 }
+      boss: { damage: 17, speed: 0.27, scale: 3.2, weapon: AIR, minions: { health: 1, damage: 0, speed: 0, scale: 1, weapon: AIR } }
+    7:
+      theme: illager-citadel
+      tier: 7
+      experience: 0
+      categories:
+        swarm: { count: 10, health: 26, damage: 5, speed: 0.30, scale: 0.85, attack-speed: 1.10, knockback-resistance: 0.0, weapon: CROSSBOW }
+        pack: { count: 3, health: 76, damage: 12, speed: 0.22, scale: 1.38, attack-speed: 0.85, knockback-resistance: 0.50, weapon: IRON_AXE }
+        champion: { count: 1, health: 175, damage: 18, speed: 0.17, scale: 1.90, attack-speed: 0.64, knockback-resistance: 0.78 }
+        guardian: { count: 1, health: 230, damage: 16, speed: 0.24, scale: 1.60, attack-speed: 0.84, knockback-resistance: 0.76, weapon: IRON_AXE }
+      boss: { damage: 18, speed: 0.24, scale: 3.2, attack-reach: 8.0, weapon: AIR, minions: { health: 60, damage: 10, speed: 0.24, scale: 1.8, weapon: AIR } }
+    8:
+      theme: illager-citadel
+      tier: 8
+      experience: 0
+      categories:
+        swarm: { count: 11, health: 28, damage: 5.5, speed: 0.31, scale: 0.85, attack-speed: 1.05, knockback-resistance: 0.0, weapon: CROSSBOW }
+        pack: { count: 3, health: 88, damage: 14, speed: 0.22, scale: 1.40, attack-speed: 0.82, knockback-resistance: 0.52, weapon: DIAMOND_AXE }
+        champion: { count: 1, health: 205, damage: 21, speed: 0.17, scale: 1.95, attack-speed: 0.62, knockback-resistance: 0.80 }
+        guardian: { count: 1, health: 265, damage: 19, speed: 0.24, scale: 1.62, attack-speed: 0.84, knockback-resistance: 0.76, weapon: DIAMOND_AXE }
+      boss: { damage: 22, speed: 0.25, scale: 3.5, attack-reach: 8.75, weapon: AIR, minions: { health: 75, damage: 13, speed: 0.25, scale: 1.8, weapon: AIR } }
+    9:
+      theme: rift
+      tier: 9
+      experience: 0
+      categories:
+        swarm: { count: 12, health: 32, damage: 6, speed: 0.33, scale: 0.85, attack-speed: 1.00, knockback-resistance: 0.0 }
+        pack: { count: 3, health: 105, damage: 16, speed: 0.24, scale: 1.40, attack-speed: 0.80, knockback-resistance: 0.55 }
+        champion: { count: 1, health: 240, damage: 24, speed: 0.16, scale: 2.00, attack-speed: 0.60, knockback-resistance: 0.82 }
+        guardian: { count: 1, health: 310, damage: 21, speed: 0.24, scale: 1.65, attack-speed: 0.82, knockback-resistance: 0.78 }
+      boss: { damage: 16, speed: 0.23, scale: 3.0, weapon: AIR, minions: { health: 75, damage: 14, speed: 0.22, scale: 2.0, weapon: STONE_SWORD } }
+
+# Pressure-plate trap floors, authored per room with YELLOW_WOOL markers.
+# The trap kills deliberately: everything standing on the marked columns is
+# killed the moment they drop, because letting a player fall out of a void
+# world means losing control over what happens to them. Dying to it costs
+# nothing but the walk back - dungeon respawns return to the entrance, and
+# the door key is party state, so death cannot lose it.
+trap:
+  # How long the floor stays open before it is rebuilt, counted from the drop.
+  floor-return-seconds: 4
+  # Both timers start when the plate is stood on. The floor goes almost at
+  # once; the death lands later, so the victim falls for a moment first.
+  # Whoever stood on the floor when it went is remembered and killed wherever
+  # they have fallen to, and anyone who walks in afterwards is caught by the
+  # same moment - in a void world a fall has no ending of its own, so it is
+  # never left to do the killing. Fractions are allowed.
+  drop-delay-seconds: 0.4
+  kill-delay-seconds: 3
+  sounds:
+    trigger: BLOCK_DISPENSER_FAIL
+    collapse: BLOCK_GRAVEL_BREAK
+    restore: BLOCK_STONE_PLACE
+
+# The sealed corridor of a composed key branch. The barrier fills every
+# passable block of the corridor mouth, so an authored corridor tile is
+# sealed without touching its walls. It opens the moment the dungeon's key
+# guardian dies; /dungeon door open forces it open for a stuck run.
+door:
+  material: IRON_BARS
+  # Floating label centred on the barrier, facing the room it seals off.
+  label:
+    text: "<gradient:#c9a227:#f2e39b><bold>Sealed</bold></gradient><newline><color:#b3a577>Its key is guarded in the side passage"
+    scale: 1.1
+    # Standoff from the barrier towards the approaching player, in blocks.
+    offset: 0.6
+    brightness: 15
+  sounds:
+    deny: BLOCK_CHEST_LOCKED
+    open: BLOCK_BEACON_ACTIVATE
+  # Per-player pause between deny messages, in ticks.
+  deny-message-interval-ticks: 60
+  # How far a collapse may climb above a marked floor block. The column stops
+  # at the first air gap by itself; this only caps how much of a tall pillar
+  # can be dragged down, so a pillar reaching the ceiling cannot take the
+  # ceiling with it. Set 0 for the floor blocks alone.
+  max-column-height: 8
+  # If the guardian room was woken but nothing lives there and no key was
+  # granted, the guardian cannot drop the key any more - it is revived on its
+  # anchor. After this many failed revivals the door opens by itself, because
+  # a sealed dungeon nobody can finish is worse than a skipped fight.
+  watchdog:
+    interval-ticks: 100
+    max-revivals: 2
+
+# The difficulty picker opened with /dungeon or by right-clicking a Dungeon Lord.
+menu:
+  title: "<dark_gray>Dungeon <gold>Difficulty"
+  # Must be a multiple of 9 from 9 to 54. The default is a three-row chest.
+  size: 27
+  filler:
+    enabled: true
+    material: BLACK_STAINED_GLASS_PANE
+    name: " "
+    lore: []
+
+  difficulties:
+    1:
+      slot: 3
+      material: LEATHER_HELMET
+      name: "<green>Difficulty <white><difficulty>"
+      lore: ["<gray>Rooms: <white><rooms>", "<gray>Recommended party: <white><party-size>"]
+      selected-lore: "<gold>Currently selected"
+      recommended-party-size: 1
+    2:
+      slot: 4
+      material: LEATHER_CHESTPLATE
+      name: "<green>Difficulty <white><difficulty>"
+      lore: ["<gray>Rooms: <white><rooms>", "<gray>Recommended party: <white><party-size>"]
+      selected-lore: "<gold>Currently selected"
+      recommended-party-size: 1
+    3:
+      slot: 5
+      material: CHAINMAIL_HELMET
+      name: "<yellow>Difficulty <white><difficulty>"
+      lore: ["<gray>Rooms: <white><rooms>", "<gray>Recommended party: <white><party-size>"]
+      selected-lore: "<gold>Currently selected"
+      recommended-party-size: 1
+    4:
+      slot: 12
+      material: CHAINMAIL_CHESTPLATE
+      name: "<yellow>Difficulty <white><difficulty>"
+      lore: ["<gray>Rooms: <white><rooms>", "<gray>Recommended party: <white><party-size>"]
+      selected-lore: "<gold>Currently selected"
+      recommended-party-size: 2
+    5:
+      slot: 13
+      material: IRON_HELMET
+      name: "<gold>Difficulty <white><difficulty>"
+      lore: ["<gray>Rooms: <white><rooms>", "<gray>Recommended party: <white><party-size>"]
+      selected-lore: "<gold>Currently selected"
+      recommended-party-size: 2
+    6:
+      slot: 14
+      material: IRON_CHESTPLATE
+      name: "<gold>Difficulty <white><difficulty>"
+      lore: ["<gray>Rooms: <white><rooms>", "<gray>Recommended party: <white><party-size>"]
+      selected-lore: "<gold>Currently selected"
+      recommended-party-size: 3
+    7:
+      slot: 21
+      material: GOLDEN_CHESTPLATE
+      name: "<red>Difficulty <white><difficulty>"
+      lore: ["<gray>Rooms: <white><rooms>", "<gray>Recommended party: <white><party-size>"]
+      selected-lore: "<gold>Currently selected"
+      recommended-party-size: 3
+    8:
+      slot: 22
+      material: DIAMOND_CHESTPLATE
+      name: "<red>Difficulty <white><difficulty>"
+      lore: ["<gray>Rooms: <white><rooms>", "<gray>Recommended party: <white><party-size>"]
+      selected-lore: "<gold>Currently selected"
+      recommended-party-size: 4
+    9:
+      slot: 23
+      material: NETHERITE_CHESTPLATE
+      name: "<dark_red>Difficulty <white><difficulty>"
+      lore: ["<gray>Rooms: <white><rooms>", "<gray>Recommended party: <white><party-size>"]
+      selected-lore: "<gold>Currently selected"
+      recommended-party-size: 4
+
+  controls:
+    start:
+      slot: 16
+      material: LIME_CONCRETE
+      name: "<green><bold>START DUNGEON"
+      lore: ["<gray>Generate the selected difficulty for your party."]
+      disabled:
+        material: GRAY_CONCRETE
+        name: "<gray><bold>START DUNGEON"
+        lore: ["<gray><reason>"]
+      disabled-reasons:
+        not-leader: "<red>Only the party leader can start."
+        instance-active: "<red>Your party already has an active dungeon."
+        building: "<red>A dungeon is already being built."
+    party:
+      slot: 10
+      material: PLAYER_HEAD
+      name: "<aqua><bold>YOUR PARTY"
+      lore: ["<gray>Members: <white><members>"]
+    close:
+      slot: 26
+      material: BARRIER
+      name: "<red><bold>CLOSE"
+      lore: ["<gray>Close this menu."]
+
+# The second GUI opened by the Party button. Member and invite entries fill the
+# configured slots in order. Clicking yourself leaves; leaders click members to kick.
+party-menu:
+  title: "<dark_gray>Your <aqua>Party"
+  size: 54
+  filler:
+    enabled: true
+    material: BLACK_STAINED_GLASS_PANE
+    name: " "
+    lore: []
+  member-slots: [10, 11, 12, 13]
+  invite-slots: [28, 29, 30, 31, 32, 33, 34, 35]
+  member:
+    material: PLAYER_HEAD
+    name: "<aqua><player>"
+    lore: ["<gray><action>"]
+    self-action: "<yellow>Click to leave the party."
+    kick-action: "<red>Click to remove this player."
+    member-action: "<gray>Party member."
+  member-offline:
+    material: SKELETON_SKULL
+    name: "<gray><player> <dark_gray>(offline)"
+    lore: ["<gray><action>"]
+  invite-player:
+    material: PLAYER_HEAD
+    name: "<green>Invite <white><player>"
+    lore: ["<gray>Click to send a party invitation."]
+  controls:
+    back:
+      slot: 45
+      material: ARROW
+      name: "<yellow>Back"
+      lore: ["<gray>Return to difficulty selection."]
+    close:
+      slot: 53
+      material: BARRIER
+      name: "<red>Close"
+      lore: ["<gray>Close this menu."]
+
+# Dungeon Lords are persistent, stationary menu-opening NPCs. Their individual
+# positions and entity UUIDs are stored separately in plugins/DungeonForge/npcs.yml.
+npc:
+  entity-type: VILLAGER
+  display-name: "<gold><bold>Dungeon Lord"
+  name-visible: true
+  # /dungeon npc remove removes the nearest Dungeon Lord inside this radius.
+  remove-radius: 5.0
+
+# =====================================================================
+#  Difficulty panel
+# =====================================================================
+# /dungeon panel place puts a fixed difficulty selector in the world at your
+# spot, facing the way you face. It is furniture, not a summoned menu: it is
+# always standing there, players cannot move it, and it survives restarts.
+# Its entities are never written into the world save - they respawn from
+# panels.yml whenever their chunk loads, so they cannot duplicate.
+# /dungeon and the Dungeon Lord now point players at the nearest panel.
+# Part one renders the shared static panel; selection and clicks come next.
+# Text uses Minecraft's own font, the same one chat uses; every string below
+# is MiniMessage, so the DungeonForge chat gradient works here too.
+difficulty-panel:
+  # /dungeon panel remove removes the nearest panel inside this radius.
+  remove-radius: 5.0
+  # Fixed light level 0-15, so the panel stays readable at night.
+  brightness: 15
+  # Multiplies how far away the panel is still sent to clients. Beyond it the
+  # panel stops being rendered entirely rather than degrading; a player's own
+  # Entity Distance video setting scales this further.
+  view-range: 2.0
+  # How far around a panel to sweep for its own and orphaned entities when it
+  # is rebuilt or removed, in blocks.
+  cleanup-radius: 12.0
+  # Set true if a placed panel reads mirrored from where you expect to
+  # stand; it turns the whole panel around in place.
+  flip-facing: false
+  # How close a player must be for their personal number row to exist. The
+  # selection itself survives walking away; only the rendering follows range.
+  activation-radius: 24.0
+  # Client-side slide of the row when scrolling, in ticks.
+  slide-ticks: 4
+  # Clickable regions are deliberately larger than the text they cover:
+  # aiming a crosshair is less precise than a mouse pointer.
+  hitboxes:
+    arrow-width: 1.3
+    arrow-height: 1.3
+    button-width: 2.6
+    button-height: 1.0
+  # Heard only by the player who clicked. Blank disables a sound.
+  sounds:
+    click: UI_BUTTON_CLICK
+    deny: BLOCK_NOTE_BLOCK_BASS
+    enter: BLOCK_NOTE_BLOCK_PLING
+  heading:
+    text: "<gradient:#c9a227:#f2e39b><bold>Select Difficulty"
+    height: 2.7
+    scale: 1.5
+  # The text floats against the world: there is deliberately no backing plate.
+  numbers:
+    height: 1.72
+    # Horizontal distance between neighbouring numbers, in blocks.
+    spacing: 0.55
+    # Extra breathing room either side of the enlarged centre number.
+    centre-extra: 0.18
+    visible-each-side: 2
+    # Centre outward: the selected number first, then each step further away.
+    scales: [2.8, 1.6, 1.0]
+    opacities: [255, 165, 85]
+    format: "<color:#f2e39b><bold><n>"
+  arrows:
+    left: "<color:#c9a227><bold><"
+    right: "<color:#c9a227><bold>>"
+    # Distance from the centre of the panel, in blocks.
+    offset: 2.2
+    height: 1.75
+    scale: 2.4
+  button:
+    # The gradient lives in the label, exactly like the chat prefix: a
+    # text-display background is one flat colour and cannot hold a gradient.
+    text: "<gradient:#c9a227:#f2e39b><bold>Enter Dungeon"
+    height: 1.0
+    scale: 1.4
+    flash-ticks: 3
+    # The plate is built from block displays, not from text backgrounds: a
+    # dark fill layer over a gold border layer, each made of three
+    # overlapping bars so all four corners step inwards twice. Block
+    # displays show a block texture rather than a flat colour, so concrete
+    # is the closest thing to a clean fill.
+    plate:
+      fill-block: BLACK_CONCRETE
+      border-block: YELLOW_CONCRETE
+      # Swapped in for a moment when the button is pressed.
+      flash-block: BROWN_CONCRETE
+      # Space between the label and the fill's edge.
+      padding-pixels: 4.0
+      # Thickness of the border, the same on every side.
+      border-pixels: 2.0
+      # How far each corner steps in, per step. Two steps are used, so the
+      # corner is cut by twice this. Set to 0 for square corners.
+      corner-step-pixels: 2.0
+      # Height of one line of text plus its background padding, in pixels.
+      # Only affects how tall the plate is; the border stays even either way.
+      line-height-pixels: 11.0
+      # Font pixels per block at scale 1. Everything above is measured in
+      # these, so the shape stays proportional to the label.
+      pixels-per-block: 40.0
+      # Thickness of the plate itself and how far each layer stands off the
+      # panel, in blocks. The bars are centred on their offset, so each one
+      # spans half its depth either side: these values keep the border
+      # (0.000-0.020) and the fill (0.021-0.041) from overlapping, which
+      # would make the ring z-fight.
+      depth: 0.02
+      border-z: 0.010
+      fill-z: 0.031
+      # How far the label stands in front of the fill's front face. The bars
+      # are solid blocks that write depth, so a label level with them is
+      # hidden from close up and only breaks through at a distance.
+      label-clearance: 0.015
+      # Centring the label inside the plate, in font pixels.
+      # A text display draws its line upwards from its own position while the
+      # plate is centred on it, so the label is moved down by half a line:
+      # raise this if the label sits high, lower it if it sits low.
+      label-y-pixels: 4.5
+      # Sideways nudge. A centred line includes the one pixel of spacing that
+      # follows its last glyph, which leaves the visible text half a pixel to
+      # the left; this puts it back.
+      label-x-pixels: 0.5
+      # Nudge the whole plate up or down against the label, in blocks.
+      y-offset: 0.0
+
+# =====================================================================
+#  Skill tree panel
+# =====================================================================
+# /dungeon skills place [class] [standard|big] puts a fixed skill tree in the
+# world at your spot, facing your way: a fan of three branches around a root,
+# built from display entities like the difficulty panel. The trees themselves
+# are authored in skills.yml.
+#
+# TWO VARIANTS. The chosen one is stored with the panel and survives restarts.
+#   standard - about 7 x 5 blocks, for walking up to. Every size below applies.
+#   big      - about 19 x 12 blocks, for a wall you stand back from. Its sizes
+#              are fixed in code and it IGNORES every size key below: spacing,
+#              scales, line thickness, hitboxes, layer depths and the detail
+#              panel are all baked into the variant. Colours, blocks, glyph
+#              formats and the three-state ladder are shared by both.
+skill-panel:
+  remove-radius: 5.0
+  cleanup-radius: 14.0
+  brightness: 15
+  # How far the panel renders, as a multiplier of the client's default
+  # display range (1.0 is roughly 64 blocks; the player's own Entity
+  # Distance setting scales it further). The SAME value is stamped on the
+  # shared tree and on every per-player overlay, so there is no distance
+  # where the tree is visible but your own progress on it is not.
+  view-range: 2.0
+  # The vanilla client only registers a click on an entity within the
+  # player's entity-interaction-range attribute, about 3 blocks - that is
+  # the hard limit, and it can only be moved, not bypassed. While a player
+  # stands inside activation-radius of a skill panel it is raised to this
+  # many blocks so nodes and buttons stay clickable from where the big
+  # panel is comfortably readable. Honest side effect: their melee reach
+  # on mobs is extended by the same amount while they stand there, so keep
+  # panels out of combat areas. 0 disables the boost.
+  click-range: 20.0
+  # Turns the whole panel around in place if it reads mirrored.
+  flip-facing: false
+  # Height of the root node above the placement spot, in blocks.
+  root-height: 0.9
+  # Blocks per ring of radius in skills.yml. The whole tree scales with it.
+  radius-step: 0.75
+  heading:
+    # Above the outermost ring.
+    height-extra: 0.9
+    scale: 1.5
+  branch-labels:
+    scale: 0.9
+  # How close a player must be for their personal overlays - unlocked and
+  # available highlights, selection ring, detail panel - to exist.
+  activation-radius: 30.0
+  # Node click surfaces. They are deliberately larger than the visible dots,
+  # and overlap between neighbours is harmless: a click is re-resolved to the
+  # node nearest the player's line of aim, so whichever box catches it, the
+  # node being aimed at wins. Beyond aim-tolerance blocks from every node the
+  # click is ignored.
+  hitboxes:
+    node-width: 0.5
+    node-height: 0.5
+    aim-tolerance: 0.8
+  sounds:
+    # Heard only by the player who clicked. Blank disables it.
+    select: UI_BUTTON_CLICK
+  nodes:
+    scale: 1.6
+    # Three states, tuned by eye against your background: unlocked is the
+    # brightest, available mid, locked clearly dimmest. The circle glyphs
+    # come from Minecraft's own font; colours and opacities are free.
+    unlocked-format: "<color:#f2e39b>●"
+    unlocked-opacity: 255
+    available-format: "<color:#c9a227>●"
+    available-opacity: 230
+    locked-format: "<color:#6b6353>●"
+    locked-opacity: 140
+    # The selection ring, drawn per player on the node they clicked.
+    # Standard variant only; the big variant uses the selection plate below.
+    ring-format: "<color:#f2e39b>○"
+    ring-scale: 2.2
+    # BIG VARIANT ONLY. Nodes there are raised plates instead of glyphs: a
+    # wide base standing behind a smaller, thicker top, so a node reads as a
+    # button with a rim. Both plates face the viewer, so the rim only shows
+    # when base and top differ - same block at the same brightness renders as
+    # one flat square. The rim is therefore a duller relative of the face.
+    #
+    # The ladder matches the rest of the panel: hue separates locked from the
+    # rest, brightness separates unlocked from available. Brightness is an
+    # emissive override (0-15), so it reads the same by day and by night.
+    plates:
+      unlocked:  { base-block: RAW_GOLD_BLOCK, base-brightness: 11, top-block: GOLD_BLOCK, top-brightness: 15 }
+      available: { base-block: RAW_GOLD_BLOCK, base-brightness: 5,  top-block: GOLD_BLOCK, top-brightness: 8 }
+      locked:    { base-block: DEEPSLATE_TILES, base-brightness: 3, top-block: GRAY_CONCRETE, top-brightness: 6 }
+      # The selected node gets a larger plate behind it, showing as a bright
+      # border all the way around. A glyph ring would land on top of a solid
+      # plate and read as noise.
+      selection: { block: GOLD_BLOCK, brightness: 15 }
+  lines:
+    thickness: 0.06
+    depth: 0.02
+    # Standoff from the panel plane; nodes draw in front of lines.
+    z: 0.015
+    # The rotation sign of angled bars in entity-local space cannot be
+    # verified without a client. If every diagonal line misses its nodes
+    # mirrored left-right, set this true instead of waiting for a rebuild.
+    mirror: false
+    # The three line states: block and emissive brightness (0-15) each.
+    # The base tree is drawn entirely in the locked style; brighter lines
+    # are per-player overlays on top of it.
+    unlocked: { block: GOLD_BLOCK, brightness: 15 }
+    available: { block: SMOOTH_QUARTZ, brightness: 11 }
+    locked: { block: GRAY_CONCRETE, brightness: 5 }
+  # BIG VARIANT ONLY. The standing Info area left of Confirm. It always
+  # shows something: the selected node's details (detail.format below), or -
+  # when nothing is selected - this class summary, so a player always knows
+  # what Confirm would commit.
+  info:
+    format: "<name><newline><color:#b3a577><description><newline><color:#c9a227>Active class: <active><newline><color:#c9a227>Unlocked here: <unlocked>"
+  # Where the Confirm button used to stand there is now the viewer's own
+  # point balance. Text, not a button - there is nothing to click, and class
+  # switching happens outside this panel entirely. Zero is shown as a plain
+  # 0 rather than hidden: an empty space where a figure belongs reads as
+  # broken. Set background to a solid ARGB to give it a backdrop.
+  # Placeholders: <points> available, <spent> paid into nodes, <budget> the
+  # level-derived pool ClassSkills reports (0 without it). Available is
+  # always budget + granted - spent, so it can never disagree with what the
+  # tree says was bought.
+  points:
+    format: "<color:#b3a577>Skill Points<newline><gradient:#c9a227:#f2e39b><bold><points>"
+    scale: 1.4
+    background: "00000000"
+  # The per-player panel beside the tree showing the selected node.
+  detail:
+    # Blocks right of the tree's centre; negative places it on the left.
+    x: 3.9
+    height: 2.4
+    scale: 0.55
+    # Text pixels before the description wraps.
+    line-width: 170
+    # ARGB backdrop behind the text, so it reads on any background.
+    background: "A0140F05"
+    format: "<gradient:#c9a227:#f2e39b><bold><name></bold></gradient><newline><color:#c9a227>Cost: <cost> point(s)<newline><color:#b3a577><description><newline><color:#c9a227>Level <level>/1"
+
+# =====================================================================
+#  Custom mob models (optional)
+# =====================================================================
+# Vanilla mob models cannot be animated from a plugin: the client owns them.
+# A model engine works around that by hiding the real mob and rendering an
+# animated rig of display entities in its place. DungeonForge supports
+# BetterModel (free, Paper, Minecraft 1.21.4-26.1.x, Java 25).
+#
+# Install BetterModel, drop your .bbmodel files in its models folder, then put
+# the model name here. BetterModel generates and serves the resource pack; if
+# you already serve your own pack you must merge the two into one.
+# Without BetterModel installed every value below is simply ignored and mobs
+# keep their vanilla look. Check what is wired up with /dungeon models.
+models:
+  enabled: true
+  # Hides the vanilla mob itself. Its AI, pathfinding, hitbox and damage all
+  # keep working - only its appearance is replaced by the model.
+  hide-vanilla-entity: true
+  # Follows the SCALE attribute this plugin sets per difficulty, so a scaled
+  # boss keeps its model in proportion.
+  scale-with-entity: true
+  animations:
+    # Animation played once the moment a dungeon mob spawns. Blank for none.
+    spawn: ""
+  # Used when a theme below leaves its entry blank.
+  defaults:
+    boss: ""
+    categories: { swarm: "", pack: "", champion: "" }
+  # Model names per theme, matching the mobs.themes section above.
+  themes:
+    crypt:
+      boss: ""
+      categories: { swarm: "", pack: "", champion: "" }
+    nest:
+      boss: ""
+      categories: { swarm: "", pack: "", champion: "" }
+    rift:
+      boss: ""
+      categories: { swarm: "", pack: "", champion: "" }
+
+performance:
+  # Positions processed per server tick. Higher is faster but heavier.
+  blocks-per-tick: 60000
+
+teleport:
+  # Teleport into the dungeon right after /dungeon test, generate, or compare
+  on-create: true
+  # Where players end up when they leave or get evacuated.
+  #   last  - wherever they stood before entering
+  #   spawn - the spawn of the main world
+  fallback: last
+
+messages:
+  prefix: "<dark_gray>[<gradient:#c9a227:#f2e39b>DungeonForge</gradient><dark_gray>] <gray>"
+  no-permission: "<red>You don't have permission to do that."
+  players-only: "<red>This command only works in-game."
+  usage: "<gray>Use <white>/dungeon <gray>to open the dungeon menu."
+  generate-usage: "<gray>Usage: <white>/dungeon generate <difficulty 1-9> [amount] [seed]"
+  start-usage: "<gray>Usage: <white>/dungeon start <difficulty 1-9> [seed]"
+  party-usage: "<gray>Usage: <white>/dungeon party <invite|accept|decline|leave|kick|list|end>"
+  party-invite-usage: "<gray>Usage: <white>/dungeon party invite <player>"
+  party-kick-usage: "<gray>Usage: <white>/dungeon party kick <player>"
+  creating: "<gray>Creating world <white><world></white>..."
+  building: "<gray>Building... <white><percent>%"
+  built: "<green>Done! <gray><blocks> blocks in <white><seconds>s<gray>."
+  teleported: "<green>You're in the dungeon."
+  no-dungeon: "<red>You don't have a dungeon yet. Use <white>/dungeon generate 1<red>."
+  already-building: "<red>Already building, hang on."
+  deleted: "<green>Dungeon world <white><world></white> deleted."
+  delete-failed: "<red>Could not fully delete the world folder. Check the console."
+  left: "<gray>You're out of the dungeon."
+  not-in-dungeon: "<red>You're not in a dungeon world."
+  evacuated: "<yellow>The dungeon was deleted - you've been moved out."
+  list-header: "<gray>Active dungeon worlds:"
+  list-entry: "<dark_gray> - <white><world> <gray>(<players> players)"
+  list-empty: "<gray>No active dungeon worlds."
+  reloaded: "<green>Config reloaded."
+  invalid-difficulty: "<red>Difficulty must be a number from 1 to 9."
+  invalid-amount: "<red>Amount must be a number from 1 to <maximum>."
+  invalid-seed: "<red>The seed must be a whole signed number."
+  generation-started: "<gray>Generating difficulty <white><difficulty></white> with seed <white><seed></white>."
+  generation-batch-started: "<gray>Generating <white><amount></white> difficulty-<white><difficulty></white> dungeons:"
+  generation-batch-entry: "<dark_gray> #<index> <gray>seed <white><seed></white> <gray>entrance <white><x> <y> <z>"
+  comparison-started: "<gray>Generating all nine difficulties with seed <white><seed></white>."
+  generation-failed: "<red>Could not find a valid layout. Check the console and generation settings."
+  player-not-found: "<red>That player is not online."
+  party-none: "<red>You're not in a party."
+  party-not-leader: "<red>Only the party leader can do that."
+  party-invited: "<green>Invited <white><player></white> to your party."
+  party-invite: "<green><player> invited you to a party. <click:run_command:'/dungeon party accept'><hover:show_text:'<green>Join the party led by <player>'><green><bold>[ACCEPT]</bold></green></hover></click> <dark_gray>| <click:run_command:'/dungeon party decline'><hover:show_text:'<red>Decline this party invitation'><red><bold>[DECLINE]</bold></red></hover></click>"
+  party-self-invite: "<red>You can't invite yourself."
+  party-already-member: "<red>That player is already in a party."
+  party-full: "<red>That party is full."
+  party-invite-expired: "<red>You don't have a valid party invite."
+  party-invite-declined: "<gray>Party invitation declined."
+  party-joined: "<green>You joined the party."
+  party-member-joined: "<green><player> joined your party."
+  party-left: "<gray>You left the party."
+  party-new-leader: "<yellow>You are now the party leader."
+  party-kicked: "<green>Removed <white><player></white> from the party."
+  party-kicked-notice: "<red>You were removed from the party."
+  party-not-member: "<red>That player is not in your party."
+  party-kick-self: "<red>Use <white>/dungeon party leave<red> to leave the party."
+  party-list: "<gray>Leader: <white><leader></white> <gray>| Members: <white><members>"
+  party-instance-active: "<red>Your party already has an active dungeon. Use <white>/dungeon party end<red> first."
+  party-no-instance: "<red>Your party has no active dungeon."
+  party-started: "<gray>Starting party dungeon, difficulty <white><difficulty></white>, seed <white><seed></white>."
+  party-teleported: "<green>Your party dungeon is ready."
+  party-ended: "<gray>Party dungeon ended and cleaned up."
+  no-admin-permission: "<red>You don't have permission to use dungeon administration commands."
+  no-settings-permission: "<red>You don't have permission to change dungeon settings."
+  npc-usage: "<gray>Usage: <white>/dungeon npc <spawn|remove|removeall>"
+  npc-spawned: "<green>Dungeon Lord spawned at your location."
+  npc-spawn-failed: "<red>Could not spawn a Dungeon Lord. Check npc.entity-type in config.yml."
+  npc-removed: "<green>Removed the nearest Dungeon Lord."
+  npc-none-nearby: "<red>There is no Dungeon Lord nearby."
+  npc-removed-all: "<green>Removed <white><count></white> Dungeon Lord(s): <white><locations>"
+  # <type> reads "branch/parkour" in a composed dungeon, so a room announces
+  # the job it was given. <prefab> is the schematic it was actually built
+  # from, or "procedural" - the two disagreeing is how you spot a room that
+  # fell back. <role> is available separately.
+  room-entered: "<gray>Entered room <white>#<id></white> <gray>(<type>, depth <white><depth></white><gray>) <dark_gray>[<prefab>]"
+  door-locked: "<red>The way is sealed. <gray>Its key is guarded somewhere along the side passage."
+  door-key-obtained: "<gold>The key guardian falls - <green>the sealed way is open!"
+  door-opened-force: "<green>The sealed door has been forced open."
+  door-usage: "<gray>Usage: <white>/dungeon door open"
+  door-none: "<red>This dungeon has no sealed door."
+  door-already-open: "<red>The sealed door is already open."
+  door-guardian-revived: "<yellow>The key guardian has returned to its lair."
+  door-guardian-lost: "<yellow>The key guardian is gone. The sealed way opens by itself."
+  gate-sealed: "<red>The exits seal shut! <gray><mobs> enemies remain."
+  gate-remaining: "<gray><mobs> remaining"
+  gate-opened: "<green>Room clear - the way onward opens."
+  gate-timeout: "<yellow>The seal gives way on its own."
+  gate-locked: "<red>Sealed until the room is clear."
+  gate-forced: "<green>The gate has been forced open."
+  gate-none: "<red>No sealed gate in this room."
+  room-usage: "<gray>Usage: <white>/dungeon room open"
+  arena-waiting: "<gray>The boss waits for the whole party: <white><present></white>/<white><needed></white> inside."
+  arena-sealed: "<dark_red>The arena seals shut. <red>No way out but through."
+  arena-locked: "<red>The arena is sealed while the boss lives."
+  arena-wipe-opened: "<yellow>The arena opens - the boss awaits your return."
+  dungeon-completed-title: "<gold><bold>DUNGEON COMPLETE"
+  dungeon-completed-subtitle: "<gray>Difficulty <white><difficulty></white> <dark_gray>| <gray><duration> <dark_gray>| <gray><kills> mobs defeated"
+  dungeon-completed: "<gold><bold>Victory! <gray>Difficulty <white><difficulty></white> cleared in <white><duration></white> with <white><kills></white> mobs defeated."
+  dungeon-cleaning-up: "<yellow>The dungeon is completing. Please wait for the safe return."
+  settings-saved: "<green>Settings saved. New dungeons will use these values."
+  goals-no-target: "<red>Look directly at a mob within 24 blocks."
+  goals-header: "<gold>Goals for <white><entity><gold>:"
+  goals-none: "<gray>No goals are registered for that entity."
+  goals-entry: "<gray>- <white><goal>"
+  markers-usage: "<gray>Usage: <white>/dungeon markers <gray>or <white>/dungeon markers give <swarm|pack|champion>"
+  markers-empty: "<red>No marker materials are configured."
+  markers-header: "<gold>Configured dungeon markers:"
+  markers-entry: "<gray>- <gold><block></gold> <white><category></white><dark_gray>: <gray><description>"
+  markers-hover: "<green>Click to receive <white><block>"
+  marker-given: "<green>Received <white><block></white> for the <white><category></white> marker."
+  marker-unknown: "<red>That marker category is not configured."
+  summon-usage: "<gray>Usage: <white>/dungeon summon <swarm|pack|champion|guardian> <difficulty 1-9> [theme] <gray>or <white>/dungeon summon clear"
+  summon-invalid-category: "<red>Choose a configured mob marker category."
+  summon-invalid-theme: "<red>The theme <white><theme></white> is not configured."
+  summon-disabled-category: "<red>The <white><category></white> group is disabled at difficulty <white><difficulty></white>."
+  summon-no-clearance: "<red>There is not enough clear space here for that group."
+  summon-success: "<green>Summoned <white><count></white> <white><category></white> mob(s) for difficulty <white><difficulty></white> using theme <white><theme></white>."
+  summon-cleared: "<green>Removed <white><count></white> summoned testing mob(s)."
+  rooms-header: "<gold>Room prefabs <dark_gray>(<white><folder><dark_gray>):"
+  rooms-empty: "<yellow>No room files were found. Normal and branch rooms will use the procedural stone fallback."
+  rooms-entry: "<dark_gray>- <white><file></white> <gray>stated <white><size></white>, actual <white><actual></white>, trimmed <white><trimmed></white>, marker offset <white><marker-offsets></white> <dark_gray>| <gray>doorway groups <white><doorways></white> <dark_gray>| <gray>corridor offset <white><corridor-offsets></white> <gray><corridor-offset-match></gray> <dark_gray>| <gray><valid> <dark_gray>| <gray>type <white><type></white> <dark_gray>| <gray>pattern <white><pattern></white> <dark_gray>| <gray>name <white><name-match></white> <dark_gray>| <gray>markers <white><markers></white> <dark_gray>| <gray>special markers <white><special-markers></white> <dark_gray>| <gray>problems <white><problems>"
+  required-prefab-failure: "<red>Dungeon generation was refused because the required spawn or boss schematic is missing or invalid. Run <white>/dungeon rooms</white> and fix the reported file."
+  rooms-missing: "<gray>Missing usable <white><room-type></white> room shapes: <white><shapes>"
+  rooms-unusable: "<yellow>Loaded prefab(s) currently unusable by the layout: <white><rooms>"
+  corridors-header: "<gold>Corridor schematic tiles <dark_gray>(<white><folder><dark_gray>):"
+  corridors-empty: "<yellow>No corridor files were found. Procedural corridor fallback is active."
+  corridors-entry: "<dark_gray>- <white><file></white> <gray>stated <white><stated></white>, actual <white><actual></white>, trimmed <white><trimmed></white>, marker offset <white><marker-offsets></white> <dark_gray>| <gray><valid> <dark_gray>| <gray>connectors <white><connectors></white> <dark_gray>| <gray>problems <white><problems>"
+  models-header: "<gray>Custom mob models:"
+  models-entry: "<dark_gray>- <white><line>"
+  animate-usage: "<gray>Usage: <white>/dungeon animate <animation> [theme]<gray> or <white>/dungeon animate stop<gray>. Known: <white><animations>"
+  animate-unknown: "<red>Unknown animation. Known: <white><animations>"
+  animate-unknown-theme: "<red>The theme <white><theme></white> is not configured, and no theme uses that animation."
+  animate-invalid-boss: "<red>The boss entity of theme <white><theme></white> is not a living entity."
+  animate-already-running: "<red>Your preview is still playing. Use <white>/dungeon animate stop<red> first."
+  animate-started: "<green>Playing <white><animation></white> using theme <white><theme></white> (<white><seconds>s<green>)."
+  animate-detail: "<dark_gray>- <gray><detail>"
+  animate-failed: "<red>The animation could not start. Check the console for the cause."
+  animate-peaceful: "<yellow>This world is on PEACEFUL, so the <white><entity></white> stand-in will be removed straight away. The entrance still plays; switch to <white>/difficulty normal<yellow> to see the boss rise."
+  animate-stand-gone: "<yellow>The <white><entity></white> stand-in was removed by the server (difficulty <white><difficulty></white>). The entrance keeps playing without it."
+  animate-stopped: "<gray>Preview removed."
+  animate-none: "<red>You have no preview running."
+  panel-usage: "<gray>Usage: <white>/dungeon panel <place [x y z [yaw]]|move [x y z [yaw]]|remove|removeall|list>"
+  panel-moved: "<green>Difficulty panel moved to <white><x>, <y>, <z></white>."
+  panel-placed: "<green>Difficulty panel placed. <gray>Stand nearby and use <white>/dungeon panel remove<gray> to take it away."
+  panel-removed: "<green>Removed the nearest difficulty panel."
+  panel-none-nearby: "<red>There is no difficulty panel within <white><radius></white> blocks."
+  panel-removed-all: "<green>Removed <white><count></white> difficulty panel entit(ies): <white><locations>"
+  panel-list-header: "<gray>Placed difficulty panels:"
+  panel-list-entry: "<dark_gray>- <white><id></white> <gray>at <white><world> <x>, <y>, <z>"
+  panel-list-empty: "<gray>No difficulty panels are placed. Use <white>/dungeon panel place<gray>."
+  menu-replaced: "<gray>Walk up to the difficulty panel at <white><world> <x>, <y>, <z><gray> to start a dungeon."
+  menu-replaced-none: "<red>No difficulty panel has been placed yet. An admin can place one with <white>/dungeon panel place<red>."
+  start-refused: "<red>Another plugin refused this dungeon run."
+  api-usage: "<gray>Usage: <white>/dungeon api <status|fire|query>"
+  skills-usage: "<gray>Usage: <white>/dungeon skills <place [class] [standard|big] [x y z [yaw]]|move [x y z [yaw]]|remove|removeall|list|points|reset|test>"
+  skills-reset: "<green>Reset <white><nodes></white> skill(s) for <white><player></white>, refunding <white><refunded></white> point(s). <gray>They now have <white><points></white> point(s)."
+  skills-reset-no-class: "<red><player> has no active class, so there is no tree to reset. <gray>Add <white>all<gray> to reset every class."
+  skills-moved: "<green>Skill panel moved to <white><x>, <y>, <z></white>."
+  location-usage: "<red>Give three coordinates, optionally a fourth for the facing: <white>x y z [yaw]<red>. <gray>~ means 'where you stand', so <white>~ ~5 ~<gray> is five blocks up."
+  skills-placed: "<green>Skill tree panel placed for <white><class></white> (<white><variant></white>). <gray>Remove it nearby with <white>/dungeon skills remove<gray>."
+  skills-unknown-class: "<red>No skill tree for <white><class></white>. Defined in skills.yml: <white><classes>"
+  skills-removed: "<green>Removed the nearest skill tree panel."
+  skills-none-nearby: "<red>There is no skill tree panel within <white><radius></white> blocks."
+  skills-removed-all: "<green>Removed <white><count></white> skill panel entit(ies): <white><locations>"
+  skills-list-header: "<gray>Placed skill tree panels:"
+  skills-list-entry: "<dark_gray>- <white><id></white> <gray>(<class>, <variant>) at <white><world> <x>, <y>, <z>"
+  skills-list-empty: "<gray>No skill tree panels are placed. Use <white>/dungeon skills place<gray>."
+  skills-test-usage: "<gray>Usage: <white>/dungeon skills test <unlock <node>|clear><gray> - temporary render-test state, near a panel."
+  skills-test-unlocked: "<green>Test-unlocked <white><node></white>. <gray>Clear it with <white>/dungeon skills test clear<gray>."
+  skills-test-no-panel: "<red>Stand near a skill tree panel first."
+  skills-test-unknown-node: "<red>No node <white><node></white> in this panel's tree."
+  skills-test-cleared: "<gray>Test state cleared; everything is locked again."
+  skills-unlocked: "<green>Unlocked <white><node></white>. <gray>Points left: <white><points>"
+  skills-unlock-already: "<gray>You already unlocked <white><node></white>."
+  skills-unlock-locked: "<red>The path to <white><node></white> isn't open yet."
+  skills-unlock-difficulty: "<red>Clear Difficulty <white><difficulty></white> before taking <white><node></white>."
+  skills-unlock-no-points: "<red>Not enough points for <white><node></white>. <gray>You have <white><points></white>."
+  skills-no-active-class: "<red>You have no class yet, so there is nothing to spend points on."
+  skills-not-your-class: "<gray>You are looking at another class's tree. Points can only be spent in <white><class></white>."
+  skills-unlock-refused: "<red>Another plugin refused unlocking <white><node></white>."
+  skills-points-usage: "<gray>Usage: <white>/dungeon skills points <give|take> <player> <amount>"
+  skills-points-external: "<yellow>ClassSkills owns the point budget, so points are earned by levelling there and cannot be changed here. <gray>Nothing was altered."
+  skills-points-changed: "<green>Skill points of <white><player></white> now <white><points></white>."
+  api-header: "<gold>DungeonForge API <white>v<version></white> <gray>- <listeners> foreign listener(s)"
+  api-entry: "<dark_gray>- <white><line>"
+  api-fired: "<green>Fired <white><event></white> <gray>- delivered to <white><listeners>"
+  api-no-dungeon: "<gray>You are not in a dungeon, so the test used a stand-in snapshot."
