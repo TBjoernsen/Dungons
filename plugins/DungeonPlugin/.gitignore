@@ -1,5 +1,7 @@
-.gradle/
-build/
-run/
-local.properties
-.idea/
+# Anchored to this folder so they only match Gradle's output at the plugin
+# root, not same-named directories inside src/ (the code has a `build` package).
+/.gradle/
+/build/
+/run/
+/local.properties
+/.idea/

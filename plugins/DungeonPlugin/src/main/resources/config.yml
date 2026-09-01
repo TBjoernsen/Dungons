@@ -1244,6 +1244,12 @@ models:
     nest:
       boss: ""
       categories: { swarm: "", pack: "", champion: "" }
+    nether-redoubt:
+      boss: ""
+      categories: { swarm: "", pack: "", champion: "" }
+    illager-citadel:
+      boss: ""
+      categories: { swarm: "", pack: "", champion: "" }
     rift:
       boss: ""
       categories: { swarm: "", pack: "", champion: "" }

@@ -10,6 +10,17 @@ them; they are the revert path. This folder is the only thing being written.
 warnings; 66 Kotlin files, ~19.2k lines. Nothing has run on a server yet — see
 "Untested" below.
 
+**Update 2026-09-02:** a `.gitignore` bug had silently dropped the whole
+`build` package (`BoxBuilder.kt`, `BoxSpec.kt`) from every commit — the
+`build/` rule meant for Gradle output also matched
+`src/main/kotlin/nl/riddernix/dungeonplugin/build/`, so a fresh checkout was
+missing two files and would not compile. Both `.gitignore` files now anchor
+the Gradle rule (`/build/`, `/plugins/*/build/`); the two files were
+re-ported from the DungeonForge Java originals and the port compiles clean
+again (zero errors, zero warnings). The DungeonForge reference had the same
+two `build/*.java` files untracked — now committed too. Also: the two extra
+`models.themes` entries below are added.
+
 ## Ground rules (user decisions, 2026-09-01)
 
 - Everything ported to **Kotlin**, package `nl.riddernix.dungeonplugin`.
@@ -107,9 +118,11 @@ loaded at all. First-run checklist:
   `plugins/DungeonPlugin/` (same file name and shape). ClassSkills'
   `players.yml` is NOT compatible (different root key and fields) — a one-time
   importer is future work; decide whether live progress must survive.
-- The two DungeonForge inherited gaps still stand: `models.themes` lacks
-  `nether-redoubt` and `illager-citadel`; prefab pool sizes must match per
-  pool (see DF HANDOVER §6).
+- `models.themes` now has all five theme keys (`nether-redoubt` and
+  `illager-citadel` added 2026-09-02, blank entries like the others, so they
+  fall through to `models.defaults` until a model name is filled in). The
+  other DungeonForge inherited gap still stands: prefab pool sizes must match
+  per pool (see DF HANDOVER §6).
 - DF's open prefab list (yellow wool in branch_parkour, four roled prefabs,
   three 68→69-deep branch fixes) applies unchanged — the same .schem files
   are bundled.

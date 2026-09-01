@@ -1,6 +1,9 @@
 # Gradle
 .gradle/
-build/
+# Anchored to each Gradle module's output dir, so it does not also match
+# same-named directories inside src/ (DungeonPlugin has a `build` package).
+/build/
+/plugins/*/build/
 **/gradle-user-home/
 !gradle/wrapper/gradle-wrapper.jar
 !gradle/wrapper/gradle-wrapper.properties
