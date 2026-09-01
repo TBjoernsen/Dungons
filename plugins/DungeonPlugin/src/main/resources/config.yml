@@ -1130,6 +1130,9 @@ skill-panel:
   sounds:
     # Heard only by the player who clicked. Blank disables it.
     select: UI_BUTTON_CLICK
+    # Played when a click cannot do anything here - e.g. trying to buy a node
+    # while the carousel is previewing another class's tree.
+    deny: BLOCK_NOTE_BLOCK_BASS
   nodes:
     scale: 1.6
     # Three states, tuned by eye against your background: unlocked is the
@@ -1183,6 +1186,11 @@ skill-panel:
   # what Confirm would commit.
   info:
     format: "<name><newline><color:#b3a577><description><newline><color:#c9a227>Active class: <active><newline><color:#c9a227>Unlocked here: <unlocked>"
+    # Prepended to whatever the Info area is showing while the carousel points
+    # at a class other than the viewer's active one. This panel only ever
+    # spends points in the active class, so browsing another is a read-only
+    # preview. Placeholder: <name> - the previewed class. Blank to disable.
+    preview-format: "<color:#e0a030><bold>PREVIEW</bold></color> <color:#b3a577>- switch to <white><name></white> to unlock its skills<newline><newline>"
   # Where the Confirm button used to stand there is now the viewer's own
   # point balance. Text, not a button - there is nothing to click, and class
   # switching happens outside this panel entirely. Zero is shown as a plain
@@ -1439,7 +1447,7 @@ messages:
   skills-unlock-difficulty: "<red>Clear Difficulty <white><difficulty></white> before taking <white><node></white>."
   skills-unlock-no-points: "<red>Not enough points for <white><node></white>. <gray>You have <white><points></white>."
   skills-no-active-class: "<red>You have no class yet, so there is nothing to spend points on."
-  skills-not-your-class: "<gray>You are looking at another class's tree. Points can only be spent in <white><class></white>."
+  skills-not-your-class: "<gray>Preview only - this is another class's tree. Move the carousel back to <white><class></white>, or use <white>/class</white>, to spend points here."
   skills-unlock-refused: "<red>Another plugin refused unlocking <white><node></white>."
   skills-points-usage: "<gray>Usage: <white>/dungeon skills points <give|take> <player> <amount>"
   skills-points-external: "<yellow>ClassSkills owns the point budget, so points are earned by levelling there and cannot be changed here. <gray>Nothing was altered."

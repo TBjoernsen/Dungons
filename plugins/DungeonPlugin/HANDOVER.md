@@ -126,7 +126,14 @@ loaded at all. First-run checklist:
 - DF's open prefab list (yellow wool in branch_parkour, four roled prefabs,
   three 68→69-deep branch fixes) applies unchanged — the same .schem files
   are bundled.
-- The skill-panel carousel still browses other classes read-only (DF §7.6
-  question 1 was never answered); unlocks in a browsed class are refused with
-  `skills-not-your-class`, exactly as before.
+- The skill-panel carousel browses other classes read-only, and that state
+  is now explicit (2026-09-02, "option 1" of the three sketched in DF §7.6
+  question 1): while the carousel points at a non-active class the BIG
+  panel's Info area is prefixed with a `PREVIEW - switch to <class>` banner
+  (`skill-panel.info.preview-format`, blank to disable), a buy click there
+  plays `skill-panel.sounds.deny` and the `skills-not-your-class` message now
+  reads as guidance (carousel / `/class`) rather than a flat refusal. The
+  carousel still does not *change* the active class - that stays in `/class`
+  and the holographic selector (options 2 "drop the carousel" and 3 "carousel
+  = class selection" were the roads not taken).
 - The folder is committed to the Dungons repo — the revert path is git history, plus the untouched DungeonForge and classskills folders beside it.

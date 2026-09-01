@@ -339,6 +339,10 @@ class SkillPanelManager(private val plugin: DungeonPlugin) {
             return
         }
         if (classId != viewedClass(player, panelId, panel)) {
+            // The carousel is parked on another class's tree. Browsing it is a
+            // read-only preview - the Info area says so - so this is guidance,
+            // not a failure.
+            playSound(player, "deny")
             plugin.messages.send(player, "skills-not-your-class", Messages.ph("class", classId))
             return
         }
@@ -563,9 +567,15 @@ class SkillPanelManager(private val plugin: DungeonPlugin) {
         }
         val classId = viewedClass(player, panelId, panel)
         val unlocked = unlockedFor(player.uniqueId, classId)
+        val activeClassId = plugin.skillProgress.activeClass(player.uniqueId)
+        // The carousel can be parked on a class the player has not chosen.
+        // Points are only ever spent in the active class, so that is a
+        // read-only preview - said plainly here rather than left for a
+        // bounced click to reveal.
+        val previewing = activeClassId != null && classId != activeClassId
         val nodeId = selections[player.uniqueId]?.get(panelId)
         val node = nodeId?.let { tree.nodes[it] }
-        val content = if (node != null)
+        val body = if (node != null)
             nodeDetailContent(node, unlocked)
         else miniMessage.deserialize(
             plugin.config.getString("skill-panel.info.format",
@@ -574,8 +584,16 @@ class SkillPanelManager(private val plugin: DungeonPlugin) {
                     "<color:#c9a227>Unlocked here: <unlocked>")!!,
             Messages.ph("name", plugin.skillTrees.displayName(classId) ?: classId),
             Messages.ph("description", plugin.skillTrees.description(classId)),
-            Messages.ph("active", if (classId == plugin.skillProgress.activeClass(player.uniqueId)) "yes" else "no"),
+            Messages.ph("active", if (classId == activeClassId) "yes" else "no"),
             Messages.ph("unlocked", unlocked.size.toString()))
+        val content = if (previewing)
+            miniMessage.deserialize(
+                plugin.config.getString("skill-panel.info.preview-format",
+                    "<color:#e0a030><bold>PREVIEW</bold></color> <color:#b3a577>- switch to " +
+                        "<white><name></white> to unlock its skills<newline><newline>")!!,
+                Messages.ph("name", plugin.skillTrees.displayName(classId) ?: classId))
+                .append(body)
+        else body
         byPanel[panelId] = listOf(spawnInfoText(placement(panel), geometry, controls, panelId, content, player))
     }
 
