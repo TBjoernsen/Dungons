@@ -23,6 +23,8 @@ out/
 !gradle/wrapper/gradle-wrapper.jar
 # ClassSkills requires this small precompiled Paper-26 dialog compatibility library.
 !plugins/classskills/libs/classskills-dialog-prebuilt.jar
+# Archived prototype plugin jars, kept as a backup reference (see prototypes/README.md).
+!prototypes/*.jar
 
 # OS
 .DS_Store
