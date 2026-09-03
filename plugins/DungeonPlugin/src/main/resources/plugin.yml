@@ -26,6 +26,11 @@ commands:
     description: Give a Soul Shard for testing.
     usage: /soulshard [player] [amount]
     aliases: [givesoulshard]
+  quests:
+    description: Open the quest menu.
+    usage: /quests [refresh|progress|info]
+    aliases: [quest]
+    permission: dungeonplugin.quests
 permissions:
   dungeonplugin.use:
     description: Use the dungeon command.
@@ -33,3 +38,6 @@ permissions:
   dungeonplugin.admin:
     description: Administrative dungeon commands.
     default: op
+  dungeonplugin.quests:
+    description: Open the quest menu.
+    default: true

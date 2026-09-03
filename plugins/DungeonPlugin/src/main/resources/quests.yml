@@ -1,0 +1,176 @@
+# =====================================================================
+#  Quests
+# =====================================================================
+# Three tracks, four quests each:
+#   daily   - a fresh set every midnight, in the timezone below
+#   weekly  - a fresh set every Friday at midnight
+#   general - rolled once, never on a timer (refresh behaviour is TBD)
+#
+# When daily or weekly rolls a new set, every player's progress on that
+# track is wiped. General progress is kept.
+#
+# Missing keys are merged in from the plugin's bundled copy on start, so
+# edits here and later real quest content survive updates. Runtime state
+# (which quests are active now, per-player progress) lives in
+# quest-data.yml and is not meant to be hand-edited.
+#
+# quests-version is reserved for future migrations.
+quests-version: 1
+
+timing:
+  # The zone the daily/weekly boundaries are measured in. "midnight EST" =
+  # local midnight in US Eastern. The default tracks the EST/EDT change;
+  # use a fixed offset like "-05:00" for hard EST with no daylight saving.
+  timezone: America/New_York
+  # How often (seconds) the server re-checks whether a boundary has passed.
+  # A refresh missed while the server was offline is caught up on startup
+  # regardless of this value.
+  refresh-check-seconds: 60
+
+# ---------------------------------------------------------------------
+#  Quest pool
+# ---------------------------------------------------------------------
+# Each entry:
+#   title       - shown as the item name
+#   description - the objective, in words
+#   objective   - kill_any (count mob kills) or deal_damage (sum damage dealt)
+#   required    - the counter target
+#   reward      - placeholder text for now; real rewards come later
+#
+# A refresh draws 4 at random from a track's pool (general takes the first
+# 4 in file order). Pools may hold more than 4 once real content lands.
+pool:
+  daily:
+    d_cull_the_horde:
+      title: "Cull the Horde"
+      description: "Slay 10 monsters."
+      objective: kill_any
+      required: 10
+      reward: "150 coins"
+    d_bruiser:
+      title: "Bruiser"
+      description: "Deal 200 damage to monsters."
+      objective: deal_damage
+      required: 200
+      reward: "1 Skill Shard"
+    d_exterminator:
+      title: "Exterminator"
+      description: "Slay 20 monsters."
+      objective: kill_any
+      required: 20
+      reward: "250 coins"
+    d_heavy_hitter:
+      title: "Heavy Hitter"
+      description: "Deal 500 damage to monsters."
+      objective: deal_damage
+      required: 500
+      reward: "300 coins"
+
+  weekly:
+    w_weekly_slayer:
+      title: "Weekly Slayer"
+      description: "Slay 100 monsters this week."
+      objective: kill_any
+      required: 100
+      reward: "1000 coins"
+    w_devastation:
+      title: "Devastation"
+      description: "Deal 5000 damage this week."
+      objective: deal_damage
+      required: 5000
+      reward: "3 Skill Shards"
+    w_monster_hunter:
+      title: "Monster Hunter"
+      description: "Slay 250 monsters this week."
+      objective: kill_any
+      required: 250
+      reward: "2000 coins"
+    w_onslaught:
+      title: "Onslaught"
+      description: "Deal 10000 damage this week."
+      objective: deal_damage
+      required: 10000
+      reward: "1 Soul Shard"
+
+  general:
+    g_first_blood:
+      title: "First Blood"
+      description: "Slay your first monster."
+      objective: kill_any
+      required: 1
+      reward: "50 coins"
+    g_getting_started:
+      title: "Getting Started"
+      description: "Slay 50 monsters."
+      objective: kill_any
+      required: 50
+      reward: "500 coins"
+    g_warmup:
+      title: "Warm-up"
+      description: "Deal 1000 damage to monsters."
+      objective: deal_damage
+      required: 1000
+      reward: "500 coins"
+    g_veteran:
+      title: "Veteran"
+      description: "Slay 500 monsters."
+      objective: kill_any
+      required: 500
+      reward: "1 Soul Shard"
+
+# ---------------------------------------------------------------------
+#  Menus
+# ---------------------------------------------------------------------
+# All text is MiniMessage. The selector is a single chest (27 slots); the
+# category list is a double chest (54). Slots are 0-indexed.
+menu:
+  selector:
+    title: "<gold>Quests"
+    filler:
+      enabled: true
+      material: GRAY_STAINED_GLASS_PANE
+    daily:
+      slot: 11
+      material: PAPER
+      name: "<yellow>Daily Quests"
+      lore:
+        - "<gray>Four quests. Fresh set every midnight."
+        - "<gray>Click to view."
+    weekly:
+      slot: 13
+      material: MAP
+      name: "<aqua>Weekly Quests"
+      lore:
+        - "<gray>Four quests. Fresh set every Friday."
+        - "<gray>Click to view."
+    general:
+      slot: 15
+      material: FILLED_MAP
+      name: "<green>General Quests"
+      lore:
+        - "<gray>Four standing quests. No timer."
+        - "<gray>Click to view."
+
+  list:
+    # <category> is replaced with Daily / Weekly / General.
+    title: "<gold><category> Quests"
+    filler:
+      enabled: true
+      material: BLACK_STAINED_GLASS_PANE
+    # Four slots, one per quest. Needs at least 4 entries or the default is used.
+    quest-slots: [19, 21, 23, 25]
+    back:
+      slot: 49
+      material: ARROW
+      name: "<yellow>Back"
+    # The item shown per quest state. Names/lore are generated; only the
+    # material is configurable here.
+    state:
+      in-progress:
+        material: LIME_DYE
+      complete:
+        material: GOLD_INGOT
+      claimed:
+        material: GRAY_DYE
+      missing:
+        material: BARRIER

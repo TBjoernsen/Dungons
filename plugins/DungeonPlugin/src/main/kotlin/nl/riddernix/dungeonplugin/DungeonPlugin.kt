@@ -33,6 +33,12 @@ import nl.riddernix.dungeonplugin.party.PartyManager
 import nl.riddernix.dungeonplugin.player.DungeonHungerListener
 import nl.riddernix.dungeonplugin.player.DungeonPvpListener
 import nl.riddernix.dungeonplugin.player.DungeonRespawnListener
+import nl.riddernix.dungeonplugin.quest.QuestCommand
+import nl.riddernix.dungeonplugin.quest.QuestConfig
+import nl.riddernix.dungeonplugin.quest.QuestManager
+import nl.riddernix.dungeonplugin.quest.QuestMenu
+import nl.riddernix.dungeonplugin.quest.QuestMenuListener
+import nl.riddernix.dungeonplugin.quest.QuestObjectiveListener
 import nl.riddernix.dungeonplugin.room.CorridorLibrary
 import nl.riddernix.dungeonplugin.room.DungeonRoomRegistry
 import nl.riddernix.dungeonplugin.room.NormalRoomLibrary
@@ -116,6 +122,14 @@ class DungeonPlugin : JavaPlugin() {
     lateinit var skillProgress: SkillProgressManager
         private set
     lateinit var skillPanels: SkillPanelManager
+        private set
+
+    // --- quest layer ------------------------------------------------
+    lateinit var questConfig: QuestConfig
+        private set
+    lateinit var quests: QuestManager
+        private set
+    lateinit var questMenu: QuestMenu
         private set
 
     lateinit var dungeonMobDungeonKey: NamespacedKey
@@ -235,6 +249,14 @@ class DungeonPlugin : JavaPlugin() {
 
         skillPanels = SkillPanelManager(this)
         skillPanels.load()
+
+        // The quest layer. The menu is built before the manager so a /reload
+        // with players online can redraw an open quest screen during the
+        // manager's start-up catch-up refresh.
+        questConfig = QuestConfig(this)
+        questMenu = QuestMenu(this)
+        quests = QuestManager(this)
+
         // Clean up anything left behind by a crash or a /stop while inside a
         // dungeon, so old world folders don't pile up.
         val purged = worlds.purgeOrphanedWorldFolders()
@@ -268,6 +290,13 @@ class DungeonPlugin : JavaPlugin() {
         server.pluginManager.registerEvents(DungeonLordListener(this), this)
         server.pluginManager.registerEvents(DifficultyPanelListener(this), this)
         server.pluginManager.registerEvents(SkillPanelListener(this), this)
+        server.pluginManager.registerEvents(QuestMenuListener(this), this)
+        server.pluginManager.registerEvents(QuestObjectiveListener(this), this)
+        getCommand("quests")?.let {
+            val questCommand = QuestCommand(this)
+            it.setExecutor(questCommand)
+            it.tabCompleter = questCommand
+        } ?: logger.severe("Command 'quests' is missing from plugin.yml.")
 
         // The class layer's listeners and commands, active only when enabled
         // - a dungeons-only server skips all of it.
@@ -314,6 +343,14 @@ class DungeonPlugin : JavaPlugin() {
         // per second; clicks themselves are handled by events, not this task.
         server.scheduler.runTaskTimer(this, Runnable { panels.tick() }, 10L, 10L)
         server.scheduler.runTaskTimer(this, Runnable { skillPanels.tick() }, 10L, 10L)
+        // Rolls daily/weekly quests when their zone boundary passes. A
+        // boundary missed while offline is already caught up in the manager's
+        // constructor, so this only handles the server-running case.
+        val questCheckTicks = maxOf(100L, questConfig.refreshCheckSeconds() * 20L)
+        server.scheduler.runTaskTimer(this, Runnable {
+            quests.checkScheduledRefresh()
+            quests.flushIfDirty()
+        }, questCheckTicks, questCheckTicks)
 
         logger.info("DungeonPlugin enabled with ${events.eventTypes().size} internal event type(s); " +
             "classes ${if (classes.enabled) "enabled" else "disabled"}.")
@@ -339,6 +376,9 @@ class DungeonPlugin : JavaPlugin() {
         }
         if (this::skillProgress.isInitialized) {
             skillProgress.save()
+        }
+        if (this::quests.isInitialized) {
+            quests.save()
         }
         if (this::classAbilities.isInitialized) {
             classAbilities.shutdown()
@@ -371,6 +411,10 @@ class DungeonPlugin : JavaPlugin() {
         skillTrees.reload()
         skillPanels.reload()
         classesConfig.reload()
+        questConfig.reload()
+        // Pool or timezone may have changed; catch up any boundary that now
+        // counts as passed.
+        quests.checkScheduledRefresh()
         startRoomScanTask()
     }
 

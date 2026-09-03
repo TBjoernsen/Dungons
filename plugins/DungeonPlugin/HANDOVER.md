@@ -61,6 +61,7 @@ switch to the shadow plugin.
 | `player`, `model`, `settings`, `menu` (PartyMenu only), `npc`, `fx`, `panel` | 1:1 | |
 | `skills` | SkillTreeLibrary (v6: reads per-node `effect.*`), SkillProgressManager, SkillPanelManager, geometry, listener | merged |
 | `classes` | ClassType/StatType, ClassesConfig, ClassProgressionService, ItemService, AttributeService, DungeonKitService, PassiveService, AbilityService, FeedbackService, CoreListener, ClassDungeonListener, HolographicClassSelection, ClassCommands | ClassSkills, rebuilt |
+| `quest` | QuestCategory, QuestObjective/QuestDefinition, QuestConfig, QuestManager, QuestMenu(+Listener), QuestObjectiveListener, QuestCommand | **new 2026-09-03** |
 | `command` | DungeonCommand (all /dungeon subcommands) | 1:1 |
 
 Deliberately NOT ported: DungeonForgeBridge (direct calls now), SkillModel
@@ -97,6 +98,48 @@ BossDefinition scenery accessors were kept).
 - `/skills reset` (player-facing, costs ceil(spent × bulk-reset-shard-rate)
   Skill Shards) replaces ClassSkills' shard-paid reset paths.
 
+## Quests (added 2026-09-03, first feature past the merge)
+
+Structure and flow only; quest **content is placeholder** and lives in
+`quests.yml` (`pool.<category>.<id>`), swappable without touching code.
+
+- **Three categories** (`QuestCategory`), 4 slots each: `daily` rolls at
+  midnight, `weekly` at Friday midnight, both in `timing.timezone`
+  (default `America/New_York` - tracks EST/EDT; set `-05:00` for hard EST).
+  `general` rolls once and never on a timer (its long-term refresh rule is
+  deliberately undecided).
+- **Refresh** is server-side. `QuestManager`'s constructor rolls a fresh
+  install and catches up any boundary crossed while the server was down
+  (compares stored `last-refresh` to the most recent boundary); a repeating
+  task (`timing.refresh-check-seconds`, default 60) handles the running case.
+  A refreshing category **wipes every player's progress for it** (in memory
+  and in the file) when it rolls; `general` progress is kept.
+- **State**: server-wide - one set of 4 definition ids per category, shared by
+  all players. Per-player `counter` + `claimed` per (category, slot), keyed by
+  UUID. Both live in `quest-data.yml` (`sets.*` + `players.<uuid>.*`), the
+  quest layer's own file alongside players.yml / skill-progress.yml. Plain
+  counter ticks are batched to the timer (`dirty` flag / `flushIfDirty`);
+  completions, claims and refreshes save immediately.
+- **Objectives** are placeholder: `kill_any` (+1 per non-player mob kill) and
+  `deal_damage` (+finalDamage per hit on a non-player, melee or projectile),
+  in `QuestObjectiveListener`. Real objective types are added as more
+  handlers there; `QuestObjective` is the only enum to extend.
+- **GUI** (`QuestMenu`): `/quests` opens the single-chest selector
+  (paper/Daily, map/Weekly, filled-map/General); clicking one opens the
+  double-chest list of that category's 4 quests. Each quest item shows title /
+  objective / `progress`/`required` / reward, with a per-state material
+  (`menu.list.state.*`: LIME_DYE in progress, glowing GOLD_INGOT complete,
+  GRAY_DYE claimed, BARRIER unresolved). Clicking a complete-unclaimed quest
+  claims it (placeholder reward = a chat line). Back arrow (slot 49) returns
+  to the selector. An open list redraws in place as progress lands.
+- **Command**: `/quests` (perm `dungeonplugin.quests`, default true). Admin
+  (`dungeonplugin.admin`): `/quests refresh <cat>`, `/quests progress
+  <kill|damage> <n>` (test without grinding), `/quests info`.
+- **Untested on a server** like the rest of the plugin. Watch especially: the
+  timezone/boundary math and the offline catch-up on the first real midnight
+  and Friday; progress wipes hitting the right players; the double-chest slot
+  layout rendering as intended.
+
 ## Untested — read before first run
 
 Nothing has ever run on a server; DungeonForge's own handover already said
@@ -110,6 +153,9 @@ loaded at all. First-run checklist:
 4. `/class`, kit swap on enter, passives, F-abilities, sidebar.
 5. Skill panel: gated nodes grey, buy on double click, points update.
 6. `/dungeon api status` should list 19 event types.
+7. `quests.yml` + `quest-data.yml` appear; `/quests` opens the selector;
+   `/quests progress kill 100` completes a quest and lets it be claimed;
+   `/quests refresh daily` rolls a new set and clears progress.
 
 ## Open items
 
