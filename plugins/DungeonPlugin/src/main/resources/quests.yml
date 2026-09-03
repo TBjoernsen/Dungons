@@ -129,26 +129,31 @@ menu:
     filler:
       enabled: true
       material: GRAY_STAINED_GLASS_PANE
+    # Appended under each button's lore. <time> is the wait until that
+    # category's next refresh ("2d 5h", "3h 12m", "8m", "under a minute").
+    # Timed categories get refresh-timer-format; general gets no-refresh-text.
+    refresh-timer-format: "<dark_gray>Next refresh: <gray><time>"
+    no-refresh-text: "<dark_gray>No scheduled refresh."
     daily:
       slot: 11
       material: PAPER
       name: "<yellow>Daily Quests"
       lore:
-        - "<gray>Four quests. Fresh set every midnight."
+        - "<gray>Fresh set every midnight."
         - "<gray>Click to view."
     weekly:
       slot: 13
       material: MAP
       name: "<aqua>Weekly Quests"
       lore:
-        - "<gray>Four quests. Fresh set every Friday."
+        - "<gray>Fresh set every Friday."
         - "<gray>Click to view."
     general:
       slot: 15
       material: FILLED_MAP
-      name: "<green>General Quests"
+      name: "<red>General Quests"
       lore:
-        - "<gray>Four standing quests. No timer."
+        - "<gray>Standing quests, no timer."
         - "<gray>Click to view."
 
   list:

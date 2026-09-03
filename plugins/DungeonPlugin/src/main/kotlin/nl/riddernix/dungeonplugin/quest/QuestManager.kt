@@ -230,6 +230,10 @@ class QuestManager(private val plugin: DungeonPlugin) {
             plugin.logger.warning("quests.yml pool.${category.id} is empty; that category will show no quests.")
             repeat(QuestCategory.SLOTS) { picked.add("") }
         }
+        // Highest requirement to the left, so the row reads as a clean
+        // descending gradient rather than a random jumble.
+        val required = config.pool(category).associate { it.id to it.required }
+        picked.sortByDescending { required[it] ?: 0 }
         sets[category] = picked
         if (stamp) lastRefresh[category] = System.currentTimeMillis()
     }
@@ -243,6 +247,19 @@ class QuestManager(private val plugin: DungeonPlugin) {
             if (start.isAfter(now)) start.minusWeeks(1) else start
         }
         QuestCategory.GENERAL -> null
+    }
+
+    /** First daily midnight / Friday midnight in the configured zone strictly after now; null for [QuestCategory.GENERAL]. */
+    fun nextRefreshMillis(category: QuestCategory): Long? {
+        if (!category.refreshing) return null
+        val now = ZonedDateTime.now(config.zone())
+        val next = when (category) {
+            QuestCategory.DAILY -> now.toLocalDate().plusDays(1).atStartOfDay(now.zone)
+            QuestCategory.WEEKLY -> now.toLocalDate()
+                .with(TemporalAdjusters.next(DayOfWeek.FRIDAY)).atStartOfDay(now.zone)
+            QuestCategory.GENERAL -> return null
+        }
+        return next.toInstant().toEpochMilli()
     }
 
     // ------------------------------------------------------------------

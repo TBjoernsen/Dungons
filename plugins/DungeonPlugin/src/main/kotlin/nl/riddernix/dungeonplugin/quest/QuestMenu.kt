@@ -143,6 +143,15 @@ class QuestMenu(private val plugin: DungeonPlugin) {
             } else {
                 lore.add(line("<gray>Click to view your ${category.displayName.lowercase()} quests."))
             }
+            lore.add(Component.empty())
+            val nextRefresh = quests.nextRefreshMillis(category)
+            lore.add(if (nextRefresh != null) {
+                val template = yaml.getString("menu.selector.refresh-timer-format")
+                    ?: "<dark_gray>Next refresh: <gray><time>"
+                line(template.replace("<time>", untilText(nextRefresh)))
+            } else {
+                line(yaml.getString("menu.selector.no-refresh-text") ?: "<dark_gray>No scheduled refresh.")
+            })
             meta.lore(lore)
         }
         return stack
@@ -219,6 +228,21 @@ class QuestMenu(private val plugin: DungeonPlugin) {
 
     /** MiniMessage, with the client's default italic on menu text turned off. */
     private fun line(raw: String): Component = mini.deserialize("<!italic>$raw")
+
+    /** A coarse "time from now until [epochMillis]" for button hover text. */
+    private fun untilText(epochMillis: Long): String {
+        val minutes = (epochMillis - System.currentTimeMillis()) / 60_000L
+        if (minutes <= 0) return "any moment"
+        val days = minutes / 1_440L
+        val hours = (minutes % 1_440L) / 60L
+        val mins = minutes % 60L
+        return when {
+            days > 0 -> "${days}d ${hours}h"
+            hours > 0 -> "${hours}h ${mins}m"
+            mins > 0 -> "${mins}m"
+            else -> "under a minute"
+        }
+    }
 
     // ------------------------------------------------------------------
     //  Holders

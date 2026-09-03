@@ -125,8 +125,13 @@ Structure and flow only; quest **content is placeholder** and lives in
   in `QuestObjectiveListener`. Real objective types are added as more
   handlers there; `QuestObjective` is the only enum to extend.
 - **GUI** (`QuestMenu`): `/quests` opens the single-chest selector
-  (paper/Daily, map/Weekly, filled-map/General); clicking one opens the
-  double-chest list of that category's 4 quests. Each quest item shows title /
+  (paper/Daily, map/Weekly, filled-map/General). Each selector button's lore
+  ends with the wait until that category's next refresh (`<time>` in
+  `menu.selector.refresh-timer-format`; general shows `no-refresh-text`) -
+  computed when the menu opens, not live-ticking. Clicking one opens the
+  double-chest list of that category's 4 quests, **ordered highest
+  `required` first** (`roll` sorts the picked set descending, so slot 0 =
+  hardest and the row reads as a gradient). Each quest item shows title /
   objective / `progress`/`required` / reward, with a per-state material
   (`menu.list.state.*`: LIME_DYE in progress, glowing GOLD_INGOT complete,
   GRAY_DYE claimed, BARRIER unresolved). Clicking a complete-unclaimed quest
