@@ -398,10 +398,11 @@ class QuestBoardManager(private val plugin: DungeonPlugin) {
             TextDisplay.TextAlignment.CENTER, null, perViewer = true))
 
         // Notes + their claim hitboxes. The hitbox is measured from the card's
-        // own text so it is exactly the card's size and sits on the same
-        // anchor; x-nudge / y-nudge / note-padding are the only knobs.
+        // own text and sits on the same anchor; note-padding / height-scale /
+        // x-nudge / y-nudge are the knobs.
         val scale = yaml.getDouble("board.notes.text-scale", 0.44)
         val pad = yaml.getDouble("board.hitboxes.note-padding", 0.06)
+        val heightScale = yaml.getDouble("board.hitboxes.height-scale", 0.8)
         val xNudge = yaml.getDouble("board.hitboxes.x-nudge", 0.0)
         val yNudge = yaml.getDouble("board.hitboxes.y-nudge", 0.0)
         // Rows below the top two drift down slightly; lift each of those by
@@ -421,7 +422,7 @@ class QuestBoardManager(private val plugin: DungeonPlugin) {
                 TextDisplay.TextAlignment.LEFT, Color.fromARGB(paper), perViewer = true))
             ids.add(spawnHitbox(placement, boardId, "hit-note-${category.id}-$slot",
                 x + xNudge, noteTopY(slot) + yNudge + maxOf(0, slot - 1) * yRowNudge,
-                w + 2 * pad, h + 2 * pad, perViewer = true))
+                w + 2 * pad, h * heightScale + 2 * pad, perViewer = true))
         }
 
         // One page arrow: ">" on page 0 (to General), "<" on page 1 (back).
