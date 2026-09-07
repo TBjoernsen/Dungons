@@ -131,9 +131,9 @@ Structure and flow only; quest **content is placeholder** and lives in
   falls back to vanilla `giveExp`.
 - **XP multiplier** (`xp-multiplier.*` in quests.yml): completing every quest
   in `daily` and/or `weekly` (claimed or not - `QuestManager.categoryComplete`)
-  turns on that track's factor (`daily` 1.25, `weekly` 1.5 by default).
-  Daily+weekly stack - `stacking: multiplicative` (1.875) or `additive`
-  (1.75). `QuestManager.xpMultiplier(uuid)` computes it live from completion
+  turns on that track's factor (`daily` 1.10, `weekly` 1.20 by default).
+  Daily+weekly stack - `stacking: multiplicative` (1.32) or `additive`
+  (1.30). `QuestManager.xpMultiplier(uuid)` computes it live from completion
   state, so a refresh (which clears the quests) drops it automatically;
   `general` never contributes. The class layer reaches it through
   `DungeonPlugin.questXpMultiplier(uuid)` (1.0 before the quest layer is up).
@@ -159,7 +159,8 @@ Structure and flow only; quest **content is placeholder** and lives in
   line while the factor is above 1.0 (`FeedbackService`).
 - **Command**: `/quests` (perm `dungeonplugin.quests`, default true). Admin
   (`dungeonplugin.admin`): `/quests refresh <cat>`, `/quests progress
-  <kill|damage> <n>` (test without grinding), `/quests info`.
+  <kill|damage|all> <n>` (`all` advances both objectives, so one command
+  finishes a category), `/quests info` (per-slot state + multiplier).
 - **Untested on a server** like the rest of the plugin. Watch especially: the
   timezone/boundary math and the offline catch-up on the first real midnight
   and Friday; progress wipes hitting the right players; the double-chest slot
@@ -179,9 +180,11 @@ loaded at all. First-run checklist:
 5. Skill panel: gated nodes grey, buy on double click, points update.
 6. `/dungeon api status` should list 19 event types.
 7. `quests.yml` + `quest-data.yml` appear; `/quests` opens the selector;
-   `/quests progress kill 100` completes a quest and lets it be claimed
-   (reward = dungeon XP, scaled by the multiplier); clearing all of `daily`
-   turns on the ×1.25 bonus (selector glows, slot-22 readout, sidebar line);
+   `/quests progress all 99999` finishes every active quest (both objective
+   types) so a category can be cleared in one command; claim gives dungeon
+   XP scaled by the multiplier; clearing all of `daily` turns on the ×1.10
+   bonus (selector glows, slot-22 readout, sidebar line). `/quests info` as
+   a player shows per-slot state and the computed multiplier.
    `/quests refresh daily` rolls a new set, clears progress, drops the bonus.
 
 ## Open items

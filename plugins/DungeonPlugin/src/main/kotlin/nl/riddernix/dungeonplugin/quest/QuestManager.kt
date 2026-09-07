@@ -176,17 +176,23 @@ class QuestManager(private val plugin: DungeonPlugin) {
         if (touched) {
             // A track that just went fully complete turns on (or grows) the
             // XP multiplier - worth calling out.
+            var multiplierChanged = false
             for (category in QuestCategory.entries) {
                 if (!category.refreshing || wasComplete[category] == true) continue
                 if (!categoryComplete(player.uniqueId, category)) continue
+                multiplierChanged = true
+                val m = xpMultiplier(player.uniqueId)
                 player.sendMessage("§6§l✦ All ${category.displayName} quests complete!")
-                player.sendMessage("§7Dungeon XP multiplier: §a×${format(xpMultiplier(player.uniqueId))}")
+                player.sendMessage("§7Dungeon XP multiplier: §a×${format(m)} §7(+${(((m - 1.0) * 100.0)).toInt()}%)")
                 player.playSound(player.location, Sound.UI_TOAST_CHALLENGE_COMPLETE, 0.7f, 1.1f)
             }
             // Plain counter ticks are batched to the timer; a completion is
             // worth writing to disk now.
             if (completedOne) save() else dirty = true
             plugin.questMenu.refreshIfViewing(player)
+            // Push the new multiplier onto the class sidebar right away instead
+            // of waiting for the next class tick.
+            if (multiplierChanged) plugin.refreshClassPlayer(player)
         }
     }
 

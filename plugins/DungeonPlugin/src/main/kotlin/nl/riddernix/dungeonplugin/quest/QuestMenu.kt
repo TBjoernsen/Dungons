@@ -190,12 +190,14 @@ class QuestMenu(private val plugin: DungeonPlugin) {
             val nameTemplate = yaml.getString("menu.selector.multiplier.name")
                 ?: "<aqua>Dungeon XP Multiplier: <white>×<value>"
             meta.displayName(line(nameTemplate.replace("<value>", QuestManager.format(multiplier))))
+            val bonusPercent = (((multiplier - 1.0) * 100.0).coerceAtLeast(0.0)).toInt()
             val lore = ArrayList<Component>()
+            lore.add(line("<gray>+<white>$bonusPercent%<gray> to all dungeon XP you earn."))
             lore.add(Component.empty())
             if (breakdown.isEmpty()) {
-                lore.add(line("<gray>No bonus active."))
-                lore.add(line("<gray>Complete every <white>Daily<gray> or <white>Weekly<gray> quest"))
-                lore.add(line("<gray>to earn a dungeon-XP bonus. They stack."))
+                lore.add(line("<gray>No bonus active yet."))
+                lore.add(line("<gray>Finish <white>every</white> Daily or Weekly quest"))
+                lore.add(line("<gray>to earn a bonus. Daily and Weekly stack."))
             } else {
                 for ((category, factor) in breakdown) {
                     lore.add(line("<green>✔ ${category.displayName}: <white>×${QuestManager.format(factor)}"))
@@ -204,8 +206,6 @@ class QuestMenu(private val plugin: DungeonPlugin) {
                     if (!category.refreshing || breakdown.any { it.first == category }) continue
                     lore.add(line("<dark_gray>✗ ${category.displayName}: not complete"))
                 }
-                lore.add(Component.empty())
-                lore.add(line("<gray>Applied to all dungeon XP you earn."))
             }
             meta.lore(lore)
             if (multiplier > 1.0) {

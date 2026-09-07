@@ -130,11 +130,11 @@ pool:
 # its own.
 xp-multiplier:
   # How daily's and weekly's factors combine when both are complete:
-  #   multiplicative - 1.25 * 1.5 = 1.875
-  #   additive       - 1 + 0.25 + 0.5 = 1.75
+  #   multiplicative - 1.10 * 1.20 = 1.32  (+32% dungeon XP)
+  #   additive       - 1 + 0.10 + 0.20 = 1.30
   stacking: multiplicative
-  daily: 1.25
-  weekly: 1.5
+  daily: 1.10
+  weekly: 1.20
 
 # ---------------------------------------------------------------------
 #  Menus
