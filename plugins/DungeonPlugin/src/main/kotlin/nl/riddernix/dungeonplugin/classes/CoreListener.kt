@@ -36,15 +36,6 @@ class CoreListener(private val plugin: DungeonPlugin) : Listener {
     private val pendingRangedCasts = HashSet<UUID>()
     private val interactionBlockedRangedCasts = HashSet<UUID>()
 
-    /**
-     * Per player: the Bukkit tick until which a held left mouse still counts
-     * as "firing". Refreshed on every staff arm swing; a per-tick sweep
-     * ([tickSustainedBolts]) keeps casting Arcane Bolt while it is in the
-     * future, so holding left-click matches spam-clicking (both rate-limited
-     * by the bolt's own cooldown).
-     */
-    private val sustainedBoltUntil = HashMap<UUID, Int>()
-
     @EventHandler
     fun onJoin(event: PlayerJoinEvent) {
         stripArmor(event.player)
@@ -57,7 +48,6 @@ class CoreListener(private val plugin: DungeonPlugin) : Listener {
         plugin.classAbilities.remove(event.player)
         plugin.classFeedback.remove(event.player)
         pendingRangedCasts.remove(event.player.uniqueId)
-        sustainedBoltUntil.remove(event.player.uniqueId)
         interactionBlockedRangedCasts.remove(event.player.uniqueId)
     }
 
@@ -128,12 +118,6 @@ class CoreListener(private val plugin: DungeonPlugin) : Listener {
         if (!plugin.queries.isInDungeon(player)) return
         val item = player.inventory.itemInMainHand
         if (!plugin.classItems.isStaff(item) && !plugin.classItems.isAllowedWeapon(ClassType.ARCHER, item)) return
-        if (plugin.classItems.isStaff(item)) {
-            // Holding left-click keeps producing arm swings; remember that so
-            // the per-tick sweep keeps firing at the cooldown's rate.
-            sustainedBoltUntil[player.uniqueId] = org.bukkit.Bukkit.getCurrentTick() +
-                plugin.classesConfig.getInt("mage.bolt.hold-grace-ticks", 8).coerceIn(2, 40)
-        }
         if (!pendingRangedCasts.add(player.uniqueId)) return
 
         // PlayerInteractEvent and PlayerArmSwingEvent do not have a fixed
@@ -156,29 +140,6 @@ class CoreListener(private val plugin: DungeonPlugin) : Listener {
             }
             plugin.classItems.isAllowedWeapon(ClassType.ARCHER, player.inventory.itemInMainHand) ->
                 plugin.classPassives.castFocusShot(player)
-        }
-    }
-
-    /**
-     * Keeps Arcane Bolt firing for players holding left-click. `castArcaneBolt`
-     * no-ops on cooldown / low mana, so calling it every tick just fires at
-     * the cooldown's cadence with no message spam. Runs on a 1-tick task.
-     */
-    fun tickSustainedBolts() {
-        if (sustainedBoltUntil.isEmpty()) return
-        val now = org.bukkit.Bukkit.getCurrentTick()
-        val iterator = sustainedBoltUntil.entries.iterator()
-        while (iterator.hasNext()) {
-            val (id, until) = iterator.next()
-            val player = org.bukkit.Bukkit.getPlayer(id)
-            if (until < now || player == null || !player.isOnline) {
-                iterator.remove()
-                continue
-            }
-            if (!plugin.queries.isInDungeon(player)) continue
-            if (!plugin.classItems.isStaff(player.inventory.itemInMainHand)) continue
-            if (isRangedCastBlocked(player)) continue
-            plugin.classPassives.castArcaneBolt(player)
         }
     }
 

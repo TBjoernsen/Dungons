@@ -321,8 +321,6 @@ class DungeonPlugin : JavaPlugin() {
             val core = CoreListener(this)
             coreListener = core
             server.pluginManager.registerEvents(core, this)
-            // Holding left-click keeps Arcane Bolt firing at its cooldown rate.
-            server.scheduler.runTaskTimer(this, Runnable { core.tickSustainedBolts() }, 1L, 1L)
             server.pluginManager.registerEvents(classAbilities, this)
             server.pluginManager.registerEvents(classPicker, this)
             server.pluginManager.registerEvents(ClassDungeonListener(this), this)
