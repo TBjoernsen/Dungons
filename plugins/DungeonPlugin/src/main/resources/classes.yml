@@ -191,5 +191,10 @@ abilities:
     blink-mana-cost: 35.0
     heal-cooldown-seconds: 30.0
     heal-mana-cost: 50.0
-    # Line-of-sight distance the Healing Spell reaches to pick an ally.
+    # How far the Healing Spell reaches to pick an ally. Targeting is
+    # cone-based (nearest player to your crosshair within this range and the
+    # cone below), so you do not need a pixel-perfect aim. Line of sight is
+    # still required unless heal-require-line-of-sight is off.
     heal-range: 50.0
+    heal-aim-cone-degrees: 12.0
+    heal-require-line-of-sight: true

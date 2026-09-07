@@ -96,6 +96,13 @@ class DungeonCompletionManager(private val plugin: DungeonPlugin) {
             plugin.parties.queueCompletionReturn(memberId, destination)
             val player = Bukkit.getPlayer(memberId)
             if (player == null || !player.isOnline) continue
+            // The direct teleport below never triggers a leave, so fire it
+            // here (while the player is still inside) - otherwise the class
+            // layer never restores the pre-dungeon inventory. Idempotent:
+            // updateDungeonState only acts when a snapshot is still held.
+            if (plugin.rooms.dungeon(player.world) != null) {
+                plugin.events.firePlayerLeave(plugin.snapshots.of(run.dungeon), player)
+            }
             if (player.isDead) {
                 player.spigot().respawn()
             } else {

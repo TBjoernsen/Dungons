@@ -26,6 +26,7 @@ import org.bukkit.potion.PotionEffectType
 import org.bukkit.util.Vector
 import java.util.UUID
 import kotlin.math.ceil
+import kotlin.math.cos
 
 /**
  * Vanilla-client ability keybind. Minecraft's Swap Hands key defaults to F
@@ -237,20 +238,35 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         return result
     }
 
-    /** Finds the closest player in the caster's exact line of sight without looking through blocks. */
+    /**
+     * The ally the caster is aiming at: the player nearest their crosshair
+     * within `heal-range` and inside a `heal-aim-cone-degrees` cone, so it
+     * does not need a pixel-perfect ray. Line of sight is still required
+     * unless `heal-require-line-of-sight` is off - no healing through walls.
+     */
     private fun raycastHealTarget(caster: Player): Player? {
-        val eyeLocation = caster.eyeLocation
-        val hit = caster.world.rayTrace(
-            eyeLocation,
-            eyeLocation.direction,
-            plugin.classesConfig.getDouble("abilities.mage.heal-range", 50.0).coerceAtLeast(0.0),
-            FluidCollisionMode.NEVER,
-            true,
-            0.35
-        ) { candidate ->
-            candidate is Player && candidate.uniqueId != caster.uniqueId && candidate.isOnline && !candidate.isDead
+        val range = plugin.classesConfig.getDouble("abilities.mage.heal-range", 50.0).coerceAtLeast(0.0)
+        if (range <= 0.0) return null
+        val minCos = cos(Math.toRadians(
+            plugin.classesConfig.getDouble("abilities.mage.heal-aim-cone-degrees", 12.0).coerceIn(1.0, 60.0)))
+        val requireLos = plugin.classesConfig.getBoolean("abilities.mage.heal-require-line-of-sight", true)
+        val eye = caster.eyeLocation
+        val look = eye.direction
+        var best: Player? = null
+        var bestAlignment = minCos
+        for (other in caster.world.players) {
+            if (other === caster || !other.isOnline || other.isDead) continue
+            val toTarget = other.eyeLocation.toVector().subtract(eye.toVector())
+            val distance = toTarget.length()
+            if (distance < 0.1 || distance > range) continue
+            val alignment = toTarget.clone().normalize().dot(look)
+            if (alignment < bestAlignment) continue
+            if (requireLos && caster.world.rayTraceBlocks(
+                    eye, toTarget, distance, FluidCollisionMode.NEVER, true) != null) continue
+            bestAlignment = alignment
+            best = other
         }
-        return hit?.hitEntity as? Player
+        return best
     }
 
     private fun updateHoveredHealTarget(caster: Player, target: Player?) {
