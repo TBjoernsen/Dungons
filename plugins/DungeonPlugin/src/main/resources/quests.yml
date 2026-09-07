@@ -35,7 +35,9 @@ timing:
 #   description - the objective, in words
 #   objective   - kill_any (count mob kills) or deal_damage (sum damage dealt)
 #   required    - the counter target
-#   reward      - placeholder text for now; real rewards come later
+#   reward-xp   - dungeon XP granted on claim, toward class levelling. It is
+#                 scaled by the player's current quest XP multiplier (below);
+#                 on a dungeons-only server it falls back to vanilla XP.
 #
 # A refresh draws 4 at random from a track's pool (general takes the first
 # 4 in file order). Pools may hold more than 4 once real content lands.
@@ -46,25 +48,25 @@ pool:
       description: "Slay 10 monsters."
       objective: kill_any
       required: 10
-      reward: "150 coins"
+      reward-xp: 150
     d_bruiser:
       title: "Bruiser"
       description: "Deal 200 damage to monsters."
       objective: deal_damage
       required: 200
-      reward: "1 Skill Shard"
+      reward-xp: 200
     d_exterminator:
       title: "Exterminator"
       description: "Slay 20 monsters."
       objective: kill_any
       required: 20
-      reward: "250 coins"
+      reward-xp: 200
     d_heavy_hitter:
       title: "Heavy Hitter"
       description: "Deal 500 damage to monsters."
       objective: deal_damage
       required: 500
-      reward: "300 coins"
+      reward-xp: 300
 
   weekly:
     w_weekly_slayer:
@@ -72,25 +74,25 @@ pool:
       description: "Slay 100 monsters this week."
       objective: kill_any
       required: 100
-      reward: "1000 coins"
+      reward-xp: 800
     w_devastation:
       title: "Devastation"
       description: "Deal 5000 damage this week."
       objective: deal_damage
       required: 5000
-      reward: "3 Skill Shards"
+      reward-xp: 1000
     w_monster_hunter:
       title: "Monster Hunter"
       description: "Slay 250 monsters this week."
       objective: kill_any
       required: 250
-      reward: "2000 coins"
+      reward-xp: 1200
     w_onslaught:
       title: "Onslaught"
       description: "Deal 10000 damage this week."
       objective: deal_damage
       required: 10000
-      reward: "1 Soul Shard"
+      reward-xp: 1500
 
   general:
     g_first_blood:
@@ -98,25 +100,41 @@ pool:
       description: "Slay your first monster."
       objective: kill_any
       required: 1
-      reward: "50 coins"
+      reward-xp: 100
     g_getting_started:
       title: "Getting Started"
       description: "Slay 50 monsters."
       objective: kill_any
       required: 50
-      reward: "500 coins"
+      reward-xp: 500
     g_warmup:
       title: "Warm-up"
       description: "Deal 1000 damage to monsters."
       objective: deal_damage
       required: 1000
-      reward: "500 coins"
+      reward-xp: 500
     g_veteran:
       title: "Veteran"
       description: "Slay 500 monsters."
       objective: kill_any
       required: 500
-      reward: "1 Soul Shard"
+      reward-xp: 1500
+
+# ---------------------------------------------------------------------
+#  XP multiplier
+# ---------------------------------------------------------------------
+# Once every quest in a track is complete (claimed or not) that track's
+# factor below multiplies ALL dungeon XP the player earns - quest rewards
+# and dungeon-completion XP alike. Daily and weekly stack; general never
+# contributes. A track refreshing clears its quests, so the bonus drops on
+# its own.
+xp-multiplier:
+  # How daily's and weekly's factors combine when both are complete:
+  #   multiplicative - 1.25 * 1.5 = 1.875
+  #   additive       - 1 + 0.25 + 0.5 = 1.75
+  stacking: multiplicative
+  daily: 1.25
+  weekly: 1.5
 
 # ---------------------------------------------------------------------
 #  Menus
@@ -134,6 +152,17 @@ menu:
     # Timed categories get refresh-timer-format; general gets no-refresh-text.
     refresh-timer-format: "<dark_gray>Next refresh: <gray><time>"
     no-refresh-text: "<dark_gray>No scheduled refresh."
+    # Added to a button's lore (and the item glows) once every quest in that
+    # category is done. complete-text is for daily/weekly (which grant the XP
+    # bonus); complete-text-general for general (which doesn't).
+    complete-text: "<green>✔ All complete - XP bonus active"
+    complete-text-general: "<green>✔ All complete"
+    # The XP-multiplier readout item. <value> is the current factor (e.g.
+    # 1.88). Lore is generated: the per-track breakdown.
+    multiplier:
+      slot: 22
+      material: EXPERIENCE_BOTTLE
+      name: "<aqua>Dungeon XP Multiplier: <white>×<value>"
     daily:
       slot: 11
       material: PAPER

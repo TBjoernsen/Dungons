@@ -7,6 +7,7 @@ import java.io.IOException
 import java.io.InputStreamReader
 import java.nio.charset.StandardCharsets
 import java.time.ZoneId
+import java.util.Locale
 
 /**
  * `quests.yml` - the quest layer's own configuration: the pool each category
@@ -76,6 +77,23 @@ class QuestConfig(private val plugin: DungeonPlugin) {
     fun refreshCheckSeconds(): Long = maxOf(5L, yaml.getLong("timing.refresh-check-seconds", 60L))
 
     // ------------------------------------------------------------------
+    //  XP multiplier
+    // ------------------------------------------------------------------
+
+    /** True = daily and weekly bonuses multiply (1.25 * 1.5); false = add (1 + .25 + .5). */
+    fun multiplierStacksMultiplicatively(): Boolean =
+        (yaml.getString("xp-multiplier.stacking", "multiplicative") ?: "multiplicative")
+            .trim().lowercase(Locale.ROOT) != "additive"
+
+    /**
+     * A category's XP bonus, applied once every quest in it is complete.
+     * `1.0` (or below) means no bonus. Only [QuestCategory.DAILY] and
+     * [QuestCategory.WEEKLY] are read; general never contributes.
+     */
+    fun categoryMultiplier(category: QuestCategory): Double =
+        maxOf(1.0, yaml.getDouble("xp-multiplier.${category.id}", 1.0))
+
+    // ------------------------------------------------------------------
     //  Quest pool
     // ------------------------------------------------------------------
 
@@ -105,7 +123,7 @@ class QuestConfig(private val plugin: DungeonPlugin) {
                 description = entry.getString("description", "") ?: "",
                 objective = objective,
                 required = required,
-                reward = entry.getString("reward", "") ?: ""
+                rewardXp = entry.getInt("reward-xp", 0).coerceAtLeast(0)
             ))
         }
         return out

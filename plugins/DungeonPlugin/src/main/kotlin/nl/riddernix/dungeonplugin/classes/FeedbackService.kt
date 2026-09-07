@@ -45,6 +45,13 @@ class FeedbackService(private val plugin: DungeonPlugin) {
             "§d${plugin.classPassives.readout(player)}"
         )
         lines.add(2, "§fXP: §e${data.experience}/${plugin.classPassives.experienceToNextLevel(player)}")
+        val xpBonus = plugin.questXpMultiplier(player.uniqueId)
+        if (xpBonus > 1.0) {
+            val separator = lines.indexOf(" ")
+            if (separator > 0) {
+                lines.add(separator, "§bXP Bonus: §e×${String.format(Locale.US, "%.2f", xpBonus)}")
+            }
+        }
         val passiveLines = plugin.classPassives.readoutLines(player)
         if (passiveLines.size > 1) {
             // Replace the normal passive entry with the compact two-line

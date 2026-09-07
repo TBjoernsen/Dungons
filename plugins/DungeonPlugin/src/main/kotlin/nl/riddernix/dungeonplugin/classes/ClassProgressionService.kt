@@ -167,12 +167,22 @@ class ClassProgressionService(private val plugin: DungeonPlugin) {
         return DungeonDropResult(skillShards, soulShards)
     }
 
-    fun grantSkillExperience(player: Player, amount: Int) {
-        if (amount <= 0) return
+    /**
+     * Adds dungeon XP, scaled by the player's current quest XP multiplier
+     * (1.0 unless daily and/or weekly quests are fully cleared - see
+     * [nl.riddernix.dungeonplugin.quest.QuestManager.xpMultiplier]). Every
+     * skill-XP source runs through here, so clearing your quests boosts
+     * dungeon-completion XP too, not just the quest rewards.
+     *
+     * @return the XP actually applied after the multiplier
+     */
+    fun grantSkillExperience(player: Player, amount: Int): Int {
+        if (amount <= 0) return 0
         val data = data(player.uniqueId)
-        if (data.level >= 100) return
+        if (data.level >= 100) return 0
+        val effective = (amount * plugin.questXpMultiplier(player.uniqueId)).roundToInt().coerceAtLeast(1)
         val previousMaximumDifficulty = maximumDungeonDifficultyForLevel(data.level)
-        data.experience += amount
+        data.experience += effective
         while (data.level < 100) {
             val required = xpToNextLevel(data.level)
             if (data.experience < required) break
@@ -189,6 +199,7 @@ class ClassProgressionService(private val plugin: DungeonPlugin) {
         if (newMaximumDifficulty > previousMaximumDifficulty) {
             player.sendMessage("§6Difficulty $newMaximumDifficulty is now available at Level ${data.level}.")
         }
+        return effective
     }
 
     // ------------------------------------------------------------------

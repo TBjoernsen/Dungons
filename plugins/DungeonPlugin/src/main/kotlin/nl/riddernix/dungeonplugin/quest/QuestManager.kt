@@ -11,6 +11,7 @@ import java.time.Instant
 import java.time.ZonedDateTime
 import java.time.temporal.TemporalAdjusters
 import java.util.EnumMap
+import java.util.Locale
 import java.util.UUID
 import kotlin.math.roundToInt
 
@@ -105,6 +106,42 @@ class QuestManager(private val plugin: DungeonPlugin) {
     }
 
     // ------------------------------------------------------------------
+    //  Completion and the XP multiplier
+    // ------------------------------------------------------------------
+
+    /** Every slot of a category finished (claimed or not). A missing slot counts as not done. */
+    fun categoryComplete(playerId: UUID, category: QuestCategory): Boolean =
+        (0 until QuestCategory.SLOTS).all {
+            when (state(playerId, category, it)) {
+                QuestState.COMPLETE_UNCLAIMED, QuestState.CLAIMED -> true
+                else -> false
+            }
+        }
+
+    /** One entry per contributing category the player has fully cleared: its display name and factor. */
+    fun multiplierBreakdown(playerId: UUID): List<Pair<QuestCategory, Double>> =
+        QuestCategory.entries
+            .filter { it.refreshing && categoryComplete(playerId, it) }
+            .map { it to config.categoryMultiplier(it) }
+            .filter { it.second > 1.0 }
+
+    /**
+     * The player's current dungeon-XP multiplier: 1.0 with no cleared tracks,
+     * rising as daily and/or weekly are fully completed. Daily and weekly
+     * stack (multiplicatively by default; see `xp-multiplier.stacking`).
+     * Refreshing a track clears its quests, so this drops on its own.
+     */
+    fun xpMultiplier(playerId: UUID): Double {
+        val parts = multiplierBreakdown(playerId)
+        if (parts.isEmpty()) return 1.0
+        return if (config.multiplierStacksMultiplicatively()) {
+            parts.fold(1.0) { acc, (_, factor) -> acc * factor }
+        } else {
+            1.0 + parts.sumOf { it.second - 1.0 }
+        }
+    }
+
+    // ------------------------------------------------------------------
     //  Progress and claiming
     // ------------------------------------------------------------------
 
@@ -115,6 +152,7 @@ class QuestManager(private val plugin: DungeonPlugin) {
      */
     fun addProgress(player: Player, objective: QuestObjective, amount: Int) {
         if (amount <= 0) return
+        val wasComplete = QuestCategory.entries.associateWith { categoryComplete(player.uniqueId, it) }
         var touched = false
         var completedOne = false
         for (category in QuestCategory.entries) {
@@ -136,6 +174,15 @@ class QuestManager(private val plugin: DungeonPlugin) {
             }
         }
         if (touched) {
+            // A track that just went fully complete turns on (or grows) the
+            // XP multiplier - worth calling out.
+            for (category in QuestCategory.entries) {
+                if (!category.refreshing || wasComplete[category] == true) continue
+                if (!categoryComplete(player.uniqueId, category)) continue
+                player.sendMessage("§6§l✦ All ${category.displayName} quests complete!")
+                player.sendMessage("§7Dungeon XP multiplier: §a×${format(xpMultiplier(player.uniqueId))}")
+                player.playSound(player.location, Sound.UI_TOAST_CHALLENGE_COMPLETE, 0.7f, 1.1f)
+            }
             // Plain counter ticks are batched to the timer; a completion is
             // worth writing to disk now.
             if (completedOne) save() else dirty = true
@@ -155,12 +202,35 @@ class QuestManager(private val plugin: DungeonPlugin) {
         if (!definition.isComplete(entry.counter)) return ClaimResult.NOT_COMPLETE
         entry.claimed = true
         save()
-        // Placeholder reward: announce it. Real rewards (items, XP, currency)
-        // are handed out here once designed.
-        player.sendMessage("§aReward claimed: §f${definition.reward.ifBlank { "(placeholder)" }}")
+        grantReward(player, definition)
         player.playSound(player.location, Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 0.7f, 1.2f)
         plugin.questMenu.refreshIfViewing(player)
         return ClaimResult.CLAIMED
+    }
+
+    /**
+     * The reward is dungeon XP toward class levelling. The class layer's
+     * [ClassProgressionService.grantSkillExperience] applies the quest XP
+     * multiplier itself, so the base amount is passed straight through; on a
+     * dungeons-only server (class layer off) it falls back to vanilla XP.
+     */
+    private fun grantReward(player: Player, definition: QuestDefinition) {
+        val base = definition.rewardXp
+        if (base <= 0) {
+            player.sendMessage("§aQuest claimed. §7(no reward configured)")
+            return
+        }
+        if (plugin.classes.enabled) {
+            val granted = plugin.classes.grantSkillExperience(player, base)
+            val multiplier = xpMultiplier(player.uniqueId)
+            player.sendMessage(if (multiplier > 1.0)
+                "§aReward: §a$granted Dungeon XP §7(includes ×${format(multiplier)} quest bonus)"
+            else
+                "§aReward: §a$granted Dungeon XP")
+        } else {
+            player.giveExp(base)
+            player.sendMessage("§aReward: §a$base XP")
+        }
     }
 
     // ------------------------------------------------------------------
@@ -355,5 +425,8 @@ class QuestManager(private val plugin: DungeonPlugin) {
 
         /** Rounds a damage figure to the counter step used by [QuestObjective.DEAL_DAMAGE]. */
         fun damageToCount(damage: Double): Int = damage.roundToInt().coerceAtLeast(0)
+
+        /** A multiplier as "1.88", "1.25", "2.00" - two decimals, dot separator. */
+        fun format(multiplier: Double): String = String.format(Locale.US, "%.2f", multiplier)
     }
 }

@@ -52,9 +52,13 @@ class QuestMenu(private val plugin: DungeonPlugin) {
         for (category in QuestCategory.entries) {
             val slot = yaml.getInt("menu.selector.${category.id}.slot", defaultSelectorSlot(category))
             if (slot in 0 until inventory.size) {
-                inventory.setItem(slot, selectorItem(category))
+                inventory.setItem(slot, selectorItem(player, category))
                 holder.categories[slot] = category
             }
+        }
+        val multiplierSlot = yaml.getInt("menu.selector.multiplier.slot", DEFAULT_MULTIPLIER_SLOT)
+        if (multiplierSlot in 0 until inventory.size) {
+            inventory.setItem(multiplierSlot, multiplierItem(player))
         }
         player.openInventory(inventory)
     }
@@ -117,12 +121,20 @@ class QuestMenu(private val plugin: DungeonPlugin) {
         }
     }
 
-    /** Redraws the quest items in place if the player is looking at a category list. */
+    /** Redraws whichever quest screen the player is looking at, in place. */
     fun refreshIfViewing(player: Player) {
         val top = player.openInventory.topInventory
-        val holder = top.getHolder(false) as? CategoryHolder ?: return
-        for ((invSlot, questSlot) in holder.questSlots) {
-            top.setItem(invSlot, questItem(player, holder.category, questSlot))
+        when (val holder = top.getHolder(false)) {
+            is CategoryHolder -> for ((invSlot, questSlot) in holder.questSlots) {
+                top.setItem(invSlot, questItem(player, holder.category, questSlot))
+            }
+            is SelectorHolder -> {
+                for ((invSlot, category) in holder.categories) {
+                    top.setItem(invSlot, selectorItem(player, category))
+                }
+                val multiplierSlot = yaml.getInt("menu.selector.multiplier.slot", DEFAULT_MULTIPLIER_SLOT)
+                if (multiplierSlot in 0 until top.size) top.setItem(multiplierSlot, multiplierItem(player))
+            }
         }
     }
 
@@ -130,9 +142,10 @@ class QuestMenu(private val plugin: DungeonPlugin) {
     //  Item building
     // ------------------------------------------------------------------
 
-    private fun selectorItem(category: QuestCategory): ItemStack {
+    private fun selectorItem(player: Player, category: QuestCategory): ItemStack {
         val path = "menu.selector.${category.id}"
         val material = material(yaml.getString("$path.material"), defaultSelectorMaterial(category))
+        val complete = quests.categoryComplete(player.uniqueId, category)
         val stack = ItemStack(material)
         stack.editMeta { meta ->
             meta.displayName(line(yaml.getString("$path.name") ?: "<yellow>${category.displayName} Quests"))
@@ -152,7 +165,53 @@ class QuestMenu(private val plugin: DungeonPlugin) {
             } else {
                 line(yaml.getString("menu.selector.no-refresh-text") ?: "<dark_gray>No scheduled refresh.")
             })
+            if (complete) {
+                lore.add(Component.empty())
+                val bonus = if (category.refreshing)
+                    yaml.getString("menu.selector.complete-text")
+                        ?: "<green>✔ All complete - XP bonus active"
+                else
+                    yaml.getString("menu.selector.complete-text-general") ?: "<green>✔ All complete"
+                lore.add(line(bonus))
+                meta.addEnchant(Enchantment.UNBREAKING, 1, true)
+                meta.addItemFlags(ItemFlag.HIDE_ENCHANTS)
+            }
             meta.lore(lore)
+        }
+        return stack
+    }
+
+    /** The XP-multiplier readout in the selector: current factor plus a per-track breakdown. */
+    private fun multiplierItem(player: Player): ItemStack {
+        val multiplier = quests.xpMultiplier(player.uniqueId)
+        val breakdown = quests.multiplierBreakdown(player.uniqueId)
+        val stack = ItemStack(material(yaml.getString("menu.selector.multiplier.material"), Material.EXPERIENCE_BOTTLE))
+        stack.editMeta { meta ->
+            val nameTemplate = yaml.getString("menu.selector.multiplier.name")
+                ?: "<aqua>Dungeon XP Multiplier: <white>×<value>"
+            meta.displayName(line(nameTemplate.replace("<value>", QuestManager.format(multiplier))))
+            val lore = ArrayList<Component>()
+            lore.add(Component.empty())
+            if (breakdown.isEmpty()) {
+                lore.add(line("<gray>No bonus active."))
+                lore.add(line("<gray>Complete every <white>Daily<gray> or <white>Weekly<gray> quest"))
+                lore.add(line("<gray>to earn a dungeon-XP bonus. They stack."))
+            } else {
+                for ((category, factor) in breakdown) {
+                    lore.add(line("<green>✔ ${category.displayName}: <white>×${QuestManager.format(factor)}"))
+                }
+                for (category in QuestCategory.entries) {
+                    if (!category.refreshing || breakdown.any { it.first == category }) continue
+                    lore.add(line("<dark_gray>✗ ${category.displayName}: not complete"))
+                }
+                lore.add(Component.empty())
+                lore.add(line("<gray>Applied to all dungeon XP you earn."))
+            }
+            meta.lore(lore)
+            if (multiplier > 1.0) {
+                meta.addEnchant(Enchantment.UNBREAKING, 1, true)
+                meta.addItemFlags(ItemFlag.HIDE_ENCHANTS)
+            }
         }
         return stack
     }
@@ -182,7 +241,7 @@ class QuestMenu(private val plugin: DungeonPlugin) {
             lore.add(line("<gray>${definition.description}"))
             lore.add(Component.empty())
             lore.add(line("<yellow>Progress: <white>$shown<gray>/<white>${definition.required}"))
-            lore.add(line("<yellow>Reward: <white>${definition.reward.ifBlank { "(placeholder)" }}"))
+            lore.add(line("<yellow>Reward: <white>${definition.rewardXp} <gray>Dungeon XP"))
             lore.add(Component.empty())
             lore.add(when (state) {
                 QuestManager.QuestState.COMPLETE_UNCLAIMED -> line("<green><bold>Complete!</bold> <gray>Click to claim your reward.")
@@ -265,6 +324,7 @@ class QuestMenu(private val plugin: DungeonPlugin) {
         private const val SELECTOR_SIZE = 27
         private const val CATEGORY_SIZE = 54
         private const val DEFAULT_BACK_SLOT = 49
+        private const val DEFAULT_MULTIPLIER_SLOT = 22
         private val DEFAULT_QUEST_SLOTS = listOf(19, 21, 23, 25)
 
         private fun defaultSelectorSlot(category: QuestCategory): Int = when (category) {

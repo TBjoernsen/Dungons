@@ -124,6 +124,19 @@ Structure and flow only; quest **content is placeholder** and lives in
   `deal_damage` (+finalDamage per hit on a non-player, melee or projectile),
   in `QuestObjectiveListener`. Real objective types are added as more
   handlers there; `QuestObjective` is the only enum to extend.
+- **Rewards are dungeon XP** (`pool.<cat>.<id>.reward-xp`, `QuestDefinition.
+  rewardXp`). Claiming calls `ClassProgressionService.grantSkillExperience`,
+  which now applies the quest XP multiplier to *every* skill-XP source and
+  returns the effective amount; on a `classes.enabled: false` server it
+  falls back to vanilla `giveExp`.
+- **XP multiplier** (`xp-multiplier.*` in quests.yml): completing every quest
+  in `daily` and/or `weekly` (claimed or not - `QuestManager.categoryComplete`)
+  turns on that track's factor (`daily` 1.25, `weekly` 1.5 by default).
+  Daily+weekly stack - `stacking: multiplicative` (1.875) or `additive`
+  (1.75). `QuestManager.xpMultiplier(uuid)` computes it live from completion
+  state, so a refresh (which clears the quests) drops it automatically;
+  `general` never contributes. The class layer reaches it through
+  `DungeonPlugin.questXpMultiplier(uuid)` (1.0 before the quest layer is up).
 - **GUI** (`QuestMenu`): `/quests` opens the single-chest selector
   (paper/Daily, map/Weekly, filled-map/General). Each selector button's lore
   ends with the wait until that category's next refresh (`<time>` in
@@ -132,11 +145,18 @@ Structure and flow only; quest **content is placeholder** and lives in
   double-chest list of that category's 4 quests, **ordered lowest
   `required` first** (`roll` sorts the picked set ascending, so slot 0 =
   easiest and the row ramps up to the right). Each quest item shows title /
-  objective / `progress`/`required` / reward, with a per-state material
+  objective / `progress`/`required` / `reward-xp`, with a per-state material
   (`menu.list.state.*`: LIME_DYE in progress, glowing GOLD_INGOT complete,
   GRAY_DYE claimed, BARRIER unresolved). Clicking a complete-unclaimed quest
-  claims it (placeholder reward = a chat line). Back arrow (slot 49) returns
-  to the selector. An open list redraws in place as progress lands.
+  claims it. Back arrow (slot 49) returns to the selector. An open list
+  redraws in place as progress lands.
+- **Multiplier visuals**: a selector button for a fully-cleared category
+  glows and gains a `✔ All complete` lore line (`menu.selector.complete-text`
+  / `-general`). Slot 22 holds an `EXPERIENCE_BOTTLE` readout
+  (`menu.selector.multiplier.*`) showing the current factor and a per-track
+  breakdown. `addProgress` announces the transition in chat + a challenge
+  sound. When the class layer is on, the sidebar gains an `XP Bonus: ×N.NN`
+  line while the factor is above 1.0 (`FeedbackService`).
 - **Command**: `/quests` (perm `dungeonplugin.quests`, default true). Admin
   (`dungeonplugin.admin`): `/quests refresh <cat>`, `/quests progress
   <kill|damage> <n>` (test without grinding), `/quests info`.
@@ -159,8 +179,10 @@ loaded at all. First-run checklist:
 5. Skill panel: gated nodes grey, buy on double click, points update.
 6. `/dungeon api status` should list 19 event types.
 7. `quests.yml` + `quest-data.yml` appear; `/quests` opens the selector;
-   `/quests progress kill 100` completes a quest and lets it be claimed;
-   `/quests refresh daily` rolls a new set and clears progress.
+   `/quests progress kill 100` completes a quest and lets it be claimed
+   (reward = dungeon XP, scaled by the multiplier); clearing all of `daily`
+   turns on the ×1.25 bonus (selector glows, slot-22 readout, sidebar line);
+   `/quests refresh daily` rolls a new set, clears progress, drops the bonus.
 
 ## Open items
 

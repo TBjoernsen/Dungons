@@ -418,6 +418,14 @@ class DungeonPlugin : JavaPlugin() {
         startRoomScanTask()
     }
 
+    /**
+     * The player's current dungeon-XP multiplier from fully-cleared quest
+     * tracks, or 1.0 before the quest layer is up. The class layer's XP
+     * grant multiplies every gain by this.
+     */
+    fun questXpMultiplier(playerId: java.util.UUID): Double =
+        if (this::quests.isInitialized) quests.xpMultiplier(playerId) else 1.0
+
     /** One refresh path for the class layer: attributes, sidebar, tab name. */
     fun refreshClassPlayer(player: Player) {
         if (!this::classes.isInitialized || !classes.enabled) return

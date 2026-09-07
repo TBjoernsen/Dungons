@@ -32,9 +32,9 @@ enum class QuestObjective(val id: String) {
  *
  * This is the structural contract the spec asks for - a title, a description
  * / objective, a numeric requirement, and a reward - so placeholder quests can
- * be swapped for real ones without touching the system around them. [reward]
- * is a plain string for now; it becomes something richer (items, XP, currency)
- * when rewards are designed.
+ * be swapped for real ones without touching the system around them. [rewardXp]
+ * is dungeon XP toward class levelling; it becomes something richer (items,
+ * currency, choices) when rewards are designed.
  */
 data class QuestDefinition(
     val id: String,
@@ -42,7 +42,7 @@ data class QuestDefinition(
     val description: String,
     val objective: QuestObjective,
     val required: Int,
-    val reward: String
+    val rewardXp: Int
 ) {
     /** Progress clamped into 0..[required], for display and completion checks. */
     fun clamp(counter: Int): Int = counter.coerceIn(0, required)
