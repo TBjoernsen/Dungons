@@ -405,10 +405,11 @@ class QuestBoardManager(private val plugin: DungeonPlugin) {
         val widthExtra = yaml.getDouble("board.hitboxes.note-width-extra", 0.3)
         val heightScale = yaml.getDouble("board.hitboxes.height-scale", 0.8)
         val xNudge = yaml.getDouble("board.hitboxes.x-nudge", 0.0)
-        val yNudge = yaml.getDouble("board.hitboxes.y-nudge", 0.0)
-        // Rows below the top two drift down slightly; lift each of those by
-        // this much per row (row 0 and 1 untouched).
-        val yRowNudge = yaml.getDouble("board.hitboxes.y-row-nudge", 0.08)
+        // The client anchors the multi-line card text a bit lower than it is
+        // measured, so every note hitbox is lifted by this.
+        val yNudge = yaml.getDouble("board.hitboxes.y-nudge", 0.4)
+        // Extra per-row lift for rows 2 and 3 if they drift relative to 0 and 1.
+        val yRowNudge = yaml.getDouble("board.hitboxes.y-row-nudge", 0.0)
         for ((category, slot, x) in pageSlots(currentPage)) {
             val definition = quests.definition(category, slot)
             val state = quests.state(player.uniqueId, category, slot)
