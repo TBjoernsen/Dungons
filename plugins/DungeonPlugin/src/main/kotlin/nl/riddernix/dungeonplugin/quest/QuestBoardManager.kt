@@ -130,13 +130,31 @@ class QuestBoardManager(private val plugin: DungeonPlugin) {
     //  Placement
     // ------------------------------------------------------------------
 
-    fun place(where: Location): String {
+    fun place(playerLocation: Location): String {
         val id = UUID.randomUUID().toString().substring(0, 8)
-        val base = snap(where)
+        val base = snap(target(playerLocation))
         boards[id] = base
         render(id, base)
         save()
         return id
+    }
+
+    /**
+     * Where a board goes for a player running `/quests board place`: with
+     * `board.face-player` (default) it lands `board.place-distance` blocks
+     * ahead along their horizontal look, turned to face back at them so the
+     * cards read from where they stand. Otherwise it lands exactly where they
+     * are.
+     */
+    private fun target(player: Location): Location {
+        if (!yaml.getBoolean("board.face-player", true)) return player.clone()
+        val distance = yaml.getDouble("board.place-distance", 5.0)
+        val yawRad = Math.toRadians(player.yaw.toDouble())
+        val ahead = Vector(-sin(yawRad), 0.0, cos(yawRad)).multiply(distance)
+        return player.clone().add(ahead).apply {
+            yaw = player.yaw + 180.0f
+            pitch = 0.0f
+        }
     }
 
     /**
@@ -386,6 +404,9 @@ class QuestBoardManager(private val plugin: DungeonPlugin) {
         val pad = yaml.getDouble("board.hitboxes.note-padding", 0.06)
         val xNudge = yaml.getDouble("board.hitboxes.x-nudge", 0.0)
         val yNudge = yaml.getDouble("board.hitboxes.y-nudge", 0.0)
+        // Rows below the top two drift down slightly; lift each of those by
+        // this much per row (row 0 and 1 untouched).
+        val yRowNudge = yaml.getDouble("board.hitboxes.y-row-nudge", 0.08)
         for ((category, slot, x) in pageSlots(currentPage)) {
             val definition = quests.definition(category, slot)
             val state = quests.state(player.uniqueId, category, slot)
@@ -399,7 +420,8 @@ class QuestBoardManager(private val plugin: DungeonPlugin) {
                 line(lines.joinToString("<newline>")), scale.toFloat(),
                 TextDisplay.TextAlignment.LEFT, Color.fromARGB(paper), perViewer = true))
             ids.add(spawnHitbox(placement, boardId, "hit-note-${category.id}-$slot",
-                x + xNudge, noteTopY(slot) + yNudge, w + 2 * pad, h + 2 * pad, perViewer = true))
+                x + xNudge, noteTopY(slot) + yNudge + maxOf(0, slot - 1) * yRowNudge,
+                w + 2 * pad, h + 2 * pad, perViewer = true))
         }
 
         // One page arrow: ">" on page 0 (to General), "<" on page 1 (back).
