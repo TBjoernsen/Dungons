@@ -146,6 +146,8 @@ mage:
     muzzle-offset: 1.4
     cast-sound: block_amethyst_block_chime
     impact-sound: block_amethyst_block_hit
+    impact-particles: 12        # burst when the bolt strikes
+    splash-particles: 14        # burst at the delayed area splash
     orb:
       block: AMETHYST_BLOCK
       scale: 0.35
@@ -154,10 +156,13 @@ mage:
       view-range: 2.0
     trail:
       color: "B45AFF"          # hex, mage purple
-      size: 1.1
+      size: 0.9                # smaller reads as fading sooner
       spacing: 0.55            # blocks between dust points (higher = sparser)
       start-gap: 1.0           # blocks of trail skipped past the muzzle
-      accent: END_ROD          # secondary spark particle, or "none"
+      # END_ROD sparks float for several seconds and are what "lingers" -
+      # "none" (default) clears the trail fastest. crit / electric_spark are
+      # short-lived alternatives.
+      accent: none
       accent-every: 4          # one accent per this many dust points
 
 # F-key (Swap Hands) abilities per class. Right-clicking the tagged Mage

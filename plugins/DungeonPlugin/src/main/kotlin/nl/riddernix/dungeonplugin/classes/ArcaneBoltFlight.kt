@@ -91,8 +91,9 @@ class ArcaneBoltFlight private constructor(
         cancel()
         orb.remove()
         if (hit) {
-            pos.world?.spawnParticle(Particle.WITCH, pos, 24, 0.18, 0.18, 0.18, 0.12)
-            pos.world?.spawnParticle(Particle.DUST, pos, 20, 0.2, 0.2, 0.2, 0.0, trailDust())
+            val burst = maxOf(0, cfg.getInt("mage.bolt.impact-particles", 12))
+            pos.world?.spawnParticle(Particle.WITCH, pos, burst, 0.16, 0.16, 0.16, 0.1)
+            pos.world?.spawnParticle(Particle.DUST, pos, burst / 2, 0.18, 0.18, 0.18, 0.0, trailDust())
             playSound("mage.bolt.impact-sound", "block_amethyst_block_hit", 0.9f, 1.1f)
         }
     }

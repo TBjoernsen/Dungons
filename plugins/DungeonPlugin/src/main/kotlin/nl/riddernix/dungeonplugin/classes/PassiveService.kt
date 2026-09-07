@@ -237,7 +237,9 @@ class PassiveService(private val plugin: DungeonPlugin) {
                     mob.damage(splashDamage, shooter)
                     mob.velocity = velocity
                 }
-            at.world!!.spawnParticle(Particle.ENCHANT, at, 28, radius / 3.0, 0.22, radius / 3.0, 0.08)
+            at.world!!.spawnParticle(Particle.ENCHANT, at,
+                maxOf(0, plugin.classesConfig.getInt("mage.bolt.splash-particles", 14)),
+                radius / 3.0, 0.22, radius / 3.0, 0.08)
         })
     }
 
