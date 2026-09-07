@@ -43,6 +43,11 @@ class QuestConfig(private val plugin: DungeonPlugin) {
             yaml.setDefaults(defaults)
             yaml.options().copyDefaults(true)
         }
+        // Backfill the xp-multiplier block into a file that predates it, so it
+        // is present and tunable rather than silently falling back in code.
+        if (!yaml.isDouble("xp-multiplier.daily")) yaml.set("xp-multiplier.daily", 1.10)
+        if (!yaml.isDouble("xp-multiplier.weekly")) yaml.set("xp-multiplier.weekly", 1.20)
+        if (!yaml.isString("xp-multiplier.stacking")) yaml.set("xp-multiplier.stacking", "multiplicative")
         save()
         poolCache.clear()
         for (category in QuestCategory.entries) poolCache[category] = parsePool(category)
@@ -80,18 +85,26 @@ class QuestConfig(private val plugin: DungeonPlugin) {
     //  XP multiplier
     // ------------------------------------------------------------------
 
-    /** True = daily and weekly bonuses multiply (1.25 * 1.5); false = add (1 + .25 + .5). */
+    /** True = daily and weekly bonuses multiply (1.10 * 1.20); false = add (1 + .10 + .20). */
     fun multiplierStacksMultiplicatively(): Boolean =
         (yaml.getString("xp-multiplier.stacking", "multiplicative") ?: "multiplicative")
             .trim().lowercase(Locale.ROOT) != "additive"
 
     /**
-     * A category's XP bonus, applied once every quest in it is complete.
-     * `1.0` (or below) means no bonus. Only [QuestCategory.DAILY] and
-     * [QuestCategory.WEEKLY] are read; general never contributes.
+     * A category's XP bonus, applied once every quest in it is complete. The
+     * fallback is the shipped value, not `1.0`, so a `quests.yml` that
+     * predates this section (and whose default-merge did not backfill it)
+     * still gets a working bonus. Only [QuestCategory.DAILY] and
+     * [QuestCategory.WEEKLY] contribute; general never does.
      */
-    fun categoryMultiplier(category: QuestCategory): Double =
-        maxOf(1.0, yaml.getDouble("xp-multiplier.${category.id}", 1.0))
+    fun categoryMultiplier(category: QuestCategory): Double {
+        val shipped = when (category) {
+            QuestCategory.DAILY -> 1.10
+            QuestCategory.WEEKLY -> 1.20
+            QuestCategory.GENERAL -> 1.0
+        }
+        return maxOf(1.0, yaml.getDouble("xp-multiplier.${category.id}", shipped))
+    }
 
     // ------------------------------------------------------------------
     //  Quest pool

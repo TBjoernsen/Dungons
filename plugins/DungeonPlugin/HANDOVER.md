@@ -137,6 +137,10 @@ Structure and flow only; quest **content is placeholder** and lives in
   state, so a refresh (which clears the quests) drops it automatically;
   `general` never contributes. The class layer reaches it through
   `DungeonPlugin.questXpMultiplier(uuid)` (1.0 before the quest layer is up).
+  `QuestConfig.categoryMultiplier` falls back to the shipped value (not 1.0)
+  and `reload()` backfills the `xp-multiplier` block, so a `quests.yml` from
+  before this feature still gets a working, tunable bonus - an in-place edit
+  there wins over both.
 - **GUI** (`QuestMenu`): `/quests` opens the single-chest selector
   (paper/Daily, map/Weekly, filled-map/General). Each selector button's lore
   ends with the wait until that category's next refresh (`<time>` in
