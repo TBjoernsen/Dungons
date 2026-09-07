@@ -33,6 +33,8 @@ import nl.riddernix.dungeonplugin.party.PartyManager
 import nl.riddernix.dungeonplugin.player.DungeonHungerListener
 import nl.riddernix.dungeonplugin.player.DungeonPvpListener
 import nl.riddernix.dungeonplugin.player.DungeonRespawnListener
+import nl.riddernix.dungeonplugin.quest.QuestBoardListener
+import nl.riddernix.dungeonplugin.quest.QuestBoardManager
 import nl.riddernix.dungeonplugin.quest.QuestCommand
 import nl.riddernix.dungeonplugin.quest.QuestConfig
 import nl.riddernix.dungeonplugin.quest.QuestManager
@@ -130,6 +132,12 @@ class DungeonPlugin : JavaPlugin() {
     lateinit var quests: QuestManager
         private set
     lateinit var questMenu: QuestMenu
+        private set
+    lateinit var questBoards: QuestBoardManager
+        private set
+    lateinit var questBoardIdKey: NamespacedKey
+        private set
+    lateinit var questBoardRoleKey: NamespacedKey
         private set
 
     lateinit var dungeonMobDungeonKey: NamespacedKey
@@ -250,12 +258,18 @@ class DungeonPlugin : JavaPlugin() {
         skillPanels = SkillPanelManager(this)
         skillPanels.load()
 
-        // The quest layer. The menu is built before the manager so a /reload
-        // with players online can redraw an open quest screen during the
-        // manager's start-up catch-up refresh.
+        // The quest layer. The menu and board are built before the manager so
+        // a /reload with players online (and the manager's start-up catch-up
+        // refresh) can redraw an open screen or board without hitting an
+        // uninitialised field. The board is only rendered once the manager is
+        // up, via load().
         questConfig = QuestConfig(this)
         questMenu = QuestMenu(this)
+        questBoardIdKey = NamespacedKey(this, "dungeon_quest_board")
+        questBoardRoleKey = NamespacedKey(this, "dungeon_quest_board_role")
+        questBoards = QuestBoardManager(this)
         quests = QuestManager(this)
+        questBoards.load()
 
         // Clean up anything left behind by a crash or a /stop while inside a
         // dungeon, so old world folders don't pile up.
@@ -292,6 +306,7 @@ class DungeonPlugin : JavaPlugin() {
         server.pluginManager.registerEvents(SkillPanelListener(this), this)
         server.pluginManager.registerEvents(QuestMenuListener(this), this)
         server.pluginManager.registerEvents(QuestObjectiveListener(this), this)
+        server.pluginManager.registerEvents(QuestBoardListener(this), this)
         getCommand("quests")?.let {
             val questCommand = QuestCommand(this)
             it.setExecutor(questCommand)
@@ -351,6 +366,9 @@ class DungeonPlugin : JavaPlugin() {
             quests.checkScheduledRefresh()
             quests.flushIfDirty()
         }, questCheckTicks, questCheckTicks)
+        // Quest board overlays follow players in and out of range, like the
+        // other in-world panels.
+        server.scheduler.runTaskTimer(this, Runnable { questBoards.tick() }, 10L, 10L)
 
         logger.info("DungeonPlugin enabled with ${events.eventTypes().size} internal event type(s); " +
             "classes ${if (classes.enabled) "enabled" else "disabled"}.")
@@ -370,6 +388,9 @@ class DungeonPlugin : JavaPlugin() {
         }
         if (this::skillPanels.isInitialized) {
             skillPanels.despawnAll()
+        }
+        if (this::questBoards.isInitialized) {
+            questBoards.despawnAll()
         }
         if (this::mobs.isInitialized) {
             mobs.saveTestingMobLocations()
@@ -415,6 +436,7 @@ class DungeonPlugin : JavaPlugin() {
         // Pool or timezone may have changed; catch up any boundary that now
         // counts as passed.
         quests.checkScheduledRefresh()
+        questBoards.reload()
         startRoomScanTask()
     }
 

@@ -28,7 +28,7 @@ commands:
     aliases: [givesoulshard]
   quests:
     description: Open the quest menu.
-    usage: /quests [refresh|progress|info]
+    usage: /quests [refresh|progress|info|board]
     aliases: [quest]
     permission: dungeonplugin.quests
 permissions:

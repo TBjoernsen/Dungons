@@ -61,7 +61,7 @@ switch to the shadow plugin.
 | `player`, `model`, `settings`, `menu` (PartyMenu only), `npc`, `fx`, `panel` | 1:1 | |
 | `skills` | SkillTreeLibrary (v6: reads per-node `effect.*`), SkillProgressManager, SkillPanelManager, geometry, listener | merged |
 | `classes` | ClassType/StatType, ClassesConfig, ClassProgressionService, ItemService, AttributeService, DungeonKitService, PassiveService, AbilityService, FeedbackService, CoreListener, ClassDungeonListener, HolographicClassSelection, ClassCommands | ClassSkills, rebuilt |
-| `quest` | QuestCategory, QuestObjective/QuestDefinition, QuestConfig, QuestManager, QuestMenu(+Listener), QuestObjectiveListener, QuestCommand | **new 2026-09-03** |
+| `quest` | QuestCategory, QuestObjective/QuestDefinition, QuestConfig, QuestManager, QuestMenu(+Listener), QuestObjectiveListener, QuestBoardManager(+Listener), QuestCommand | **new 2026-09-03** |
 | `command` | DungeonCommand (all /dungeon subcommands) | 1:1 |
 
 Deliberately NOT ported: DungeonForgeBridge (direct calls now), SkillModel
@@ -161,6 +161,26 @@ Structure and flow only; quest **content is placeholder** and lives in
   breakdown. `addProgress` announces the transition in chat + a challenge
   sound. When the class layer is on, the sidebar gains an `XP Bonus: ×N.NN`
   line while the factor is above 1.0 (`FeedbackService`).
+- **Quest board** (`QuestBoardManager` + `QuestBoardListener`, 2026-09-07):
+  a free-standing in-world notice board built from display/interaction
+  entities, same furniture model as the difficulty/skill panels (spawned
+  non-persistent from `quest-boards.yml`, per-viewer overlays, proximity
+  sweep on a 10-tick task, orphan sweep, `dungeon_quest_board` PDC keys,
+  transient reach boost to `board.click-range` while within
+  `board.activation-radius`). Placed with `/quests board place|remove|list`
+  (admin). **Page 0** = Daily (left column) + Weekly (right column), **page
+  1** = General; right/left arrows flip. Shared per board: backing
+  `BlockDisplay` + log frame, "Quest Board" title, 8 note hitboxes (L0-3 /
+  R0-3) + 2 arrow hitboxes - the clicking player's own page decides what a
+  hitbox does (`resolveNote`). Per viewer: a parchment `TextDisplay` per
+  note (tan background, brighter when complete-unclaimed) carrying
+  `<category> Quest: <title>` / refresh timer / description / progress bar +
+  counter / `Completed!` state, an XP-multiplier strip under the title, and
+  the visible arrow. Overlays rebuild on progress/claim/refresh
+  (`refreshViewer` / `refreshAllViewers` from `QuestManager`) and every
+  `board.overlay-refresh-seconds` so the timers move. All layout, palette
+  and text in `quests.yml` `board:` - coordinates are first-guess and need
+  live tuning. The chest `/quests` menu stays as the tested fallback.
 - **Command**: `/quests` (perm `dungeonplugin.quests`, default true). Admin
   (`dungeonplugin.admin`): `/quests refresh <cat>`, `/quests progress
   <kill|damage|all> <n>` (`all` advances both objectives, so one command
@@ -190,6 +210,10 @@ loaded at all. First-run checklist:
    bonus (selector glows, slot-22 readout, sidebar line). `/quests info` as
    a player shows per-slot state and the computed multiplier.
    `/quests refresh daily` rolls a new set, clears progress, drops the bonus.
+8. `/quests board place` drops the in-world board; walk to ~5 blocks, read
+   the Daily/Weekly notes, right-arrow to General and back, claim a
+   completed note. Coordinates in `quests.yml` `board:` almost certainly
+   need tuning on first look.
 
 ## Open items
 

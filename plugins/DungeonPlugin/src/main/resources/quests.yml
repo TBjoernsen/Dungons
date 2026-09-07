@@ -208,3 +208,88 @@ menu:
         material: GRAY_DYE
       missing:
         material: BARRIER
+
+# ---------------------------------------------------------------------
+#  In-world quest board (display entities)
+# ---------------------------------------------------------------------
+# A free-standing notice board, placed with /quests board place. Designed
+# to be read from ~5 blocks; standing within activation-radius raises your
+# interaction reach to click-range so the claim hitboxes work from there
+# (this also extends melee reach while you stand there - keep boards away
+# from combat).
+#
+# Page 0 = Daily (left column) + Weekly (right column); page 1 = General.
+# The right/left arrows flip pages. All coordinates are in blocks, relative
+# to the board's placement spot; X is along the board's width, Y is up.
+board:
+  view-range: 4.0
+  activation-radius: 24.0
+  click-range: 8.0
+  brightness: 15
+  # How often (seconds) a standing player's notes are rebuilt, so the
+  # "Refreshes in ..." timers keep counting down.
+  overlay-refresh-seconds: 30
+  # Turn the whole board around in place if it renders mirrored.
+  flip-facing: false
+  remove-radius: 5.0
+  cleanup-radius: 16.0
+  backing:
+    block: STRIPPED_SPRUCE_WOOD
+    frame-block: STRIPPED_DARK_OAK_LOG
+    width: 8.0
+    height: 6.2
+    depth: 0.3
+    centre-y: 3.1
+    frame-thickness: 0.35
+  title:
+    text: "<gradient:#e8c56a:#a5761f><bold>Quest Board</bold></gradient>"
+    height: 5.4
+    scale: 1.6
+  # The XP-multiplier strip, under the title and above the columns.
+  # <value> = the factor (1.32), <percent> = the bonus (32).
+  multiplier:
+    format: "<color:#c9a227>Dungeon XP Multiplier: <white>×<value> <gray>(+<percent>%)"
+    height: 4.4
+    scale: 0.6
+  notes:
+    # Distance of each column's centre from the board centre. Daily sits at
+    # -column-x, Weekly at +column-x, General (page 1) is centred at 0.
+    column-x: 2.05
+    # Y of the top of the first note; each row drops by row-gap.
+    top-y: 3.9
+    row-gap: 0.95
+    text-scale: 0.44
+    line-width: 210
+    # Standoff of text/arrows in front of the backing's front face.
+    front-z: 0.06
+    # ARGB parchment colours: normal, and when a quest is complete-unclaimed.
+    paper: "D8C89A6B"
+    paper-complete: "E6D9A441"
+  # Per-card text. Placeholders: <category> <title> <time> <desc> <bar>
+  # <current> <required>.
+  card:
+    title-format: "<color:#3b2a12><bold><category> Quest: <title>"
+    timer-format: "<color:#6b5836>Refreshes in <time>"
+    timer-none: "<color:#6b5836>No timed refresh"
+    description-format: "<color:#3b2a12><desc>"
+    bar-format: "<bar> <color:#3b2a12><current>/<required>"
+    bar-fill: "<color:#c9a227>▰"
+    bar-empty: "<color:#5b4a2e>▰"
+    bar-segments: 10
+    state-incomplete: "<color:#7a2d2d>✖ Not Completed"
+    state-complete: "<color:#2e7d32><bold>✔ Completed!"
+    state-claimed: "<color:#5b4a2e>✔ Claimed"
+  arrows:
+    right: "<color:#c9a227><bold>▶"
+    left: "<color:#c9a227><bold>◀"
+    scale: 1.8
+    edge-x: 4.3
+    height: 2.6
+  hitboxes:
+    note-width: 3.0
+    note-height: 1.7
+    arrow-width: 1.2
+    arrow-height: 1.4
+  sounds:
+    page: UI_BUTTON_CLICK
+    deny: BLOCK_NOTE_BLOCK_BASS

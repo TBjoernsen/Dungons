@@ -22,6 +22,7 @@ import java.util.Locale
  *   a whole category can be finished in one command).
  * - `/quests info` - current sets, per-slot progress and state, whether each
  *   category is complete, and the resulting XP multiplier.
+ * - `/quests board place|remove|list` - the free-standing in-world quest board.
  */
 class QuestCommand(private val plugin: DungeonPlugin) : CommandExecutor, TabCompleter {
 
@@ -35,11 +36,44 @@ class QuestCommand(private val plugin: DungeonPlugin) : CommandExecutor, TabComp
             "refresh" -> handleRefresh(sender, args)
             "progress" -> handleProgress(sender, args)
             "info" -> handleInfo(sender)
+            "board" -> handleBoard(sender, args)
             else -> {
-                sender.sendMessage("§7Usage: §f/quests §7| §f/quests refresh|progress|info")
+                sender.sendMessage("§7Usage: §f/quests §7| §f/quests refresh|progress|info|board")
                 true
             }
         }
+    }
+
+    /** `/quests board place|remove|list` - the free-standing in-world quest board. */
+    private fun handleBoard(sender: CommandSender, args: Array<out String>): Boolean {
+        if (!sender.hasPermission("dungeonplugin.admin")) return noPermission(sender)
+        val player = sender as? Player ?: return notPlayer(sender)
+        when (args.getOrNull(1)?.lowercase(Locale.ROOT)) {
+            "place" -> {
+                val id = plugin.questBoards.place(player.location)
+                player.sendMessage("§aQuest board §f$id§a placed at your feet, facing the way you are.")
+            }
+            "remove" -> {
+                if (plugin.questBoards.removeNearest(player.location))
+                    player.sendMessage("§aRemoved the nearest quest board.")
+                else
+                    player.sendMessage("§cNo quest board within range.")
+            }
+            "list" -> {
+                val boards = plugin.questBoards.list()
+                if (boards.isEmpty()) {
+                    player.sendMessage("§7No quest boards placed. §f/quests board place")
+                } else {
+                    player.sendMessage("§6Quest boards:")
+                    boards.forEach {
+                        val l = it.location
+                        player.sendMessage("  §7${it.id} §8- §f${l.world?.name} ${l.blockX}, ${l.blockY}, ${l.blockZ}")
+                    }
+                }
+            }
+            else -> player.sendMessage("§cUsage: /quests board <place|remove|list>")
+        }
+        return true
     }
 
     private fun handleRefresh(sender: CommandSender, args: Array<out String>): Boolean {
@@ -133,11 +167,12 @@ class QuestCommand(private val plugin: DungeonPlugin) : CommandExecutor, TabComp
         val admin = sender.hasPermission("dungeonplugin.admin")
         return when (args.size) {
             1 -> filter(buildList {
-                if (admin) addAll(listOf("refresh", "progress", "info"))
+                if (admin) addAll(listOf("refresh", "progress", "info", "board"))
             }, args[0])
             2 -> when (args[0].lowercase(Locale.ROOT)) {
                 "refresh" -> filter(QuestCategory.entries.map { it.id }, args[1])
                 "progress" -> filter(listOf("kill", "damage", "all"), args[1])
+                "board" -> filter(listOf("place", "remove", "list"), args[1])
                 else -> emptyList()
             }
             3 -> if (args[0].equals("progress", true)) filter(listOf("1", "5", "10", "50"), args[2]) else emptyList()

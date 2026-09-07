@@ -190,6 +190,7 @@ class QuestManager(private val plugin: DungeonPlugin) {
             // worth writing to disk now.
             if (completedOne) save() else dirty = true
             plugin.questMenu.refreshIfViewing(player)
+            plugin.questBoards.refreshViewer(player)
             // Push the new multiplier onto the class sidebar right away instead
             // of waiting for the next class tick.
             if (multiplierChanged) plugin.refreshClassPlayer(player)
@@ -211,6 +212,7 @@ class QuestManager(private val plugin: DungeonPlugin) {
         grantReward(player, definition)
         player.playSound(player.location, Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 0.7f, 1.2f)
         plugin.questMenu.refreshIfViewing(player)
+        plugin.questBoards.refreshViewer(player)
         return ClaimResult.CLAIMED
     }
 
@@ -278,6 +280,7 @@ class QuestManager(private val plugin: DungeonPlugin) {
         for (online in plugin.server.onlinePlayers) {
             plugin.questMenu.refreshIfViewing(online)
         }
+        plugin.questBoards.refreshAllViewers()
     }
 
     /** Picks [QuestCategory.SLOTS] definition ids from the pool into [sets]. */
