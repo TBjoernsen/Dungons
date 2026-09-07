@@ -226,7 +226,11 @@ board:
   # lower value has its whole `board:` section replaced on load (the layout
   # is still being tuned). Raise it yourself past the bundled value to keep
   # your own edits.
-  layout-version: 1
+  layout-version: 2
+  # Placement snaps to the block grid (block-centre X/Z, block-floor Y,
+  # nearest-90° yaw) so the board's axes stay square. Turn off to place at
+  # the exact spot and angle you stand.
+  snap-to-grid: true
   view-range: 4.0
   activation-radius: 24.0
   click-range: 8.0

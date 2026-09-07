@@ -85,8 +85,8 @@ class QuestBoardManager(private val plugin: DungeonPlugin) {
                     plugin.logger.warning("Ignoring quest board '$id': its world is not loaded.")
                     continue
                 }
-                boards[id] = Location(world, section.getDouble("$id.x"), section.getDouble("$id.y"),
-                    section.getDouble("$id.z"), section.getDouble("$id.yaw").toFloat(), 0.0f)
+                boards[id] = snap(Location(world, section.getDouble("$id.x"), section.getDouble("$id.y"),
+                    section.getDouble("$id.z"), section.getDouble("$id.yaw").toFloat(), 0.0f))
             }
         }
         for ((id, base) in boards) render(id, base)
@@ -132,12 +132,30 @@ class QuestBoardManager(private val plugin: DungeonPlugin) {
 
     fun place(where: Location): String {
         val id = UUID.randomUUID().toString().substring(0, 8)
-        val base = where.clone()
-        base.pitch = 0.0f
+        val base = snap(where)
         boards[id] = base
         render(id, base)
         save()
         return id
+    }
+
+    /**
+     * Snaps a placement onto the block grid so the board's axes stay
+     * axis-aligned: X/Z to the block centre, Y to the block floor, yaw to the
+     * nearest 90° (a cardinal facing). Off-grid placement rotates every offset
+     * in the layout and reads as misaligned. `board.snap-to-grid: false`
+     * keeps the raw location.
+     */
+    private fun snap(where: Location): Location {
+        if (!yaml.getBoolean("board.snap-to-grid", true)) {
+            return where.clone().apply { pitch = 0.0f }
+        }
+        val yaw = ((Math.round(where.yaw / 90.0f) * 90) % 360 + 360) % 360
+        return Location(where.world,
+            Math.floor(where.x) + 0.5,
+            Math.floor(where.y),
+            Math.floor(where.z) + 0.5,
+            yaw.toFloat(), 0.0f)
     }
 
     fun removeNearest(from: Location): Boolean {

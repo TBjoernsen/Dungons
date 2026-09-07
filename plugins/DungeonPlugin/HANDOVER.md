@@ -168,7 +168,12 @@ Structure and flow only; quest **content is placeholder** and lives in
   sweep on a 10-tick task, orphan sweep, `dungeon_quest_board` PDC keys,
   transient reach boost to `board.click-range` while within
   `board.activation-radius`). Placed with `/quests board place|remove|list`
-  (admin). **Page 0** = Daily (left column) + Weekly (right column), **page
+  (admin); placement snaps to the block grid (`board.snap-to-grid`,
+  block-centre X/Z, floor Y, nearest-90° yaw) so the axes stay square.
+  Note hitboxes and the page arrow are **per-viewer** overlay entities
+  rebuilt on page flip, so they track the cards on both the two-column and
+  the centred (General) page. `board.layout-version` resets the whole
+  `board:` block to bundled defaults while the layout is being tuned. **Page 0** = Daily (left column) + Weekly (right column), **page
   1** = General; right/left arrows flip. Shared per board: backing
   `BlockDisplay` + log frame, "Quest Board" title, 8 note hitboxes (L0-3 /
   R0-3) + 2 arrow hitboxes - the clicking player's own page decides what a
