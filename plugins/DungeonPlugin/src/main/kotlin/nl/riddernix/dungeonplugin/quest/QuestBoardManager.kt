@@ -427,6 +427,24 @@ class QuestBoardManager(private val plugin: DungeonPlugin) {
                 w + widthExtra + 2 * pad, h * heightScale + 2 * pad, perViewer = true))
         }
 
+        // A line under each column: clearing the whole track grants an XP boost.
+        val footerY = noteTopY(QuestCategory.SLOTS - 1) - yaml.getDouble("board.column-footer.y-gap", 0.9)
+        val footerScale = yaml.getDouble("board.column-footer.scale", 0.5).toFloat()
+        for ((category, columnX) in pageSlots(currentPage).map { it.first to it.third }.distinct()) {
+            val text = if (category.refreshing) {
+                val percent = (((plugin.questConfig.categoryMultiplier(category) - 1.0) * 100.0)).toInt()
+                (yaml.getString("board.column-footer.text")
+                    ?: "<gold>✦ Clear every <category> quest: <white>+<percent>% Dungeon XP")
+                    .replace("<category>", category.displayName).replace("<percent>", percent.toString())
+            } else {
+                yaml.getString("board.column-footer.text-general") ?: ""
+            }
+            if (text.isNotBlank()) {
+                ids.add(spawnText(placement, boardId, "ov-footer-${category.id}", columnX, footerY, frontZ(),
+                    line(text), footerScale, TextDisplay.TextAlignment.CENTER, null, perViewer = true))
+            }
+        }
+
         // One page arrow: ">" on page 0 (to General), "<" on page 1 (back).
         val arrowScale = yaml.getDouble("board.arrows.scale", 1.8).toFloat()
         val arrowH = yaml.getDouble("board.arrows.height", 2.6)

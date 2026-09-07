@@ -226,7 +226,7 @@ board:
   # lower value has its whole `board:` section replaced on load (the layout
   # is still being tuned). Raise it yourself past the bundled value to keep
   # your own edits.
-  layout-version: 10
+  layout-version: 11
   # /quests board place drops the board this many blocks ahead of you, turned
   # to face back at you so the cards read from where you stand. Set
   # face-player false to place it exactly where (and facing how) you stand.
@@ -332,6 +332,17 @@ board:
     # is tiny).
     arrow-width: 1.0
     arrow-height: 1.4
+  # A single line under each column reminding the player that clearing the
+  # whole track turns on an XP bonus. Daily/Weekly use `text` with the
+  # bonus each grants substituted in; General uses `text-general` (blank by
+  # default - General never grants a bonus). Placeholders: <category>
+  # <percent>.
+  column-footer:
+    text: "<gold>✦ Clear all <category>: <white>+<percent>% Dungeon XP"
+    text-general: ""
+    # Blocks below the bottom note row, and the text size.
+    y-gap: 0.8
+    scale: 0.5
   sounds:
     page: UI_BUTTON_CLICK
     deny: BLOCK_NOTE_BLOCK_BASS
