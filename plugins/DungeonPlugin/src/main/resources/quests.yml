@@ -222,6 +222,11 @@ menu:
 # The right/left arrows flip pages. All coordinates are in blocks, relative
 # to the board's placement spot; X is along the board's width, Y is up.
 board:
+  # Bumped whenever the bundled layout numbers below change; a file with a
+  # lower value has its whole `board:` section replaced on load (the layout
+  # is still being tuned). Raise it yourself past the bundled value to keep
+  # your own edits.
+  layout-version: 1
   view-range: 4.0
   activation-radius: 24.0
   click-range: 8.0
@@ -249,7 +254,7 @@ board:
   # <value> = the factor (1.32), <percent> = the bonus (32).
   multiplier:
     format: "<color:#c9a227>Dungeon XP Multiplier: <white>×<value> <gray>(+<percent>%)"
-    height: 4.4
+    height: 4.9
     scale: 0.6
   notes:
     # Distance of each column's centre from the board centre. Daily sits at
@@ -279,17 +284,21 @@ board:
     state-incomplete: "<color:#7a2d2d>✖ Not Completed"
     state-complete: "<color:#2e7d32><bold>✔ Completed!"
     state-claimed: "<color:#5b4a2e>✔ Claimed"
+  # Page arrows. Literal glyphs (no MiniMessage) tinted with `color`. `next`
+  # shows on page 0 at +edge-x (to General); `prev` on page 1 at -edge-x
+  # (back). edge-x sits them just inside the board's side, not past it.
   arrows:
-    right: "<color:#c9a227><bold>▶"
-    left: "<color:#c9a227><bold>◀"
+    next: ">"
+    prev: "<"
+    color: "#c9a227"
     scale: 1.8
-    edge-x: 4.3
+    edge-x: 3.6
     height: 2.6
   hitboxes:
     note-width: 3.0
     note-height: 1.7
-    arrow-width: 1.2
-    arrow-height: 1.4
+    arrow-width: 1.4
+    arrow-height: 1.6
   sounds:
     page: UI_BUTTON_CLICK
     deny: BLOCK_NOTE_BLOCK_BASS

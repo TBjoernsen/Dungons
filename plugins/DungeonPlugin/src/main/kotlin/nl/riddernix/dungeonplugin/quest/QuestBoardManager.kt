@@ -175,10 +175,10 @@ class QuestBoardManager(private val plugin: DungeonPlugin) {
         val role = clicked.persistentDataContainer.get(plugin.questBoardRoleKey, PersistentDataType.STRING) ?: return
         val current = page.getOrDefault(player.uniqueId, 0)
         when {
-            role == "hit-arrow-right" -> flipPage(player, id, current, 1)
-            role == "hit-arrow-left" -> flipPage(player, id, current, 0)
+            role == "hit-arrow-next" -> flipPage(player, id, current, (current + 1).coerceAtMost(1))
+            role == "hit-arrow-prev" -> flipPage(player, id, current, (current - 1).coerceAtLeast(0))
             role.startsWith("hit-note-") -> {
-                val (category, slot) = resolveNote(role, current) ?: return
+                val (category, slot) = resolveNote(role) ?: return
                 when (quests.claim(player, category, slot)) {
                     QuestManager.ClaimResult.CLAIMED -> refreshViewer(player)
                     QuestManager.ClaimResult.NOT_COMPLETE ->
@@ -191,18 +191,13 @@ class QuestBoardManager(private val plugin: DungeonPlugin) {
         }
     }
 
-    /** Note hitbox role ("hit-note-L2") + page -> the quest it stands for. */
-    private fun resolveNote(role: String, currentPage: Int): Pair<QuestCategory, Int>? {
+    /** Note hitbox role ("hit-note-general-2") -> the quest it stands for. */
+    private fun resolveNote(role: String): Pair<QuestCategory, Int>? {
         val tag = role.removePrefix("hit-note-")
-        val column = tag.firstOrNull() ?: return null
-        val slot = tag.drop(1).toIntOrNull() ?: return null
+        val category = QuestCategory.fromId(tag.substringBeforeLast('-')) ?: return null
+        val slot = tag.substringAfterLast('-').toIntOrNull() ?: return null
         if (slot !in 0 until QuestCategory.SLOTS) return null
-        return when {
-            currentPage == 1 && column == 'L' -> QuestCategory.GENERAL to slot
-            currentPage == 0 && column == 'L' -> QuestCategory.DAILY to slot
-            currentPage == 0 && column == 'R' -> QuestCategory.WEEKLY to slot
-            else -> null // right column on the general page does nothing
-        }
+        return category to slot
     }
 
     private fun flipPage(player: Player, boardId: String, from: Int, to: Int) {
@@ -314,29 +309,28 @@ class QuestBoardManager(private val plugin: DungeonPlugin) {
         ids.add(spawnBox(placement, id, "frame-left", -bw / 2.0, centreY, fz, ft, bh, ft, frameBlock))
         ids.add(spawnBox(placement, id, "frame-right", bw / 2.0, centreY, fz, ft, bh, ft, frameBlock))
 
-        // "Quest Board" title - shared, everyone sees it.
+        // "Quest Board" title - shared, everyone sees it. Notes, hitboxes and
+        // arrows are per viewer (they depend on the page you are on), built in
+        // ensureOverlays.
         val titleScale = yaml.getDouble("board.title.scale", 1.6).toFloat()
         ids.add(spawnText(placement, id, "title", 0.0,
             yaml.getDouble("board.title.height", 5.4), frontZ(),
             line(yaml.getString("board.title.text") ?: "<gradient:#e8c56a:#a5761f><bold>Quest Board</bold></gradient>"),
             titleScale, TextDisplay.TextAlignment.CENTER, null, perViewer = false))
 
-        // Shared hitboxes: eight note slots (L0-3 daily/general, R0-3 weekly) + two arrows.
-        val noteW = yaml.getDouble("board.hitboxes.note-width", 3.0)
-        val noteH = yaml.getDouble("board.hitboxes.note-height", 1.7)
-        for (slot in 0 until QuestCategory.SLOTS) {
-            val y = noteTopY(slot) - noteH / 2.0
-            ids.add(spawnHitbox(placement, id, "hit-note-L$slot", -columnX(), y, noteW, noteH))
-            ids.add(spawnHitbox(placement, id, "hit-note-R$slot", columnX(), y, noteW, noteH))
-        }
-        val arrowH = yaml.getDouble("board.arrows.height", 2.6)
-        val edgeX = yaml.getDouble("board.arrows.edge-x", 4.3)
-        val aw = yaml.getDouble("board.hitboxes.arrow-width", 1.2)
-        val ah = yaml.getDouble("board.hitboxes.arrow-height", 1.4)
-        ids.add(spawnHitbox(placement, id, "hit-arrow-left", -edgeX, arrowH, aw, ah))
-        ids.add(spawnHitbox(placement, id, "hit-arrow-right", edgeX, arrowH, aw, ah))
-
         shared[id] = ids
+    }
+
+    /** The (category, slot, x-offset) each note slot maps to on a given page. */
+    private fun pageSlots(currentPage: Int): List<Triple<QuestCategory, Int, Double>> = buildList {
+        for (slot in 0 until QuestCategory.SLOTS) {
+            if (currentPage == 0) {
+                add(Triple(QuestCategory.DAILY, slot, -columnX()))
+                add(Triple(QuestCategory.WEEKLY, slot, columnX()))
+            } else {
+                add(Triple(QuestCategory.GENERAL, slot, 0.0))
+            }
+        }
     }
 
     // ------------------------------------------------------------------
@@ -363,34 +357,34 @@ class QuestBoardManager(private val plugin: DungeonPlugin) {
             .replace("<value>", QuestManager.format(multiplier))
             .replace("<percent>", percent.toString())
         ids.add(spawnText(placement, boardId, "ov-multiplier", 0.0,
-            yaml.getDouble("board.multiplier.height", 4.4), frontZ(),
+            yaml.getDouble("board.multiplier.height", 4.9), frontZ(),
             line(stripText), yaml.getDouble("board.multiplier.scale", 0.6).toFloat(),
             TextDisplay.TextAlignment.CENTER, null, perViewer = true))
 
-        // Notes for the current page.
-        if (currentPage == 0) {
-            for (slot in 0 until QuestCategory.SLOTS) {
-                ids.add(noteDisplay(player, placement, boardId, "L$slot", QuestCategory.DAILY, slot, -columnX()))
-                ids.add(noteDisplay(player, placement, boardId, "R$slot", QuestCategory.WEEKLY, slot, columnX()))
-            }
-        } else {
-            for (slot in 0 until QuestCategory.SLOTS) {
-                ids.add(noteDisplay(player, placement, boardId, "L$slot", QuestCategory.GENERAL, slot, 0.0))
-            }
+        // Notes + their claim hitboxes for the current page, positioned so the
+        // hitbox always lines up with its note whichever page you are on.
+        val noteW = yaml.getDouble("board.hitboxes.note-width", 3.0)
+        val noteH = yaml.getDouble("board.hitboxes.note-height", 1.7)
+        for ((category, slot, x) in pageSlots(currentPage)) {
+            ids.add(noteDisplay(player, placement, boardId, category, slot, x))
+            ids.add(spawnHitbox(placement, boardId, "hit-note-${category.id}-$slot",
+                x, noteTopY(slot) - noteH / 2.0, noteW, noteH, perViewer = true))
         }
 
-        // Visible page arrow(s): right on page 0, left on page 1.
+        // One page arrow: ">" on page 0 (to General), "<" on page 1 (back).
         val arrowScale = yaml.getDouble("board.arrows.scale", 1.8).toFloat()
         val arrowH = yaml.getDouble("board.arrows.height", 2.6)
-        val edgeX = yaml.getDouble("board.arrows.edge-x", 4.3)
+        val edgeX = yaml.getDouble("board.arrows.edge-x", 3.6)
+        val aw = yaml.getDouble("board.hitboxes.arrow-width", 1.4)
+        val ah = yaml.getDouble("board.hitboxes.arrow-height", 1.6)
         if (currentPage == 0) {
-            ids.add(spawnText(placement, boardId, "ov-arrow-right", edgeX, arrowH, frontZ(),
-                line(yaml.getString("board.arrows.right") ?: "<color:#c9a227><bold>▶"),
-                arrowScale, TextDisplay.TextAlignment.CENTER, null, perViewer = true))
+            ids.add(spawnArrow(placement, boardId, "ov-arrow-next", edgeX, arrowH,
+                yaml.getString("board.arrows.next") ?: ">", arrowScale))
+            ids.add(spawnHitbox(placement, boardId, "hit-arrow-next", edgeX, arrowH, aw, ah, perViewer = true))
         } else {
-            ids.add(spawnText(placement, boardId, "ov-arrow-left", -edgeX, arrowH, frontZ(),
-                line(yaml.getString("board.arrows.left") ?: "<color:#c9a227><bold>◀"),
-                arrowScale, TextDisplay.TextAlignment.CENTER, null, perViewer = true))
+            ids.add(spawnArrow(placement, boardId, "ov-arrow-prev", -edgeX, arrowH,
+                yaml.getString("board.arrows.prev") ?: "<", arrowScale))
+            ids.add(spawnHitbox(placement, boardId, "hit-arrow-prev", -edgeX, arrowH, aw, ah, perViewer = true))
         }
 
         for (entityId in ids) {
@@ -404,7 +398,7 @@ class QuestBoardManager(private val plugin: DungeonPlugin) {
     }
 
     /** One parchment note = one per-viewer TextDisplay with a paper background. */
-    private fun noteDisplay(player: Player, placement: Placement, boardId: String, slotKey: String,
+    private fun noteDisplay(player: Player, placement: Placement, boardId: String,
                             category: QuestCategory, slot: Int, x: Double): UUID {
         val definition = quests.definition(category, slot)
         val state = quests.state(player.uniqueId, category, slot)
@@ -415,7 +409,7 @@ class QuestBoardManager(private val plugin: DungeonPlugin) {
         val content = if (definition == null) line("<color:#7a2d2d>(no quest)")
         else noteContent(player, category, slot, definition, state)
 
-        return spawnText(placement, boardId, "ov-note-$slotKey", x, noteTopY(slot), frontZ(),
+        return spawnText(placement, boardId, "ov-note-${category.id}-$slot", x, noteTopY(slot), frontZ(),
             content, yaml.getDouble("board.notes.text-scale", 0.44).toFloat(),
             TextDisplay.TextAlignment.LEFT, Color.fromARGB(paper), perViewer = true)
     }
@@ -508,6 +502,19 @@ class QuestBoardManager(private val plugin: DungeonPlugin) {
         return display.uniqueId
     }
 
+    /** A page arrow ("<" / ">") - literal glyphs, so no MiniMessage escaping. */
+    private fun spawnArrow(placement: Placement, boardId: String, role: String, x: Double, y: Double,
+                           glyph: String, scale: Float): UUID {
+        val colour = net.kyori.adventure.text.format.TextColor.fromHexString(
+            yaml.getString("board.arrows.color", "#c9a227") ?: "#c9a227")
+            ?: net.kyori.adventure.text.format.NamedTextColor.GOLD
+        val component = Component.text(glyph, colour)
+            .decoration(net.kyori.adventure.text.format.TextDecoration.BOLD, true)
+            .decoration(net.kyori.adventure.text.format.TextDecoration.ITALIC, false)
+        return spawnText(placement, boardId, role, x, y, frontZ(), component, scale,
+            TextDisplay.TextAlignment.CENTER, null, perViewer = true)
+    }
+
     private fun spawnBox(placement: Placement, boardId: String, role: String, x: Double, y: Double, z: Double,
                          width: Double, height: Double, depth: Double, material: Material): UUID {
         val at = placement.base.clone()
@@ -533,7 +540,7 @@ class QuestBoardManager(private val plugin: DungeonPlugin) {
     }
 
     private fun spawnHitbox(placement: Placement, boardId: String, role: String, x: Double, y: Double,
-                            width: Double, height: Double): UUID {
+                            width: Double, height: Double, perViewer: Boolean): UUID {
         val at = placement.base.clone()
             .add(placement.rightward.clone().multiply(x))
             .add(0.0, y - height / 2.0, 0.0)
@@ -544,6 +551,9 @@ class QuestBoardManager(private val plugin: DungeonPlugin) {
             interaction.isResponsive = true
             interaction.isPersistent = false
             interaction.isInvulnerable = true
+            // A per-viewer hitbox that a player has not been shown is not sent
+            // to their client, so only its owner can click it.
+            if (perViewer) interaction.isVisibleByDefault = false
             tag(interaction, boardId, role)
         }
         return hitbox.uniqueId

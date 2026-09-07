@@ -42,6 +42,16 @@ class QuestConfig(private val plugin: DungeonPlugin) {
             val defaults = YamlConfiguration.loadConfiguration(InputStreamReader(resource, StandardCharsets.UTF_8))
             yaml.setDefaults(defaults)
             yaml.options().copyDefaults(true)
+            // The board layout is still being tuned: when the bundled
+            // `board.layout-version` moves ahead of the file's, drop the
+            // file's whole `board:` section so the bundled defaults take over
+            // (copyDefaults writes them back on save). Pool, menu and
+            // xp-multiplier keep the normal merge-and-keep behaviour.
+            val bundledBoard = defaults.getInt("board.layout-version", 0)
+            if (yaml.getInt("board.layout-version", 0) < bundledBoard) {
+                yaml.set("board", null)
+                plugin.logger.info("quests.yml: board layout reset to bundled version $bundledBoard.")
+            }
         }
         // Backfill the xp-multiplier block into a file that predates it, so it
         // is present and tunable rather than silently falling back in code.
