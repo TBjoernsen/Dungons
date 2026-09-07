@@ -226,7 +226,7 @@ board:
   # lower value has its whole `board:` section replaced on load (the layout
   # is still being tuned). Raise it yourself past the bundled value to keep
   # your own edits.
-  layout-version: 6
+  layout-version: 5
   # /quests board place drops the board this many blocks ahead of you, turned
   # to face back at you so the cards read from where you stand. Set
   # face-player false to place it exactly where (and facing how) you stand.
@@ -304,17 +304,12 @@ board:
     edge-x: 3.5
     height: 2.6
   hitboxes:
-    # A note hitbox's HEIGHT is measured from the card's text (widest line x
-    # line count) so it lines up with the card. Its footprint side is
-    # note-depth - a fixed, small value: an Interaction's footprint is a
-    # square, so this is both the front-back depth and the horizontal reach.
-    # It is capped to the card width so a short card never gets a big box.
-    #   note-depth     - footprint side (depth + horizontal reach)
-    #   note-padding   - extra blocks added to the measured height
+    # Note hitboxes are measured from the card's own text (widest line x
+    # line count), so they are exactly the card's size on the same anchor.
+    #   note-padding   - extra blocks added on every side of the measured box
     #   x-nudge/y-nudge - shift the hitbox centre if the client anchors the
     #                     text a little off from where it is measured
     #   pixels-per-block / line-height-px - font metrics for the measurement
-    note-depth: 1.2
     note-padding: 0.06
     x-nudge: 0.0
     y-nudge: 0.0

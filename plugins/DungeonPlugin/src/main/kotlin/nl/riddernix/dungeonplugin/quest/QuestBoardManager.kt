@@ -397,14 +397,11 @@ class QuestBoardManager(private val plugin: DungeonPlugin) {
             line(stripText), yaml.getDouble("board.multiplier.scale", 0.6).toFloat(),
             TextDisplay.TextAlignment.CENTER, null, perViewer = true))
 
-        // Notes + their claim hitboxes. The hitbox height is measured from the
-        // card's own text so it lines up; its footprint side (note-depth) is a
-        // small fixed value - an Interaction's footprint is a square, so this
-        // is both the front-back depth and the horizontal reach, capped to the
-        // card so a short card never gets an oversized box.
+        // Notes + their claim hitboxes. The hitbox is measured from the card's
+        // own text so it is exactly the card's size and sits on the same
+        // anchor; x-nudge / y-nudge / note-padding are the only knobs.
         val scale = yaml.getDouble("board.notes.text-scale", 0.44)
         val pad = yaml.getDouble("board.hitboxes.note-padding", 0.06)
-        val noteDepth = yaml.getDouble("board.hitboxes.note-depth", 1.2)
         val xNudge = yaml.getDouble("board.hitboxes.x-nudge", 0.0)
         val yNudge = yaml.getDouble("board.hitboxes.y-nudge", 0.0)
         // Rows below the top two drift down slightly; lift each of those by
@@ -424,7 +421,7 @@ class QuestBoardManager(private val plugin: DungeonPlugin) {
                 TextDisplay.TextAlignment.LEFT, Color.fromARGB(paper), perViewer = true))
             ids.add(spawnHitbox(placement, boardId, "hit-note-${category.id}-$slot",
                 x + xNudge, noteTopY(slot) + yNudge + maxOf(0, slot - 1) * yRowNudge,
-                minOf(noteDepth, w + 2 * pad), h + 2 * pad, perViewer = true))
+                w + 2 * pad, h + 2 * pad, perViewer = true))
         }
 
         // One page arrow: ">" on page 0 (to General), "<" on page 1 (back).
