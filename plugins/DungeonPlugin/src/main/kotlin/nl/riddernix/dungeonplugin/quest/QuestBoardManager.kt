@@ -379,14 +379,27 @@ class QuestBoardManager(private val plugin: DungeonPlugin) {
             line(stripText), yaml.getDouble("board.multiplier.scale", 0.6).toFloat(),
             TextDisplay.TextAlignment.CENTER, null, perViewer = true))
 
-        // Notes + their claim hitboxes for the current page, positioned so the
-        // hitbox always lines up with its note whichever page you are on.
-        val noteW = yaml.getDouble("board.hitboxes.note-width", 2.2)
-        val noteH = yaml.getDouble("board.hitboxes.note-height", 0.9)
+        // Notes + their claim hitboxes. The hitbox is measured from the card's
+        // own text so it is exactly the card's size and sits on the same
+        // anchor; x-nudge / y-nudge / note-padding are the only knobs.
+        val scale = yaml.getDouble("board.notes.text-scale", 0.44)
+        val pad = yaml.getDouble("board.hitboxes.note-padding", 0.06)
+        val xNudge = yaml.getDouble("board.hitboxes.x-nudge", 0.0)
+        val yNudge = yaml.getDouble("board.hitboxes.y-nudge", 0.0)
         for ((category, slot, x) in pageSlots(currentPage)) {
-            ids.add(noteDisplay(player, placement, boardId, category, slot, x))
+            val definition = quests.definition(category, slot)
+            val state = quests.state(player.uniqueId, category, slot)
+            val lines = if (definition == null) listOf("<color:#7a2d2d>(no quest)")
+                else noteLines(player, category, slot, definition, state)
+            val (w, h) = measureCard(lines, scale)
+            val paper = if (state == QuestManager.QuestState.COMPLETE_UNCLAIMED)
+                argb(yaml.getString("board.notes.paper-complete"), 0xE6D9A441.toInt())
+            else argb(yaml.getString("board.notes.paper"), 0xD8C89A6B.toInt())
+            ids.add(spawnText(placement, boardId, "ov-note-${category.id}-$slot", x, noteTopY(slot), frontZ(),
+                line(lines.joinToString("<newline>")), scale.toFloat(),
+                TextDisplay.TextAlignment.LEFT, Color.fromARGB(paper), perViewer = true))
             ids.add(spawnHitbox(placement, boardId, "hit-note-${category.id}-$slot",
-                x, noteTopY(slot) - noteH / 2.0, noteW, noteH, perViewer = true))
+                x + xNudge, noteTopY(slot) + yNudge, w + 2 * pad, h + 2 * pad, perViewer = true))
         }
 
         // One page arrow: ">" on page 0 (to General), "<" on page 1 (back).
@@ -415,28 +428,11 @@ class QuestBoardManager(private val plugin: DungeonPlugin) {
         overlays[playerId]?.remove(boardId)?.let(::removeEntities)
     }
 
-    /** One parchment note = one per-viewer TextDisplay with a paper background. */
-    private fun noteDisplay(player: Player, placement: Placement, boardId: String,
-                            category: QuestCategory, slot: Int, x: Double): UUID {
-        val definition = quests.definition(category, slot)
-        val state = quests.state(player.uniqueId, category, slot)
-        val paper = if (state == QuestManager.QuestState.COMPLETE_UNCLAIMED)
-            argb(yaml.getString("board.notes.paper-complete"), 0xE6D9A441.toInt())
-        else argb(yaml.getString("board.notes.paper"), 0xD8C89A6B.toInt())
-
-        val content = if (definition == null) line("<color:#7a2d2d>(no quest)")
-        else noteContent(player, category, slot, definition, state)
-
-        return spawnText(placement, boardId, "ov-note-${category.id}-$slot", x, noteTopY(slot), frontZ(),
-            content, yaml.getDouble("board.notes.text-scale", 0.44).toFloat(),
-            TextDisplay.TextAlignment.LEFT, Color.fromARGB(paper), perViewer = true)
-    }
-
-    private fun noteContent(player: Player, category: QuestCategory, slot: Int,
-                            definition: QuestDefinition, state: QuestManager.QuestState): Component {
+    /** The MiniMessage lines of one card, in render order. */
+    private fun noteLines(player: Player, category: QuestCategory, slot: Int,
+                          definition: QuestDefinition, state: QuestManager.QuestState): List<String> {
         val cfg = { path: String, fallback: String -> yaml.getString("board.card.$path") ?: fallback }
-        val counter = quests.counter(player.uniqueId, category, slot)
-        val shown = definition.clamp(counter)
+        val shown = definition.clamp(quests.counter(player.uniqueId, category, slot))
 
         val lines = ArrayList<String>()
         lines.add(cfg("title-format", "<color:#3b2a12><bold><category> Quest: <title>")
@@ -462,7 +458,26 @@ class QuestBoardManager(private val plugin: DungeonPlugin) {
             QuestManager.QuestState.CLAIMED -> cfg("state-claimed", "<color:#5b4a2e>✔ Claimed")
             else -> cfg("state-incomplete", "<color:#7a2d2d>✖ Not Completed")
         })
-        return line(lines.joinToString("<newline>"))
+        return lines
+    }
+
+    /**
+     * The rendered size of a card, in blocks, from the widest line and the
+     * line count - the same font-metric approach the difficulty panel uses to
+     * fit a plate to a label. Used so a note's hitbox is exactly the card.
+     */
+    private fun measureCard(miniLines: List<String>, scale: Double): Pair<Double, Double> {
+        val unit = scale / maxOf(1.0, yaml.getDouble("board.hitboxes.pixels-per-block", 40.0))
+        val lineHeightPx = yaml.getDouble("board.hitboxes.line-height-px", 10.0)
+        var widestPx = 0
+        for (mini in miniLines) {
+            val plain = TAG.replace(mini, "")
+            val boldExtra = if ("<bold>" in mini || "<b>" in mini) 1 else 0
+            var px = 0
+            for (c in plain) px += glyphWidth(c) + boldExtra + 1
+            if (px > widestPx) widestPx = px
+        }
+        return (widestPx * unit) to (miniLines.size * lineHeightPx * unit)
     }
 
     // ------------------------------------------------------------------
@@ -655,9 +670,22 @@ class QuestBoardManager(private val plugin: DungeonPlugin) {
 
     companion object {
         private const val STORAGE = "quest-boards.yml"
+        private val TAG = Regex("<[^>]*>")
 
         private fun removeEntities(ids: List<UUID>) {
             for (id in ids) Bukkit.getEntity(id)?.remove()
+        }
+
+        /** Advance widths of Minecraft's default font (mirrors DifficultyPanelManager, plus a few card glyphs). */
+        private fun glyphWidth(character: Char): Int = when (character) {
+            'i', '!', ',', '.', ':', ';', '|', '\'' -> 1
+            'l', '`' -> 2
+            ' ', 't', 'I', '[', ']', '{', '}', '(', ')', '"', '*' -> 3
+            'f', 'k', '<', '>' -> 4
+            '@', '~' -> 6
+            '▰', '█' -> 7   // bar glyphs
+            '✔', '✖', '✦' -> 6 // check / cross / star
+            else -> 5
         }
     }
 }

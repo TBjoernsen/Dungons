@@ -226,7 +226,7 @@ board:
   # lower value has its whole `board:` section replaced on load (the layout
   # is still being tuned). Raise it yourself past the bundled value to keep
   # your own edits.
-  layout-version: 3
+  layout-version: 4
   # Placement snaps to the block grid (block-centre X/Z, block-floor Y,
   # nearest-90° yaw) so the board's axes stay square. Turn off to place at
   # the exact spot and angle you stand.
@@ -299,10 +299,19 @@ board:
     edge-x: 3.5
     height: 2.6
   hitboxes:
-    # Sized to the visible card, not the whole column slot, so the click
-    # areas do not overlap each other or reach into the page arrow.
-    note-width: 2.2
-    note-height: 0.9
+    # Note hitboxes are measured from the card's own text (widest line x
+    # line count), so they are exactly the card's size on the same anchor.
+    #   note-padding   - extra blocks added on every side of the measured box
+    #   x-nudge/y-nudge - shift the hitbox centre if the client anchors the
+    #                     text a little off from where it is measured
+    #   pixels-per-block / line-height-px - font metrics for the measurement
+    note-padding: 0.06
+    x-nudge: 0.0
+    y-nudge: 0.0
+    pixels-per-block: 40.0
+    line-height-px: 10.0
+    # The page arrows get a fixed, comfortable click area (the glyph itself
+    # is tiny).
     arrow-width: 1.0
     arrow-height: 1.4
   sounds:
