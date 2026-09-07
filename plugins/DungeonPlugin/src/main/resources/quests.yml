@@ -226,7 +226,7 @@ board:
   # lower value has its whole `board:` section replaced on load (the layout
   # is still being tuned). Raise it yourself past the bundled value to keep
   # your own edits.
-  layout-version: 7
+  layout-version: 8
   # /quests board place drops the board this many blocks ahead of you, turned
   # to face back at you so the cards read from where you stand. Set
   # face-player false to place it exactly where (and facing how) you stand.
@@ -304,16 +304,22 @@ board:
     edge-x: 3.5
     height: 2.6
   hitboxes:
-    # Note hitboxes are measured from the card's own text (widest line x
-    # line count), so they track the card on the same anchor.
-    #   note-padding   - extra blocks added on every side of the measured box
-    #   height-scale   - shrink the vertical extent of the measured box (the
-    #                    text metric slightly over-reads the line height)
-    #   x-nudge/y-nudge - shift the hitbox centre if the client anchors the
-    #                     text a little off from where it is measured
+    # A note hitbox is measured from the card's own text (widest line x line
+    # count) and tracks the card on the same anchor. An Interaction's
+    # footprint is a SQUARE (side = width), so a box wide enough to cover a
+    # card is also that deep - to stop it poking out toward you, its front
+    # face sits front-clearance in front of the card and the rest extends
+    # back into the board (harmless, the backing is not a real block).
+    #   note-width-extra - added to the measured width so it fully covers the card
+    #   height-scale      - shrink the vertical extent (the metric over-reads a bit)
+    #   note-padding      - extra blocks on every side of the box
+    #   front-clearance   - how far the box's front face sits in front of the card
+    #   x-nudge/y-nudge   - shift the box centre if the client anchors text off
     #   pixels-per-block / line-height-px - font metrics for the measurement
-    note-padding: 0.06
+    note-width-extra: 0.3
     height-scale: 0.8
+    note-padding: 0.06
+    front-clearance: 0.1
     x-nudge: 0.0
     y-nudge: 0.0
     # Rows below the top two drift down a little; lift each of those by this

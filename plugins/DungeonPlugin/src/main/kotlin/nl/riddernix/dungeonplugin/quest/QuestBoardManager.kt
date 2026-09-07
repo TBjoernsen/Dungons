@@ -402,6 +402,7 @@ class QuestBoardManager(private val plugin: DungeonPlugin) {
         // x-nudge / y-nudge are the knobs.
         val scale = yaml.getDouble("board.notes.text-scale", 0.44)
         val pad = yaml.getDouble("board.hitboxes.note-padding", 0.06)
+        val widthExtra = yaml.getDouble("board.hitboxes.note-width-extra", 0.3)
         val heightScale = yaml.getDouble("board.hitboxes.height-scale", 0.8)
         val xNudge = yaml.getDouble("board.hitboxes.x-nudge", 0.0)
         val yNudge = yaml.getDouble("board.hitboxes.y-nudge", 0.0)
@@ -422,7 +423,7 @@ class QuestBoardManager(private val plugin: DungeonPlugin) {
                 TextDisplay.TextAlignment.LEFT, Color.fromARGB(paper), perViewer = true))
             ids.add(spawnHitbox(placement, boardId, "hit-note-${category.id}-$slot",
                 x + xNudge, noteTopY(slot) + yNudge + maxOf(0, slot - 1) * yRowNudge,
-                w + 2 * pad, h * heightScale + 2 * pad, perViewer = true))
+                w + widthExtra + 2 * pad, h * heightScale + 2 * pad, perViewer = true))
         }
 
         // One page arrow: ">" on page 0 (to General), "<" on page 1 (back).
@@ -597,10 +598,16 @@ class QuestBoardManager(private val plugin: DungeonPlugin) {
 
     private fun spawnHitbox(placement: Placement, boardId: String, role: String, x: Double, y: Double,
                             width: Double, height: Double, perViewer: Boolean): UUID {
+        // An Interaction's footprint is a square (side = width), so a box wide
+        // enough to cover a card is also that deep. Sit its FRONT face just in
+        // front of the card and let the rest extend back into the board, so it
+        // does not poke out toward the viewer. The click ray still meets the
+        // front face, right where the card is.
+        val frontFace = frontZ() + yaml.getDouble("board.hitboxes.front-clearance", 0.1)
         val at = placement.base.clone()
             .add(placement.rightward.clone().multiply(x))
             .add(0.0, y - height / 2.0, 0.0)
-            .add(placement.facing.clone().multiply(frontZ() + 0.05))
+            .add(placement.facing.clone().multiply(frontFace - width / 2.0))
         val hitbox = placement.world.spawn(at, Interaction::class.java) { interaction ->
             interaction.interactionWidth = width.toFloat()
             interaction.interactionHeight = height.toFloat()
