@@ -243,7 +243,7 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         val hit = caster.world.rayTrace(
             eyeLocation,
             eyeLocation.direction,
-            plugin.classesConfig.getDouble("abilities.mage.heal-range", 20.0).coerceAtLeast(0.0),
+            plugin.classesConfig.getDouble("abilities.mage.heal-range", 50.0).coerceAtLeast(0.0),
             FluidCollisionMode.NEVER,
             true,
             0.35

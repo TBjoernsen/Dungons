@@ -144,6 +144,11 @@ mage:
     # Spawn the bolt this far in front of the caster's eyes so the trail
     # does not fill the screen when you fire standing still.
     muzzle-offset: 1.4
+    # Holding left-click keeps firing: an arm swing marks you as "firing" for
+    # this many ticks and a per-tick sweep re-casts while it lasts (the bolt
+    # cooldown still rate-limits it). Also the tail of extra shots after you
+    # release.
+    hold-grace-ticks: 8
     cast-sound: block_amethyst_block_chime
     impact-sound: block_amethyst_block_hit
     impact-particles: 12        # burst when the bolt strikes
@@ -186,4 +191,5 @@ abilities:
     blink-mana-cost: 35.0
     heal-cooldown-seconds: 30.0
     heal-mana-cost: 50.0
-    heal-range: 20.0
+    # Line-of-sight distance the Healing Spell reaches to pick an ally.
+    heal-range: 50.0
