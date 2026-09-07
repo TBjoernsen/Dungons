@@ -40,9 +40,14 @@ class ArcaneBoltFlight private constructor(
 
     private val cfg get() = plugin.classesConfig
     private val direction: Vector = shooter.eyeLocation.direction.normalize()
-    private var pos: Location = shooter.eyeLocation.clone()
     private val speed = cfg.getDouble("mage.bolt.speed", 3.0).coerceIn(0.5, 12.0)
     private val maxRange = cfg.getDouble("mage.bolt.max-range", 40.0).coerceIn(4.0, 128.0)
+    // Start the bolt out in front of the caster's face so the trail does not
+    // erupt across the screen when you fire standing still.
+    private val muzzleOffset = cfg.getDouble("mage.bolt.muzzle-offset", 1.4).coerceIn(0.0, 4.0)
+    private val trailStartGap = cfg.getDouble("mage.bolt.trail.start-gap", 1.0).coerceIn(0.0, 8.0)
+    private var pos: Location = shooter.eyeLocation.clone()
+        .add(direction.clone().multiply(muzzleOffset)).apply { y -= 0.15 }
     private var travelled = 0.0
     private var ticksLived = 0
     private val maxTicks = ceil(maxRange / speed).toInt() + 6
@@ -133,14 +138,17 @@ class ArcaneBoltFlight private constructor(
     private fun drawTrail(from: Location, distance: Double) {
         val world = from.world ?: return
         val dust = trailDust()
-        val spacing = cfg.getDouble("mage.bolt.trail.spacing", 0.35).coerceIn(0.1, 1.0)
+        val spacing = cfg.getDouble("mage.bolt.trail.spacing", 0.55).coerceIn(0.1, 1.5)
+        val accentEvery = maxOf(1, cfg.getInt("mage.bolt.trail.accent-every", 4))
         val accent = accentParticle()
         var d = 0.0
         var index = 0
         while (d < distance) {
+            // Leave a clear gap right in front of the caster.
+            if (travelled + d < trailStartGap) { d += spacing; index++; continue }
             val at = from.clone().add(direction.clone().multiply(d))
             world.spawnParticle(Particle.DUST, at, 1, 0.02, 0.02, 0.02, 0.0, dust)
-            if (accent != null && index % 3 == 0) {
+            if (accent != null && index % accentEvery == 0) {
                 world.spawnParticle(accent, at, 1, 0.03, 0.03, 0.03, 0.0)
             }
             d += spacing

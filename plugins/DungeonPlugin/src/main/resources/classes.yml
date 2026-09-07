@@ -141,6 +141,9 @@ mage:
     max-range: 40.0
     ray-size: 0.3              # entity-hitbox inflation for the sweep
     direct-knockback: true     # false = damage-only on the direct hit too
+    # Spawn the bolt this far in front of the caster's eyes so the trail
+    # does not fill the screen when you fire standing still.
+    muzzle-offset: 1.4
     cast-sound: block_amethyst_block_chime
     impact-sound: block_amethyst_block_hit
     orb:
@@ -152,8 +155,10 @@ mage:
     trail:
       color: "B45AFF"          # hex, mage purple
       size: 1.1
-      spacing: 0.35            # blocks between dust points
+      spacing: 0.55            # blocks between dust points (higher = sparser)
+      start-gap: 1.0           # blocks of trail skipped past the muzzle
       accent: END_ROD          # secondary spark particle, or "none"
+      accent-every: 4          # one accent per this many dust points
 
 # F-key (Swap Hands) abilities per class. Right-clicking the tagged Mage
 # staff casts Healing Spell.
