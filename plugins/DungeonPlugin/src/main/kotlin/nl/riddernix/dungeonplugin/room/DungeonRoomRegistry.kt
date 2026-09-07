@@ -31,6 +31,13 @@ class DungeonRoomRegistry(private val plugin: DungeonPlugin) {
         // room is populated: the one moment the party is known and no mob has
         // been scaled yet. A solo run has no party, which is the 1 default.
         plugin.parties.partyForWorld(world.name)?.let { party -> instance.lockPartySize(party.members.size) }
+        // Shared life pool for the run: a base plus a bonus per extra member.
+        val livesCfg = plugin.classesConfig
+        if (livesCfg.getBoolean("lives.enabled", true)) {
+            val base = maxOf(1, livesCfg.getInt("lives.count", 5))
+            val perExtra = maxOf(0, livesCfg.getInt("lives.per-player-bonus", 2))
+            instance.initLives(base + perExtra * (instance.partySize - 1))
+        }
         byWorld[world.name] = instance
         // The world is fully built by the time an instance registers, so the
         // key gate's barrier and the trap snapshots can go straight in.

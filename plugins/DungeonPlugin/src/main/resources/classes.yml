@@ -41,6 +41,22 @@ completion-xp-per-difficulty:
 # amounts.
 dungeon-xp-multiplier: 0.22
 
+# A failed run (life pool exhausted) still pays out: the banked mob XP only
+# - no completion bonus, no shards - times this fraction. 0 turns the
+# consolation payout off; 1.0 pays the full mob XP a win would have.
+dungeon-loss-xp-fraction: 0.35
+
+# The party's shared respawn pool for a run. Each death inside the dungeon
+# spends one life; at zero the run fails, everyone is returned to spawn, and
+# the consolation XP above is paid. lives.enabled: false restores the old
+# infinite-respawn behaviour.
+lives:
+  enabled: true
+  # Base pool, plus per-player-bonus for every party member past the first
+  # (a 3-player party at the defaults gets 5 + 2*2 = 9).
+  count: 5
+  per-player-bonus: 2
+
 # Linear placeholder curve; replace only after dungeon pacing has been
 # play-tested.
 xp-to-next-level:

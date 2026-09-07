@@ -14,6 +14,7 @@ import nl.riddernix.dungeonplugin.classes.ItemService
 import nl.riddernix.dungeonplugin.classes.PassiveService
 import nl.riddernix.dungeonplugin.command.DungeonCommand
 import nl.riddernix.dungeonplugin.completion.DungeonCompletionManager
+import nl.riddernix.dungeonplugin.completion.DungeonLivesListener
 import nl.riddernix.dungeonplugin.door.DungeonDoorManager
 import nl.riddernix.dungeonplugin.door.DungeonRoomGateManager
 import nl.riddernix.dungeonplugin.fx.AnimationPreview
@@ -293,6 +294,7 @@ class DungeonPlugin : JavaPlugin() {
         server.pluginManager.registerEvents(doors, this)
         server.pluginManager.registerEvents(gates, this)
         server.pluginManager.registerEvents(traps, this)
+        server.pluginManager.registerEvents(DungeonLivesListener(this), this)
         // Built after the mob manager so it can listen to its spawn event,
         // and registered unconditionally: it simply does nothing without an
         // engine.

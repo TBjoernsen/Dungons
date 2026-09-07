@@ -41,10 +41,21 @@ class DungeonInstance @JvmOverloads constructor(
 
     var isCompleted: Boolean = false
         private set
+    var isFailed: Boolean = false
+        private set
     var isKeyObtained: Boolean = false
         private set
     var mobKillCount: Int = 0
         private set
+
+    /**
+     * The party's shared respawn pool. -1 means the lives system is off for
+     * this run; otherwise a dungeon death spends one and the run fails at 0.
+     */
+    var livesRemaining: Int = -1
+        private set
+
+    val livesEnabled: Boolean get() = livesRemaining >= 0
 
     /**
      * How many players the mob numbers are balanced for, fixed when the
@@ -128,6 +139,24 @@ class DungeonInstance @JvmOverloads constructor(
     fun complete(): Boolean {
         if (isCompleted) return false
         isCompleted = true
+        return true
+    }
+
+    /** Sets the starting life pool. Called once at registration; a value below 0 leaves the system off. */
+    fun initLives(count: Int) {
+        livesRemaining = if (count < 0) -1 else count
+    }
+
+    /** Spends one life if any remain; returns the count left afterwards. */
+    fun consumeLife(): Int {
+        if (livesRemaining > 0) livesRemaining--
+        return livesRemaining
+    }
+
+    /** Marks the run failed once; returns false on duplicates or if it already completed. */
+    fun fail(): Boolean {
+        if (isFailed || isCompleted) return false
+        isFailed = true
         return true
     }
 

@@ -237,6 +237,7 @@ class DungeonWorldManager(private val plugin: DungeonPlugin) {
                 plugin.snapshots.ending(dungeon, dungeon.isCompleted),
                 when {
                     dungeon.isCompleted -> DungeonEndReason.COMPLETED
+                    dungeon.isFailed -> DungeonEndReason.FAILED
                     plugin.isStopping -> DungeonEndReason.CLEANED_UP
                     else -> DungeonEndReason.ABANDONED
                 })

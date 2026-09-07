@@ -119,17 +119,39 @@ class ClassProgressionService(private val plugin: DungeonPlugin) {
         plugin.refreshClassPlayer(player)
     }
 
+    /**
+     * The XP a run is worth: banked mob XP, plus the completion bonus when
+     * the boss actually went down, all through the one run multiplier.
+     */
+    private fun runExperience(difficulty: Int, mobKills: Int, completed: Boolean): Int {
+        val config = plugin.classesConfig
+        val mobExperience = maxOf(0, config.getInt("xp-per-difficulty.$difficulty", 0)) * maxOf(0, mobKills)
+        val completionExperience = if (completed)
+            maxOf(0, config.getInt("completion-xp-per-difficulty.$difficulty", 0)) else 0
+        val experienceMultiplier = config.getDouble("dungeon-xp-multiplier", 0.22).coerceIn(0.0, 10.0)
+        return ((mobExperience + completionExperience) * experienceMultiplier).roundToInt()
+    }
+
+    /**
+     * A failed run still pays out: the banked mob XP only (no completion
+     * bonus, no shards), scaled by `dungeon-loss-xp-fraction`. Attempting a
+     * dungeon is never wasted time.
+     */
+    fun awardDungeonLoss(player: Player, difficulty: Int, mobKills: Int) {
+        require(difficulty in 1..9) { "Difficulty must be between 1 and 9." }
+        val fraction = plugin.classesConfig.getDouble("dungeon-loss-xp-fraction", 0.35).coerceIn(0.0, 1.0)
+        val total = (runExperience(difficulty, mobKills, completed = false) * fraction).roundToInt()
+        if (total > 0) {
+            player.giveExp(total)
+            grantSkillExperience(player, total)
+        }
+        player.sendMessage("§cDungeon failed. §7Consolation: §e+$total XP §7($mobKills mobs).")
+    }
+
     /** Awards all banked mob XP, completion XP, and shard loot in one completion summary. */
     fun awardDungeonCompletion(player: Player, difficulty: Int, mobKills: Int) {
         require(difficulty in 1..9) { "Difficulty must be between 1 and 9." }
-        val config = plugin.classesConfig
-        val mobExperience = maxOf(0, config.getInt("xp-per-difficulty.$difficulty", 0)) * maxOf(0, mobKills)
-        val completionExperience = maxOf(0, config.getInt("completion-xp-per-difficulty.$difficulty", 0))
-        // Apply one configurable multiplier to the whole run, so mob-heavy
-        // dungeons cannot outpace the intended progression curve while their
-        // completion bonus stays meaningful.
-        val experienceMultiplier = config.getDouble("dungeon-xp-multiplier", 0.22).coerceIn(0.0, 10.0)
-        val totalExperience = ((mobExperience + completionExperience) * experienceMultiplier).roundToInt()
+        val totalExperience = runExperience(difficulty, mobKills, completed = true)
         if (totalExperience > 0) {
             player.giveExp(totalExperience)
             grantSkillExperience(player, totalExperience)

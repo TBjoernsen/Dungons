@@ -13,6 +13,8 @@ enum class DungeonRoomType {
 enum class DungeonEndReason {
     /** The boss was defeated. */
     COMPLETED,
+    /** The party's shared life pool ran out. */
+    FAILED,
     /** Everyone left, or the party leader ended the run. */
     ABANDONED,
     /** Removed administratively, on shutdown, or as leftover from a crash. */

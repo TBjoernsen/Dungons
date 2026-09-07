@@ -98,6 +98,32 @@ BossDefinition scenery accessors were kept).
 - `/skills reset` (player-facing, costs ceil(spent × bulk-reset-shard-rate)
   Skill Shards) replaces ClassSkills' shard-paid reset paths.
 
+## Dungeon lives + loss XP (added 2026-09-08)
+
+- **Shared party life pool.** `DungeonInstance` gains `livesRemaining` /
+  `isFailed`; `DungeonRoomRegistry.register` seeds it from `classes.yml`
+  `lives.*` (`count` + `per-player-bonus * (partySize - 1)`, default
+  5 + 2·n). `DungeonLivesListener` (in `completion`) hears
+  `DungeonPlayerDeathEvent`, spends one life per death (actionbar +
+  sound to the party), and at zero calls
+  `DungeonCompletionManager.fail(dungeon)` **next tick** (so the death
+  event settles first). `lives.enabled: false` restores infinite respawns.
+- **New end reason `FAILED`.** `DungeonCompletionManager` refactored:
+  `complete()` and `fail()` share `endRun(reason)` (freeze → despawn mobs
+  → `fireEnd` → announce → grace → `beginReturn` → cleanup, all reused).
+  `fail()` shows a Defeat title instead of the victory one.
+  `DungeonWorldManager.deleteWorld` maps `isFailed -> FAILED`; the bus
+  still dedups so only the first end fires.
+- **Loss XP.** `ClassProgressionService.runExperience(diff, kills,
+  completed)` is the shared XP math; `awardDungeonLoss` pays
+  `mobXP · dungeon-xp-multiplier · dungeon-loss-xp-fraction` (0.35, in
+  classes.yml) - no completion bonus, no shard rolls.
+  `ClassDungeonListener.onDungeonEnd` now pays `COMPLETED` in full and
+  `FAILED` at the reduced rate; everything else pays nothing.
+- **Known gap:** a trap-floor death currently spends a life too (the trap
+  was designed to "cost nothing but the walk back"). Exempt it later with
+  a damage-cause check in `DungeonLivesListener` if wanted.
+
 ## Quests (added 2026-09-03, first feature past the merge)
 
 Structure and flow only; quest **content is placeholder** and lives in
