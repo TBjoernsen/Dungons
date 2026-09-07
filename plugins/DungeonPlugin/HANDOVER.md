@@ -129,9 +129,9 @@ Structure and flow only; quest **content is placeholder** and lives in
   ends with the wait until that category's next refresh (`<time>` in
   `menu.selector.refresh-timer-format`; general shows `no-refresh-text`) -
   computed when the menu opens, not live-ticking. Clicking one opens the
-  double-chest list of that category's 4 quests, **ordered highest
-  `required` first** (`roll` sorts the picked set descending, so slot 0 =
-  hardest and the row reads as a gradient). Each quest item shows title /
+  double-chest list of that category's 4 quests, **ordered lowest
+  `required` first** (`roll` sorts the picked set ascending, so slot 0 =
+  easiest and the row ramps up to the right). Each quest item shows title /
   objective / `progress`/`required` / reward, with a per-state material
   (`menu.list.state.*`: LIME_DYE in progress, glowing GOLD_INGOT complete,
   GRAY_DYE claimed, BARRIER unresolved). Clicking a complete-unclaimed quest

@@ -230,10 +230,10 @@ class QuestManager(private val plugin: DungeonPlugin) {
             plugin.logger.warning("quests.yml pool.${category.id} is empty; that category will show no quests.")
             repeat(QuestCategory.SLOTS) { picked.add("") }
         }
-        // Highest requirement to the left, so the row reads as a clean
-        // descending gradient rather than a random jumble.
+        // Lowest requirement to the left, ramping up to the right, so the row
+        // reads as a clean gradient rather than a random jumble.
         val required = config.pool(category).associate { it.id to it.required }
-        picked.sortByDescending { required[it] ?: 0 }
+        picked.sortBy { required[it] ?: 0 }
         sets[category] = picked
         if (stamp) lastRefresh[category] = System.currentTimeMillis()
     }
