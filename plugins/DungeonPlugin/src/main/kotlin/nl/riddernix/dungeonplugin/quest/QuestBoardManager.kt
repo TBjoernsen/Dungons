@@ -407,7 +407,7 @@ class QuestBoardManager(private val plugin: DungeonPlugin) {
         val xNudge = yaml.getDouble("board.hitboxes.x-nudge", 0.0)
         // The client anchors the multi-line card text a bit lower than it is
         // measured, so every note hitbox is lifted by this.
-        val yNudge = yaml.getDouble("board.hitboxes.y-nudge", 0.4)
+        val yNudge = yaml.getDouble("board.hitboxes.y-nudge", 0.3)
         // Extra per-row lift for rows 2 and 3 if they drift relative to 0 and 1.
         val yRowNudge = yaml.getDouble("board.hitboxes.y-row-nudge", 0.0)
         for ((category, slot, x) in pageSlots(currentPage)) {

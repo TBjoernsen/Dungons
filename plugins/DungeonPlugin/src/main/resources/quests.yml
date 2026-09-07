@@ -226,7 +226,7 @@ board:
   # lower value has its whole `board:` section replaced on load (the layout
   # is still being tuned). Raise it yourself past the bundled value to keep
   # your own edits.
-  layout-version: 9
+  layout-version: 10
   # /quests board place drops the board this many blocks ahead of you, turned
   # to face back at you so the cards read from where you stand. Set
   # face-player false to place it exactly where (and facing how) you stand.
@@ -323,7 +323,7 @@ board:
     x-nudge: 0.0
     # Positive lifts every note hitbox (the client anchors the multi-line
     # card text a bit lower than it is measured).
-    y-nudge: 0.4
+    y-nudge: 0.3
     # Extra per-row lift for rows 2 and 3 if they drift relative to 0 and 1.
     y-row-nudge: 0.0
     pixels-per-block: 40.0
