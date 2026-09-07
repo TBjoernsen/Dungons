@@ -124,6 +124,37 @@ paladin:
   turtle-master-resistance-amplifier: 2
   turtle-master-slowness-amplifier: 3
 
+# Mage Arcane Bolt - the baseline staff attack (left-click) - and its mana
+# economy. Signature-rank scaling adds damage-per-rank on top of the base.
+mage:
+  mana-regeneration-per-second: 10.0
+  arcane-bolt-mana-cost: 10.0
+  arcane-bolt-cooldown-ticks: 8
+  arcane-bolt-base-damage: 5.0
+  arcane-bolt-damage-per-rank: 1.5
+  arcane-bolt-splash-radius: 1.5
+  arcane-bolt-splash-damage-percent: 50.0
+  # The bolt is a raycast, not a thrown entity: fast and straight, no gravity,
+  # with a glowing BlockDisplay orb and a dust trail riding the ray.
+  bolt:
+    speed: 3.0                 # blocks per tick (~60 blocks/s)
+    max-range: 40.0
+    ray-size: 0.3              # entity-hitbox inflation for the sweep
+    direct-knockback: true     # false = damage-only on the direct hit too
+    cast-sound: block_amethyst_block_chime
+    impact-sound: block_amethyst_block_hit
+    orb:
+      block: AMETHYST_BLOCK
+      scale: 0.35
+      glow: true               # full emissive, visible in the dark
+      spin-degrees-per-tick: 22.0
+      view-range: 2.0
+    trail:
+      color: "B45AFF"          # hex, mage purple
+      size: 1.1
+      spacing: 0.35            # blocks between dust points
+      accent: END_ROD          # secondary spark particle, or "none"
+
 # F-key (Swap Hands) abilities per class. Right-clicking the tagged Mage
 # staff casts Healing Spell.
 abilities:

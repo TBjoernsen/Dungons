@@ -3,6 +3,7 @@ package nl.riddernix.dungeonplugin.classes
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.format.NamedTextColor
 import nl.riddernix.dungeonplugin.DungeonPlugin
+import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.Particle
 import org.bukkit.Sound
@@ -12,7 +13,6 @@ import org.bukkit.entity.LivingEntity
 import org.bukkit.entity.Mob
 import org.bukkit.entity.Player
 import org.bukkit.entity.Projectile
-import org.bukkit.entity.Snowball
 import org.bukkit.event.entity.EntityDamageByEntityEvent
 import org.bukkit.event.entity.EntityDamageEvent
 import org.bukkit.event.entity.EntityShootBowEvent
@@ -195,56 +195,49 @@ class PassiveService(private val plugin: DungeonPlugin) {
         if (player.hasCooldown(Material.BLAZE_ROD)) return ArcaneCastResult.COOLDOWN
 
         data.mana -= manaCost
-        val bolt = player.launchProjectile(Snowball::class.java)
-        // Keep vanilla snowball physics. It is a true projectile and can
-        // travel freely.
-        bolt.velocity = player.eyeLocation.direction.normalize().multiply(1.5)
-        bolt.isSilent = true
-        plugin.classItems.markArcaneBolt(bolt)
+        val rank = plugin.classes.signatureRank(player.uniqueId)
+        // A raycast, not a thrown entity: fast, straight, no gravity. The orb
+        // and trail are drawn by the flight; the splash comes back here.
+        ArcaneBoltFlight.launch(plugin, player, arcaneBoltDamage(rank)) { impact, directTargetId ->
+            arcaneBoltSplash(player, impact, directTargetId)
+        }
         player.setCooldown(Material.BLAZE_ROD, maxOf(1, plugin.classesConfig.getInt("mage.arcane-bolt-cooldown-ticks", 8)))
-        player.world.playSound(player.location, Sound.ENTITY_SNOWBALL_THROW, 0.7f, 0.8f)
+        castBoltSound(player)
         player.sendActionBar(Component.text("§dArcane Bolt §7(-${manaCost.toInt()} Mana)"))
         plugin.refreshClassPlayer(player)
         return ArcaneCastResult.SUCCESS
     }
 
-    fun handleArcaneBoltDamage(event: EntityDamageByEntityEvent, shooter: Player, projectile: Projectile) {
-        val rank = plugin.classes.signatureRank(shooter.uniqueId)
-        if (plugin.classes.activeClass(shooter.uniqueId) != ClassType.MAGE) {
-            event.isCancelled = true
-            return
-        }
-        event.damage = arcaneBoltDamage(rank)
-        projectile.world.spawnParticle(Particle.ENCHANT, projectile.location, 18, 0.15, 0.15, 0.15, 0.15)
+    private fun castBoltSound(player: Player) {
+        val raw = plugin.classesConfig.getString("mage.bolt.cast-sound", "block_amethyst_block_chime")
+        val sound = if (raw.isBlank()) null
+        else org.bukkit.Registry.SOUNDS.get(org.bukkit.NamespacedKey.minecraft(raw.lowercase().replace('_', '.')))
+        if (sound != null) player.world.playSound(player.location, sound, 0.7f, 1.2f)
     }
 
-    /** Applies the bolt's delayed splash after Paper has finished processing its direct hit. */
-    fun handleArcaneBoltHit(event: ProjectileHitEvent) {
-        val projectile = event.entity
-        projectile.world.spawnParticle(Particle.WITCH, projectile.location, 24, 0.18, 0.18, 0.18, 0.12)
-        val shooter = projectile.shooter as? Player ?: return
+    /**
+     * The Arcane Bolt's area splash, run one tick after the direct hit so it
+     * reads as a follow-up. Dungeon mobs only, damage-only (movement kept), and
+     * a no-op outside a dungeon.
+     */
+    fun arcaneBoltSplash(shooter: Player, impact: Location, directTargetId: UUID?) {
         if (!plugin.queries.isInDungeon(shooter)) return
         if (plugin.classes.activeClass(shooter.uniqueId) != ClassType.MAGE) return
-
         val radius = arcaneBoltSplashRadius()
         val splashDamage = arcaneBoltDamage(plugin.classes.signatureRank(shooter.uniqueId)) * arcaneBoltSplashDamageMultiplier()
         if (radius <= 0.0 || splashDamage <= 0.0) return
-        val impact = projectile.location.clone()
-        val directTargetId = event.hitEntity?.uniqueId
+        val at = impact.clone()
         plugin.server.scheduler.runTask(plugin, Runnable {
             if (!shooter.isOnline || !plugin.queries.isInDungeon(shooter)) return@Runnable
-            impact.world!!.getNearbyEntities(impact, radius, radius, radius)
+            at.world!!.getNearbyEntities(at, radius, radius, radius)
                 .filterIsInstance<LivingEntity>()
                 .filter { it.uniqueId != directTargetId && plugin.queries.isDungeonMob(it) }
                 .forEach { mob ->
-                    // Damage attributed to the caster normally applies combat
-                    // knockback. Splash is damage-only; retain the mob's
-                    // pre-impact movement instead.
                     val velocity = mob.velocity.clone()
                     mob.damage(splashDamage, shooter)
                     mob.velocity = velocity
                 }
-            impact.world!!.spawnParticle(Particle.ENCHANT, impact, 28, radius / 3.0, 0.22, radius / 3.0, 0.08)
+            at.world!!.spawnParticle(Particle.ENCHANT, at, 28, radius / 3.0, 0.22, radius / 3.0, 0.08)
         })
     }
 

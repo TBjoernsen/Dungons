@@ -12,7 +12,6 @@ import org.bukkit.persistence.PersistentDataType
 class ItemService(plugin: DungeonPlugin) {
 
     private val itemKindKey = NamespacedKey(plugin, "item_kind")
-    private val arcaneBoltKey = NamespacedKey(plugin, "arcane_bolt")
     private val focusShotKey = NamespacedKey(plugin, "focus_shot")
 
     fun skillShard(): ItemStack = taggedItem(
@@ -39,13 +38,6 @@ class ItemService(plugin: DungeonPlugin) {
     fun isStaff(item: ItemStack?): Boolean = isKind(item, STAFF_KIND)
     fun isSkillShard(item: ItemStack?): Boolean = isKind(item, SKILL_SHARD_KIND)
     fun isSoulShard(item: ItemStack?): Boolean = isKind(item, SOUL_SHARD_KIND)
-
-    fun markArcaneBolt(projectile: Projectile) {
-        projectile.persistentDataContainer.set(arcaneBoltKey, PersistentDataType.BYTE, 1)
-    }
-
-    fun isArcaneBolt(projectile: Projectile): Boolean =
-        projectile.persistentDataContainer.has(arcaneBoltKey, PersistentDataType.BYTE)
 
     fun markFocusShot(projectile: Projectile) {
         projectile.persistentDataContainer.set(focusShotKey, PersistentDataType.BYTE, 1)

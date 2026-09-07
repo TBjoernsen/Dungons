@@ -60,7 +60,7 @@ switch to the shadow plugin.
 | `party`, `trap`, `door`, `mob`, `completion` | 1:1 | |
 | `player`, `model`, `settings`, `menu` (PartyMenu only), `npc`, `fx`, `panel` | 1:1 | |
 | `skills` | SkillTreeLibrary (v6: reads per-node `effect.*`), SkillProgressManager, SkillPanelManager, geometry, listener | merged |
-| `classes` | ClassType/StatType, ClassesConfig, ClassProgressionService, ItemService, AttributeService, DungeonKitService, PassiveService, AbilityService, FeedbackService, CoreListener, ClassDungeonListener, HolographicClassSelection, ClassCommands | ClassSkills, rebuilt |
+| `classes` | ClassType/StatType, ClassesConfig, ClassProgressionService, ItemService, AttributeService, DungeonKitService, PassiveService, AbilityService, ArcaneBoltFlight, FeedbackService, CoreListener, ClassDungeonListener, HolographicClassSelection, ClassCommands | ClassSkills, rebuilt |
 | `quest` | QuestCategory, QuestObjective/QuestDefinition, QuestConfig, QuestManager, QuestMenu(+Listener), QuestObjectiveListener, QuestBoardManager(+Listener), QuestCommand | **new 2026-09-03** |
 | `command` | DungeonCommand (all /dungeon subcommands) | 1:1 |
 
@@ -97,6 +97,27 @@ BossDefinition scenery accessors were kept).
   classes.yml uses per-key default-merging instead of wholesale replacement.
 - `/skills reset` (player-facing, costs ceil(spent × bulk-reset-shard-rate)
   Skill Shards) replaces ClassSkills' shard-paid reset paths.
+
+## Mage Arcane Bolt: raycast, not a snowball (2026-09-08)
+
+- `castArcaneBolt` no longer throws a `Snowball`. `ArcaneBoltFlight` is a
+  per-tick `BukkitRunnable` that sweeps forward `mage.bolt.speed` blocks
+  with one `World.rayTrace` (blocks + non-player LivingEntities, gated to
+  `isInDungeon` for damage) - fast, straight, no gravity. A glowing
+  `BlockDisplay` orb (`mage.bolt.orb.*`, AMETHYST_BLOCK, emissive, spinning)
+  and a `Particle.DUST` trail (`mage.bolt.trail.*`, purple + END_ROD accent)
+  ride the ray. Direct hit → `entity.damage`; impact point handed to
+  `PassiveService.arcaneBoltSplash` (the old `handleArcaneBoltHit` splash
+  body, unchanged).
+- Removed: `PassiveService.handleArcaneBoltDamage` / `handleArcaneBoltHit`,
+  the two `isArcaneBolt` branches in `CoreListener`, and
+  `ItemService.markArcaneBolt` / `isArcaneBolt` / `arcaneBoltKey` (all dead
+  once the projectile entity is gone).
+- Behaviour change: outside a dungeon the bolt is now purely cosmetic
+  (flies, no entity collision) where before the snowball simply did
+  nothing. All damage/mana/cooldown/splash numbers are unchanged; new
+  `mage.bolt.*` block in classes.yml also surfaces the previously
+  code-only `mage.arcane-bolt-*` keys.
 
 ## Dungeon lives + loss XP (added 2026-09-08)
 

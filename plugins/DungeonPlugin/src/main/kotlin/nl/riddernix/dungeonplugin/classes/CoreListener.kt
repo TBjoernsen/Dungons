@@ -225,10 +225,6 @@ class CoreListener(private val plugin: DungeonPlugin) : Listener {
         val projectile = event.damager as? Projectile ?: return
         val player = projectile.shooter as? Player ?: return
         if (!plugin.queries.isInDungeon(player)) return
-        if (plugin.classItems.isArcaneBolt(projectile)) {
-            plugin.classPassives.handleArcaneBoltDamage(event, player, projectile)
-            return
-        }
         if (plugin.classItems.isFocusShot(projectile)) {
             plugin.classPassives.handleFocusShotDamage(event, player, projectile)
             return
@@ -243,10 +239,6 @@ class CoreListener(private val plugin: DungeonPlugin) : Listener {
     @EventHandler
     fun onProjectileHit(event: ProjectileHitEvent) {
         val projectile = event.entity
-        if (plugin.classItems.isArcaneBolt(projectile)) {
-            plugin.classPassives.handleArcaneBoltHit(event)
-            return
-        }
         if (plugin.classItems.isFocusShot(projectile)) return
         if (projectile.uniqueId !in permittedProjectiles) return
         val player = projectile.shooter as? Player ?: return
