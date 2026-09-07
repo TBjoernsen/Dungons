@@ -226,7 +226,7 @@ board:
   # lower value has its whole `board:` section replaced on load (the layout
   # is still being tuned). Raise it yourself past the bundled value to keep
   # your own edits.
-  layout-version: 2
+  layout-version: 3
   # Placement snaps to the block grid (block-centre X/Z, block-floor Y,
   # nearest-90° yaw) so the board's axes stay square. Turn off to place at
   # the exact spot and angle you stand.
@@ -263,7 +263,7 @@ board:
   notes:
     # Distance of each column's centre from the board centre. Daily sits at
     # -column-x, Weekly at +column-x, General (page 1) is centred at 0.
-    column-x: 2.05
+    column-x: 1.95
     # Y of the top of the first note; each row drops by row-gap.
     top-y: 3.9
     row-gap: 0.95
@@ -296,13 +296,15 @@ board:
     prev: "<"
     color: "#c9a227"
     scale: 1.8
-    edge-x: 3.6
+    edge-x: 3.5
     height: 2.6
   hitboxes:
-    note-width: 3.0
-    note-height: 1.7
-    arrow-width: 1.4
-    arrow-height: 1.6
+    # Sized to the visible card, not the whole column slot, so the click
+    # areas do not overlap each other or reach into the page arrow.
+    note-width: 2.2
+    note-height: 0.9
+    arrow-width: 1.0
+    arrow-height: 1.4
   sounds:
     page: UI_BUTTON_CLICK
     deny: BLOCK_NOTE_BLOCK_BASS

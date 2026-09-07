@@ -381,8 +381,8 @@ class QuestBoardManager(private val plugin: DungeonPlugin) {
 
         // Notes + their claim hitboxes for the current page, positioned so the
         // hitbox always lines up with its note whichever page you are on.
-        val noteW = yaml.getDouble("board.hitboxes.note-width", 3.0)
-        val noteH = yaml.getDouble("board.hitboxes.note-height", 1.7)
+        val noteW = yaml.getDouble("board.hitboxes.note-width", 2.2)
+        val noteH = yaml.getDouble("board.hitboxes.note-height", 0.9)
         for ((category, slot, x) in pageSlots(currentPage)) {
             ids.add(noteDisplay(player, placement, boardId, category, slot, x))
             ids.add(spawnHitbox(placement, boardId, "hit-note-${category.id}-$slot",
@@ -392,9 +392,9 @@ class QuestBoardManager(private val plugin: DungeonPlugin) {
         // One page arrow: ">" on page 0 (to General), "<" on page 1 (back).
         val arrowScale = yaml.getDouble("board.arrows.scale", 1.8).toFloat()
         val arrowH = yaml.getDouble("board.arrows.height", 2.6)
-        val edgeX = yaml.getDouble("board.arrows.edge-x", 3.6)
-        val aw = yaml.getDouble("board.hitboxes.arrow-width", 1.4)
-        val ah = yaml.getDouble("board.hitboxes.arrow-height", 1.6)
+        val edgeX = yaml.getDouble("board.arrows.edge-x", 3.5)
+        val aw = yaml.getDouble("board.hitboxes.arrow-width", 1.0)
+        val ah = yaml.getDouble("board.hitboxes.arrow-height", 1.4)
         if (currentPage == 0) {
             ids.add(spawnArrow(placement, boardId, "ov-arrow-next", edgeX, arrowH,
                 yaml.getString("board.arrows.next") ?: ">", arrowScale))
@@ -478,7 +478,7 @@ class QuestBoardManager(private val plugin: DungeonPlugin) {
             yaml.getInt("board.brightness", 15).coerceIn(0, 15))
     }
 
-    private fun columnX(): Double = yaml.getDouble("board.notes.column-x", 2.05)
+    private fun columnX(): Double = yaml.getDouble("board.notes.column-x", 1.95)
     private fun frontZ(): Double = yaml.getDouble("board.notes.front-z", 0.06) + yaml.getDouble("board.backing.depth", 0.3) / 2.0
     private fun noteTopY(slot: Int): Double =
         yaml.getDouble("board.notes.top-y", 3.9) - slot * yaml.getDouble("board.notes.row-gap", 0.95)
