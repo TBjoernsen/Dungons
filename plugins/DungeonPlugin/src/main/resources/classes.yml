@@ -156,8 +156,12 @@ mage:
       view-range: 2.0
     trail:
       color: "B45AFF"          # hex, mage purple
-      size: 0.9                # smaller reads as fading sooner
-      spacing: 0.55            # blocks between dust points (higher = sparser)
+      # DUST particles live 0.4-2s and shrink toward zero as they age, so a
+      # smaller size crosses out of sight sooner - this is the main "fades
+      # faster" knob. Pair with a wider spacing for a thinner tail that
+      # clears quicker.
+      size: 0.6
+      spacing: 0.7             # blocks between dust points (higher = sparser)
       start-gap: 1.0           # blocks of trail skipped past the muzzle
       # END_ROD sparks float for several seconds and are what "lingers" -
       # "none" (default) clears the trail fastest. crit / electric_spark are

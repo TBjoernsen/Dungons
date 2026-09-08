@@ -139,7 +139,7 @@ class ArcaneBoltFlight private constructor(
     private fun drawTrail(from: Location, distance: Double) {
         val world = from.world ?: return
         val dust = trailDust()
-        val spacing = cfg.getDouble("mage.bolt.trail.spacing", 0.55).coerceIn(0.1, 1.5)
+        val spacing = cfg.getDouble("mage.bolt.trail.spacing", 0.7).coerceIn(0.1, 1.5)
         val accentEvery = maxOf(1, cfg.getInt("mage.bolt.trail.accent-every", 4))
         val accent = accentParticle()
         var d = 0.0
@@ -161,7 +161,7 @@ class ArcaneBoltFlight private constructor(
         val hex = cfg.getString("mage.bolt.trail.color", "B45AFF").trim().removePrefix("#")
         val rgb = runCatching { hex.toInt(16) }.getOrNull() ?: 0xB45AFF
         return Particle.DustOptions(Color.fromRGB((rgb shr 16) and 0xFF, (rgb shr 8) and 0xFF, rgb and 0xFF),
-            cfg.getDouble("mage.bolt.trail.size", 1.1).coerceIn(0.1, 4.0).toFloat())
+            cfg.getDouble("mage.bolt.trail.size", 0.6).coerceIn(0.1, 4.0).toFloat())
     }
 
     private fun accentParticle(): Particle? {
