@@ -1,9 +1,17 @@
+# =====================================================================
+#  Class layer configuration
+# =====================================================================
+# This file follows the class layer's own update model: missing keys are
+# merged in from the bundled defaults without overwriting your changes -
+# unlike config.yml, which is replaced wholesale on a version bump.
 
 classes:
+  # Turning this off leaves a dungeons-only server: no classes, no kits, no
+  # passives, and skill points fall back to the granted ledger.
   enabled: true
 
-
-#Mob Xp (Per Mob)
+# Each dungeon mob banks this amount of XP. All banked mob XP is granted
+# together when the dungeon completes, with the completion bonus below.
 xp-per-difficulty:
   '1': 12
   '2': 18
@@ -15,7 +23,8 @@ xp-per-difficulty:
   '8': 102
   '9': 126
 
-
+# Awarded when a run is reported completed. Higher difficulties reward
+# progressively more XP.
 completion-xp-per-difficulty:
   '1': 100
   '2': 125
@@ -27,23 +36,38 @@ completion-xp-per-difficulty:
   '8': 380
   '9': 440
 
-
+# Applied once to the combined banked mob XP and completion XP at the end of
+# a run. Lower this to slow levelling further; 1.0 restores the original
+# amounts.
 dungeon-xp-multiplier: 0.22
 
+# A failed run (life pool exhausted) still pays out: the banked mob XP only
+# - no completion bonus, no shards - times this fraction. 0 turns the
+# consolation payout off; 1.0 pays the full mob XP a win would have.
 dungeon-loss-xp-fraction: 0.35
 
+# The party's shared respawn pool for a run. Each death inside the dungeon
+# spends one life; at zero the run fails, everyone is returned to spawn, and
+# the consolation XP above is paid. lives.enabled: false restores the old
+# infinite-respawn behaviour.
 lives:
   enabled: true
-
+  # Base pool, plus per-player-bonus for every party member past the first
+  # (a 3-player party at these values gets 3 + 2*2 = 7).
   count: 3
   per-player-bonus: 2
 
+# Linear placeholder curve; replace only after dungeon pacing has been
+# play-tested.
 xp-to-next-level:
   base: 100
   per-current-level: 35
-
+  # Applied to every level requirement. 1.12 is 12% more XP per level.
   requirement-multiplier: 1.12
 
+# One independent weighted roll for each shard type is made when a dungeon
+# completes. Skill Shards rise from 10% to 50%; Soul Shards rise from 2% to
+# 10%. A run can never award more than one of either.
 shared-drop-table:
   '1': { skill-shard: 10, soul-shard: 2, nothing: 88 }
   '2': { skill-shard: 15, soul-shard: 3, nothing: 82 }
@@ -55,29 +79,40 @@ shared-drop-table:
   '8': { skill-shard: 45, soul-shard: 9, nothing: 46 }
   '9': { skill-shard: 50, soul-shard: 10, nothing: 40 }
 
-
+# Whole-tree wipes cost ceil(total points spent * this rate) Skill Shards, so
+# they are always cheaper than revoking every node separately but naturally
+# scale with a build's investment.
 bulk-reset-shard-rate: 0.60
 
-
+# Archer Focus: applied only at full Focus. This is the effective reduction
+# in the draw time needed to reach a given bow force; 25 means 25% faster
+# effective draw.
 focus:
   full-draw-speed-percent: 25.0
-#Doesn't work at this time as far as I'm aware
 
+# Each arrow adds the Archer's Attack stat, then this multiplier is applied.
 archer:
   attack-stat-damage-multiplier: 1.0
 
-
+# Rage is retained while a Warrior remains in combat. After 15 seconds
+# without damage dealt or received, it drains at this rate each second.
 warrior:
   rage-decay-delay-seconds: 15.0
   rage-decay-per-second: 10.0
 
-
+# Paladin Taunt builds from axe damage. The newest Taunt owner has aggro from
+# all loaded mobs in their current world.
 paladin:
   taunt-damage-threshold: 75.0
   taunt-duration-seconds: 8.0
+  # Mirrors the Turtle Master trade-off: high resistance with heavy slowness.
   turtle-master-resistance-amplifier: 2
   turtle-master-slowness-amplifier: 3
 
+# Mage Mana + Arcane Bolt (the baseline staff attack, left-click). Mana and
+# the bolt are usable from Difficulty 1; Difficulty 3 unlocks Arcane Charge,
+# which makes each bolt stronger and expands the Mana pool. Signature-rank
+# scaling adds damage-per-rank on top of the base.
 mage:
   base-max-mana: 200.0
   mana-regeneration-per-second: 10.0
@@ -85,34 +120,47 @@ mage:
   arcane-bolt-base-damage: 5.0
   arcane-bolt-damage-per-rank: 1.5
   arcane-bolt-cooldown-ticks: 8
+  # On impact, nearby dungeon mobs take this fraction of the bolt's direct
+  # damage.
   arcane-bolt-splash-radius: 2
   arcane-bolt-splash-damage-percent: 35.0
-  #Ray cast Bolt, with a glowing BlockDisplay orb and a dust trail.
+  # The bolt is a raycast, not a thrown entity: fast and straight, no gravity,
+  # with a glowing BlockDisplay orb and a dust trail riding the ray.
   bolt:
     speed: 3.0                 # blocks per tick (~60 blocks/s)
     max-range: 40.0
     ray-size: 0.3              # entity-hitbox inflation for the sweep
     direct-knockback: true     # false = damage-only on the direct hit too
+    # Spawn the bolt this far in front of the caster's eyes so the trail
+    # does not fill the screen when you fire standing still.
     muzzle-offset: 1.4
     cast-sound: block_amethyst_block_chime
     impact-sound: block_amethyst_block_hit
-    impact-particles: 12
-    splash-particles: 14
+    impact-particles: 12        # burst when the bolt strikes
+    splash-particles: 14        # burst at the delayed area splash
     orb:
       block: CRYING_OBSIDIAN
       scale: 0.35
-      glow: true
+      glow: true               # full emissive, visible in the dark
       spin-degrees-per-tick: 22.0
       view-range: 2.0
     trail:
-      color: "FF6D00"
+      color: "FF6D00"          # hex
+      # DUST particles live 0.4-2s and shrink toward zero as they age, so a
+      # smaller size crosses out of sight sooner - this is the main "fades
+      # faster" knob. Pair with a wider spacing for a thinner tail that
+      # clears quicker.
       size: 0.5
-      spacing: 0.7
-      start-gap: 1.0
+      spacing: 0.7             # blocks between dust points (higher = sparser)
+      start-gap: 1.0           # blocks of trail skipped past the muzzle
+      # END_ROD sparks float for several seconds and are what "lingers" -
+      # "none" (default) clears the trail fastest. crit / electric_spark are
+      # short-lived alternatives.
       accent: none
-      accent-every: 4
+      accent-every: 4          # one accent per this many dust points
 
-# F-key (Swap Hands) abilities per class.
+# F-key (Swap Hands) abilities per class. Right-clicking the tagged Mage
+# staff casts Healing Spell.
 abilities:
   warrior:
     cooldown-seconds: 5.0
@@ -132,6 +180,10 @@ abilities:
     blink-mana-cost: 35.0
     heal-cooldown-seconds: 30.0
     heal-mana-cost: 50.0
+    # How far the Healing Spell reaches to pick an ally. Targeting is
+    # cone-based (nearest player to your crosshair within this range and the
+    # cone below), so you do not need a pixel-perfect aim. Line of sight is
+    # still required unless heal-require-line-of-sight is off.
     heal-range: 50.0
     heal-aim-cone-degrees: 12.0
     heal-require-line-of-sight: true
