@@ -331,7 +331,11 @@ class PassiveService(private val plugin: DungeonPlugin) {
         }
     }
 
-    private fun rageThreshold(rank: Int): Double = 100.0 - (rank - 1) * 8.0
+    private fun rageThreshold(rank: Int): Double {
+        val base = plugin.classesConfig.getDouble("warrior.rage-threshold-base", 200.0)
+        val perRank = plugin.classesConfig.getDouble("warrior.rage-threshold-per-rank", 8.0)
+        return (base - (rank - 1) * perRank).coerceAtLeast(1.0)
+    }
 
     private fun decayRageOutOfCombat(data: PlayerClassData, rank: Int, now: Long) {
         if (rank == 0 || data.rage <= 0.0 || data.rageActiveUntil > now) return

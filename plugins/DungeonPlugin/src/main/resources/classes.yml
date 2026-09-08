@@ -99,6 +99,11 @@ archer:
 warrior:
   rage-decay-delay-seconds: 15.0
   rage-decay-per-second: 10.0
+  # Rage needed to erupt into Berserk at Rage Rank I. Each rank past I
+  # lowers the requirement by rage-threshold-per-rank, so higher ranks
+  # erupt sooner (Rank V at the defaults needs 200 - 4*8 = 168).
+  rage-threshold-base: 200.0
+  rage-threshold-per-rank: 8.0
   # Rage the Dash adds when it connects with at least one enemy, so the Dash
   # feeds the Berserk loop instead of sitting on its own cooldown. Shares
   # Rage's guards: nothing below Rage Rank I or while Berserk is already
