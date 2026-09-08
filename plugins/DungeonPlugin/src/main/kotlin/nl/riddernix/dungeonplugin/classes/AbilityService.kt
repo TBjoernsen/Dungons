@@ -11,6 +11,7 @@ import org.bukkit.Particle
 import org.bukkit.Sound
 import org.bukkit.attribute.Attribute
 import org.bukkit.attribute.AttributeModifier
+import org.bukkit.entity.LivingEntity
 import org.bukkit.entity.Monster
 import org.bukkit.entity.Player
 import org.bukkit.event.EventHandler
@@ -106,14 +107,36 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
     }
 
     private fun warriorDash(player: Player): Boolean {
+        val cfg = plugin.classesConfig
+        // Berserk (a spent Rage bar) empowers the lunge: further, harder, with
+        // a real knock-up. The Dash also feeds Rage on a connect, so the loop
+        // is sword -> dash to top off -> Berserk -> empowered dash.
+        val berserk = plugin.classPassives.isBerserk(player)
         val direction = horizontalDirection(player)
-        player.velocity = direction.multiply(plugin.classesConfig.getDouble("abilities.warrior.dash-speed", 1.5)).setY(0.16)
-        val damage = plugin.classesConfig.getDouble("abilities.warrior.bonus-damage", 4.0)
-        player.getNearbyEntities(2.4, 1.5, 2.4).filterIsInstance<Monster>().forEach { enemy ->
+
+        val speed = cfg.getDouble("abilities.warrior.dash-speed", 1.5) *
+            if (berserk) cfg.getDouble("abilities.warrior.berserk-speed-multiplier", 1.35) else 1.0
+        player.velocity = direction.clone().multiply(speed).setY(if (berserk) 0.22 else 0.16)
+
+        val damage = cfg.getDouble("abilities.warrior.bonus-damage", 4.0) *
+            if (berserk) cfg.getDouble("abilities.warrior.berserk-damage-multiplier", 1.8) else 1.0
+        val radius = cfg.getDouble("abilities.warrior.dash-radius", 2.6)
+
+        val hits = player.getNearbyEntities(radius, 1.6, radius)
+            .filterIsInstance<LivingEntity>()
+            .filter { it != player && it !is Player && (plugin.queries.isDungeonMob(it) || it is Monster) }
+        hits.forEach { enemy ->
             enemy.damage(damage, player)
-            enemy.velocity = enemy.velocity.add(direction.clone().multiply(0.35)).setY(0.16)
+            val push = direction.clone().multiply(if (berserk) 0.55 else 0.35)
+            enemy.velocity = enemy.velocity.add(push).setY(if (berserk) 0.42 else 0.16)
         }
-        player.sendActionBar(Component.text("Dash!", NamedTextColor.RED))
+
+        plugin.classFeedback.warriorDashCast(player, berserk)
+        if (hits.isNotEmpty()) {
+            plugin.classFeedback.warriorDashImpact(player, berserk)
+            plugin.classPassives.feedRage(player, cfg.getDouble("warrior.dash-rage-on-hit", 25.0))
+        }
+        player.sendActionBar(Component.text(if (berserk) "Berserk Dash!" else "Dash!", NamedTextColor.RED))
         return true
     }
 

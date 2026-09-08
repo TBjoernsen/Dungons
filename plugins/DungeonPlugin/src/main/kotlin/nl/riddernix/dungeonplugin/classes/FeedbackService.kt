@@ -7,6 +7,7 @@ import org.bukkit.Particle
 import org.bukkit.Sound
 import org.bukkit.attribute.Attribute
 import org.bukkit.entity.Player
+import org.bukkit.scheduler.BukkitRunnable
 import org.bukkit.scoreboard.DisplaySlot
 import org.bukkit.scoreboard.Scoreboard
 import java.util.Locale
@@ -95,6 +96,38 @@ class FeedbackService(private val plugin: DungeonPlugin) {
         player.world.spawnParticle(Particle.DUST, center, 42, 0.52, 0.65, 0.52, 0.1, red)
         player.world.spawnParticle(Particle.FLAME, center, 26, 0.45, 0.55, 0.45, 0.05)
         player.playSound(player.location, Sound.ENTITY_RAVAGER_ROAR, 0.75f, 1.1f)
+    }
+
+    /** Warrior Dash launch: the whoosh, plus a short particle streak that rides the player for the lunge. */
+    fun warriorDashCast(player: Player, berserk: Boolean) {
+        val world = player.world
+        player.playSound(player.location, Sound.ENTITY_PLAYER_ATTACK_SWEEP, 0.9f, if (berserk) 0.7f else 0.95f)
+        if (berserk) player.playSound(player.location, Sound.ENTITY_RAVAGER_ROAR, 0.5f, 1.35f)
+        object : BukkitRunnable() {
+            private var ticks = 0
+            override fun run() {
+                if (ticks++ >= 6 || !player.isOnline) {
+                    cancel(); return
+                }
+                val at = player.location.clone().add(0.0, 0.9, 0.0)
+                if (berserk) {
+                    val red = Particle.DustOptions(Color.fromRGB(245, 70, 45), 1.5f)
+                    world.spawnParticle(Particle.DUST, at, 8, 0.28, 0.35, 0.28, 0.0, red)
+                    world.spawnParticle(Particle.FLAME, at, 4, 0.2, 0.25, 0.2, 0.01)
+                } else {
+                    world.spawnParticle(Particle.CLOUD, at, 6, 0.22, 0.3, 0.22, 0.01)
+                    world.spawnParticle(Particle.CRIT, at, 5, 0.25, 0.3, 0.25, 0.05)
+                }
+            }
+        }.runTaskTimer(plugin, 0L, 1L)
+    }
+
+    /** Warrior Dash connecting with one or more enemies: a sweep burst and a crunch. */
+    fun warriorDashImpact(player: Player, berserk: Boolean) {
+        val at = player.location.clone().add(0.0, 1.0, 0.0)
+        player.world.spawnParticle(Particle.SWEEP_ATTACK, at, if (berserk) 3 else 1, 0.4, 0.3, 0.4, 0.0)
+        player.world.spawnParticle(Particle.CRIT, at, if (berserk) 24 else 14, 0.5, 0.4, 0.5, 0.25)
+        player.playSound(player.location, Sound.ENTITY_PLAYER_ATTACK_CRIT, 0.9f, if (berserk) 0.85f else 1.1f)
     }
 
     fun tauntTriggered(player: Player) {

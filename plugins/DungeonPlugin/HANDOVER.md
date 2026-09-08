@@ -145,6 +145,28 @@ BossDefinition scenery accessors were kept).
   was designed to "cost nothing but the walk back"). Exempt it later with
   a damage-cause check in `DungeonLivesListener` if wanted.
 
+## Warrior Dash polish (2026-09-08)
+
+- `AbilityService.warriorDash` rewritten. Targeting was
+  `filterIsInstance<Monster>()` (whiffed on non-`Monster` dungeon/boss
+  mobs); now `LivingEntity` filtered by `queries.isDungeonMob(it) || it is
+  Monster`, in a config `abilities.warrior.dash-radius` (2.6) sweep.
+- **Berserk loop.** `PassiveService` exposes `isBerserk(player)` and
+  `feedRage(player, amount)` (thin public wrapper over `addRage`, keeps its
+  rank/berserk guards and can tip the bar over the threshold). A Dash that
+  connects with ≥1 enemy calls `feedRage(player, warrior.dash-rage-on-hit)`
+  (25) — so sword → dash to top off → Berserk. While `isBerserk`, the Dash
+  multiplies `dash-speed` / `bonus-damage` by
+  `abilities.warrior.berserk-speed-multiplier` (1.35) /
+  `berserk-damage-multiplier` (1.8) and does a real knock-up; feedRage
+  no-ops during Berserk by design (can't build Rage while raging).
+- **Feedback.** New `FeedbackService.warriorDashCast` (sweep whoosh +
+  a 6-tick particle streak riding the player; red dust/flame when berserk,
+  cloud/crit otherwise) and `warriorDashImpact` (SWEEP_ATTACK + crit burst
+  + crunch, only on a connect). Actionbar reads "Berserk Dash!" when empowered.
+- New `classes.yml` keys are all additive so they merge into an existing
+  server file cleanly (unlike changed keys).
+
 ## Quests (added 2026-09-03, first feature past the merge)
 
 Structure and flow only; quest **content is placeholder** and lives in

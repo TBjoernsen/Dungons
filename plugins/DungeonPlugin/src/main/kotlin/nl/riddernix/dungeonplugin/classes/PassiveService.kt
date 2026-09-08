@@ -287,6 +287,18 @@ class PassiveService(private val plugin: DungeonPlugin) {
         }
     }
 
+    /** True while the Warrior's Berserk window from a spent Rage bar is still open. */
+    fun isBerserk(player: Player): Boolean =
+        plugin.classes.data(player.uniqueId).rageActiveUntil > System.currentTimeMillis()
+
+    /**
+     * Lets an active ability feed the Rage bar - the Warrior Dash uses this so
+     * it plugs into the Berserk loop instead of standing apart from it. Shares
+     * every guard in [addRage]: a no-op below Rage Rank I or while Berserk is
+     * already running, and it can tip the bar over the threshold and erupt.
+     */
+    fun feedRage(player: Player, amount: Double) = addRage(player, amount)
+
     private fun addRage(player: Player, amount: Double) {
         val data = plugin.classes.data(player.uniqueId)
         val rank = plugin.classes.signatureRank(player.uniqueId)

@@ -99,6 +99,11 @@ archer:
 warrior:
   rage-decay-delay-seconds: 15.0
   rage-decay-per-second: 10.0
+  # Rage the Dash adds when it connects with at least one enemy, so the Dash
+  # feeds the Berserk loop instead of sitting on its own cooldown. Shares
+  # Rage's guards: nothing below Rage Rank I or while Berserk is already
+  # running. 0 turns it off.
+  dash-rage-on-hit: 25.0
 
 # Paladin Taunt builds from axe damage. The newest Taunt owner has aggro from
 # all loaded mobs in their current world.
@@ -166,6 +171,12 @@ abilities:
     cooldown-seconds: 5.0
     dash-speed: 1.5
     bonus-damage: 4.0
+    # Half-extent of the lunge's damage sweep (blocks).
+    dash-radius: 2.6
+    # While Berserk (a spent Rage bar), the Dash lunges further and hits
+    # harder - these multiply dash-speed and bonus-damage respectively.
+    berserk-speed-multiplier: 1.35
+    berserk-damage-multiplier: 1.8
   archer:
     cooldown-seconds: 2.5
     jump-velocity: 0.9
