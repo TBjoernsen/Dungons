@@ -35,7 +35,7 @@ class ClassCommands(private val plugin: DungeonPlugin) : CommandExecutor, TabCom
         return when (args.size) {
             1 -> startsWith(listOf("soul", "staff", "reset", "help") +
                 if (sender.hasPermission("dungeonplugin.admin"))
-                    listOf("difficulty", "unlockdifficulty", "give", "testreset", "levelup", "hardreset", "focusdraw")
+                    listOf("difficulty", "unlockdifficulty", "give", "testreset", "levelup", "hardreset", "focusdraw", "passiverank")
                 else emptyList(), args[0])
             2 -> when (args[0].lowercase()) {
                 "difficulty", "unlockdifficulty" -> startsWith((1..9).map(Int::toString), args[1])
@@ -44,11 +44,12 @@ class ClassCommands(private val plugin: DungeonPlugin) : CommandExecutor, TabCom
                 "give" -> startsWith(listOf("skill-shard", "soul-shard"), args[1])
                 "levelup" -> startsWith(listOf("1", "5", "10", "25", "50"), args[1])
                 "focusdraw" -> startsWith(listOf("0", "10", "15", "20", "25", "30", "40", "50"), args[1])
+                "passiverank" -> startsWith(listOf("tree", "0", "1", "2", "3", "4", "5"), args[1])
                 "staff" -> plugin.server.onlinePlayers.map { it.name }
                 else -> emptyList()
             }
             3 -> when (args[0].lowercase()) {
-                "difficulty", "unlockdifficulty" -> plugin.server.onlinePlayers.map { it.name }
+                "difficulty", "unlockdifficulty", "passiverank" -> plugin.server.onlinePlayers.map { it.name }
                 "give" -> startsWith(listOf("1", "2", "4", "8", "16"), args[2])
                 else -> emptyList()
             }
@@ -150,6 +151,24 @@ class ClassCommands(private val plugin: DungeonPlugin) : CommandExecutor, TabCom
                 plugin.classesConfig.save()
                 player.sendMessage("§aFull Focus draw speed is now ${if (percent % 1.0 == 0.0) percent.toInt() else percent}%.")
             }
+            "passiverank" -> {
+                if (!player.hasPermission("dungeonplugin.admin")) return noPermission(player)
+                val raw = args.getOrNull(1) ?: return usage(player, "/skills passiverank <0-5|tree> [player]")
+                val targetArg = args.getOrNull(2)
+                val target = if (targetArg == null) player
+                    else plugin.server.getPlayerExact(targetArg)
+                        ?: return usage(player, "§cNo online player '$targetArg'.")
+                val value = if (raw.equals("tree", true) || raw.equals("reset", true)) -1
+                    else raw.toIntOrNull()?.takeIf { it in 0..5 }
+                        ?: return usage(player, "/skills passiverank <0-5|tree> [player]")
+                plugin.classes.setDebugSignatureRank(target, value)
+                val passive = plugin.classes.activeClass(target.uniqueId)?.passiveName ?: "signature passive"
+                if (value < 0) {
+                    player.sendMessage("§a${target.name}: $passive rank now follows the skill tree again.")
+                } else {
+                    player.sendMessage("§a${target.name}: $passive rank forced to §e$value §7(testing override).")
+                }
+            }
             "help" -> help(player)
             else -> help(player)
         }
@@ -250,7 +269,8 @@ class ClassCommands(private val plugin: DungeonPlugin) : CommandExecutor, TabCom
         if (player.hasPermission("dungeonplugin.admin")) {
             player.sendMessage("§8Admin: /skillshard [player] [amount], /soulshard [player] [amount]")
             player.sendMessage("§8Admin: /skills unlockdifficulty [player] <1-9>, /skills levelup [levels]")
-            player.sendMessage("§8Admin: /skills focusdraw <0-75>, /skills testreset, /skills hardreset confirm")
+            player.sendMessage("§8Admin: /skills passiverank <0-5|tree> [player], /skills focusdraw <0-75>")
+            player.sendMessage("§8Admin: /skills testreset, /skills hardreset confirm")
         }
     }
 

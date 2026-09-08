@@ -166,6 +166,10 @@ BossDefinition scenery accessors were kept).
   + crunch, only on a connect). Actionbar reads "Berserk Dash!" when empowered.
 - New `classes.yml` keys are all additive so they merge into an existing
   server file cleanly (unlike changed keys).
+- **Testing without a skill tree:** `/skills passiverank <0-5|tree> [player]`
+  (admin) forces `PlayerClassData.debugSignatureRank`, which
+  `ClassProgressionService.signatureRank` returns ahead of the tree read.
+  Runtime-only; cleared on restart, class switch, or character reset.
 
 ## Quests (added 2026-09-03, first feature past the merge)
 

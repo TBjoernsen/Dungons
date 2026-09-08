@@ -83,6 +83,8 @@ class ClassProgressionService(private val plugin: DungeonPlugin) {
 
     /** The highest signature passive rank the player's unlocked nodes carry. */
     fun signatureRank(playerId: UUID): Int {
+        // Testing hook: /skills passiverank forces a rank without the tree.
+        data(playerId).debugSignatureRank.let { if (it >= 0) return it }
         val classId = plugin.skillProgress.activeClass(playerId) ?: return 0
         val tree = plugin.skillTrees.tree(classId) ?: return 0
         var rank = 0
@@ -289,6 +291,16 @@ class ClassProgressionService(private val plugin: DungeonPlugin) {
         return gained
     }
 
+    /**
+     * Testing override for the signature-passive rank. `rank < 0` restores
+     * the normal skill-tree reading. Not persisted - resets on restart, a
+     * class switch, or a character reset.
+     */
+    fun setDebugSignatureRank(player: Player, rank: Int) {
+        data(player.uniqueId).debugSignatureRank = if (rank < 0) -1 else rank
+        plugin.refreshClassPlayer(player)
+    }
+
     /** Admin recovery: wipes progression and the active class's tree. */
     fun adminHardReset(player: Player) {
         val active = plugin.skillProgress.activeClass(player.uniqueId)
@@ -431,6 +443,14 @@ class PlayerClassData {
     var judgment: Double = 0.0
     var mana: Double = 0.0
 
+    /**
+     * Testing override for the signature-passive rank, set with
+     * `/skills passiverank`. `-1` means "read it from the skill tree" (the
+     * normal path). Runtime-only: never saved, and cleared on a class switch
+     * or character reset.
+     */
+    var debugSignatureRank: Int = -1
+
     /** Inactive class profiles. The active class stays in the top-level fields. */
     val classProfiles = LinkedHashMap<String, ClassProgress>()
 
@@ -440,6 +460,7 @@ class PlayerClassData {
         focus = 0
         judgment = 0.0
         mana = 0.0
+        debugSignatureRank = -1
     }
 }
 
