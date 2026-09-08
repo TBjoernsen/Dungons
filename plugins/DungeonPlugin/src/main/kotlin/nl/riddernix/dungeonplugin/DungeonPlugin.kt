@@ -406,6 +406,9 @@ class DungeonPlugin : JavaPlugin() {
         if (this::classAbilities.isInitialized) {
             classAbilities.shutdown()
         }
+        if (this::classFeedback.isInitialized) {
+            classFeedback.shutdown()
+        }
         if (this::classPicker.isInitialized) {
             classPicker.shutdown()
         }

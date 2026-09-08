@@ -145,6 +145,32 @@ BossDefinition scenery accessors were kept).
   was designed to "cost nothing but the walk back"). Exempt it later with
   a damage-cause check in `DungeonLivesListener` if wanted.
 
+## Archer Focus: feel & fairness pass A (2026-09-08)
+
+- **Softer break rules** (all in `classes.yml` `archer:`). `handleIncomingDamage`:
+  a hit of `focus-break-damage-threshold` (4.0) final damage or more shatters
+  the whole bar; anything less drops `focus-chip-penalty` (1) stacks.
+  `handleProjectileMiss`: a whiff now costs `focus-miss-penalty` (2) stacks,
+  not the whole bar. All these paths call `refreshClassPlayer` so the HUD
+  keeps up.
+- **Focus Shot is a real payoff.** `focusShotDamageMultiplier` takes rank:
+  `focus-shot-base-multiplier` (2.0) + `focus-shot-multiplier-per-rank`
+  (0.25) → ×2 at Rank I, ×3 at V. `castFocusShot` also sets
+  `arrow.pierceLevel` from `focus-shot-pierce-from-rank` (4; rank − that + 1,
+  cap 4), `isGlowing`, and speed `focus-shot-speed` (3.4). The old flat
+  `focusShotDamageMultiplier(): 2.0` is gone.
+- **FOCUSED indicator.** `PassiveService.focusStatus(player): FocusStatus?`
+  (stacks / required / full, or null unless an Archer with Focus unlocked).
+  `FeedbackService` owns a per-player `BossBar` (`focusBars`), built/updated
+  in `updateFocusBar` from `refresh()`: white progress while building,
+  full yellow "⚡ FOCUSED" once a shot is banked; hidden at 0 stacks / class
+  change / quit. New `FeedbackService.shutdown()` (wired in `onDisable`)
+  clears them on reload. A quiet `END_ROD` aura in `PassiveService.tick()`
+  while full and in a dungeon.
+- **Feedback methods:** `FeedbackService.focusShotFired(player, arrow)`
+  (heavy release + a cyan/crit trail task riding the arrow) and
+  `focusShotImpact(location)` (crit + firework + sweep burst, sharp hit sound).
+
 ## Warrior Dash polish (2026-09-08)
 
 - `AbilityService.warriorDash` rewritten. Targeting was

@@ -93,6 +93,21 @@ focus:
 # Each arrow adds the Archer's Attack stat, then this multiplier is applied.
 archer:
   attack-stat-damage-multiplier: 1.0
+  # Focus break rules. Taking a hit of at least focus-break-damage-threshold
+  # final damage shatters the whole bar; a smaller hit only drops
+  # focus-chip-penalty stacks. A missed arrow costs focus-miss-penalty
+  # stacks rather than the whole bar.
+  focus-break-damage-threshold: 4.0
+  focus-chip-penalty: 1
+  focus-miss-penalty: 2
+  # The spent Focus Shot: launch speed, and an on-hit multiplier that starts
+  # at focus-shot-base-multiplier (Rank I) and adds
+  # focus-shot-multiplier-per-rank each rank. From focus-shot-pierce-from-rank
+  # the arrow also pierces (rank - that + 1 targets, capped at 4).
+  focus-shot-speed: 3.4
+  focus-shot-base-multiplier: 2.0
+  focus-shot-multiplier-per-rank: 0.25
+  focus-shot-pierce-from-rank: 4
 
 # Rage is retained while a Warrior remains in combat. After 15 seconds
 # without damage dealt or received, it drains at this rate each second.

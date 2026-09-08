@@ -44,6 +44,13 @@ class PassiveService(private val plugin: DungeonPlugin) {
             } else {
                 data.mana = 0.0
             }
+            // A quiet aura while a Focus bar is full, so a banked Focus Shot
+            // is not something you forget you are holding.
+            if (classType == ClassType.ARCHER && rank > 0 && data.focus >= focusThreshold(rank) &&
+                plugin.queries.isInDungeon(player)) {
+                player.world.spawnParticle(Particle.END_ROD,
+                    player.location.clone().add(0.0, 1.1, 0.0), 2, 0.3, 0.45, 0.3, 0.0)
+            }
         }
     }
 
@@ -56,8 +63,19 @@ class PassiveService(private val plugin: DungeonPlugin) {
             }
             ClassType.ARCHER -> {
                 if (data.focus > 0) {
-                    data.focus = 0
-                    player.sendMessage("§eYour Focus was broken.")
+                    // Chip damage only nicks concentration; a real hit shatters
+                    // it. Keeps Focus playable in a busy dungeon instead of
+                    // wiping on every stray arrow.
+                    val breakThreshold = plugin.classesConfig.getDouble("archer.focus-break-damage-threshold", 4.0)
+                    if (event.finalDamage >= breakThreshold) {
+                        data.focus = 0
+                        player.sendActionBar(Component.text("§cFocus shattered!"))
+                    } else {
+                        val chip = maxOf(1, plugin.classesConfig.getInt("archer.focus-chip-penalty", 1))
+                        data.focus = (data.focus - chip).coerceAtLeast(0)
+                        player.sendActionBar(Component.text("§eFocus rattled §7(-$chip)"))
+                    }
+                    plugin.refreshClassPlayer(player)
                 }
             }
             else -> Unit
@@ -155,15 +173,19 @@ class PassiveService(private val plugin: DungeonPlugin) {
         if (data.focus < focusThreshold(rank)) return FocusShotResult.NOT_CHARGED
 
         val arrow = player.launchProjectile(Arrow::class.java)
-        arrow.velocity = player.eyeLocation.direction.normalize().multiply(3.0)
-        // A Focus Shot is defined as two fully charged bow hits. Preserve the
-        // full-draw critical baseline before applying its explicit
-        // double-damage multiplier on hit.
+        arrow.velocity = player.eyeLocation.direction.normalize()
+            .multiply(plugin.classesConfig.getDouble("archer.focus-shot-speed", 3.4))
+        // A Focus Shot is defined as two fully charged bow hits. Keep the
+        // full-draw critical baseline; the damage multiplier is applied on hit.
         arrow.isCritical = true
+        // High Focus ranks let the shot punch through and carry on.
+        val pierceFromRank = plugin.classesConfig.getInt("archer.focus-shot-pierce-from-rank", 4)
+        arrow.pierceLevel = if (rank >= pierceFromRank) (rank - pierceFromRank + 1).coerceAtMost(4) else 0
+        arrow.isGlowing = true
         plugin.classItems.markFocusShot(arrow)
         data.focus = 0
-        player.world.playSound(player.location, Sound.ENTITY_ARROW_SHOOT, 1.0f, 1.15f)
-        player.sendActionBar(Component.text("§aFocus Shot! §fDouble-damage arrow fired."))
+        plugin.classFeedback.focusShotFired(player, arrow)
+        player.sendActionBar(Component.text("§b§lFOCUS SHOT"))
         plugin.refreshClassPlayer(player)
         return FocusShotResult.SUCCESS
     }
@@ -173,17 +195,21 @@ class PassiveService(private val plugin: DungeonPlugin) {
             event.isCancelled = true
             return
         }
-        event.damage = (event.damage + archerAttackBonus(shooter)) * focusShotDamageMultiplier()
-        projectile.world.spawnParticle(Particle.CRIT, projectile.location, 20, 0.12, 0.12, 0.12, 0.12)
+        val rank = plugin.classes.signatureRank(shooter.uniqueId)
+        event.damage = (event.damage + archerAttackBonus(shooter)) * focusShotDamageMultiplier(rank)
+        plugin.classFeedback.focusShotImpact(projectile.location)
     }
 
     fun handleProjectileMiss(event: ProjectileHitEvent, shooter: Player) {
         if (event.hitEntity != null) return
         val data = plugin.classes.data(shooter.uniqueId)
-        if (plugin.classes.activeClass(shooter.uniqueId) == ClassType.ARCHER && data.focus > 0) {
-            data.focus = 0
-            shooter.sendMessage("§eYour Focus was broken by a missed shot.")
-        }
+        if (plugin.classes.activeClass(shooter.uniqueId) != ClassType.ARCHER || data.focus <= 0) return
+        // A whiff costs a chunk of the bar, not the whole thing.
+        val penalty = maxOf(1, plugin.classesConfig.getInt("archer.focus-miss-penalty", 2))
+        data.focus = (data.focus - penalty).coerceAtLeast(0)
+        shooter.sendActionBar(Component.text(
+            if (data.focus == 0) "§eFocus lost - the shot went wide." else "§eFocus slipped §7(-$penalty)"))
+        plugin.refreshClassPlayer(shooter)
     }
 
     fun castArcaneBolt(player: Player): ArcaneCastResult {
@@ -355,8 +381,22 @@ class PassiveService(private val plugin: DungeonPlugin) {
 
     private fun fullFocusDamageBonus(rank: Int): Double = (0.20 + rank * 0.05).coerceAtMost(0.50)
 
-    /** Focus rank changes charge speed and regular-shot bonuses; a spent Focus Shot is always 2x. */
-    private fun focusShotDamageMultiplier(): Double = 2.0
+    /** The spent Focus Shot's on-hit multiplier: base at Rank I, growing each rank. */
+    private fun focusShotDamageMultiplier(rank: Int): Double {
+        val base = plugin.classesConfig.getDouble("archer.focus-shot-base-multiplier", 2.0)
+        val perRank = plugin.classesConfig.getDouble("archer.focus-shot-multiplier-per-rank", 0.25)
+        return (base + (rank - 1).coerceAtLeast(0) * perRank).coerceAtLeast(1.0)
+    }
+
+    /** Current Focus state for HUD use, or null unless the player is an Archer with Focus unlocked. */
+    fun focusStatus(player: Player): FocusStatus? {
+        if (plugin.classes.activeClass(player.uniqueId) != ClassType.ARCHER) return null
+        val rank = plugin.classes.signatureRank(player.uniqueId)
+        if (rank == 0) return null
+        val required = focusThreshold(rank)
+        val stacks = plugin.classes.data(player.uniqueId).focus
+        return FocusStatus(stacks, required, stacks >= required)
+    }
 
     private fun archerAttackBonus(player: Player): Double =
         (player.getAttribute(Attribute.ATTACK_DAMAGE)?.value ?: 1.0) *
@@ -428,6 +468,9 @@ class PassiveService(private val plugin: DungeonPlugin) {
 }
 
 private data class ActiveTaunt(val playerId: UUID, val expiresAt: Long)
+
+/** Snapshot of an Archer's Focus bar for the HUD. */
+data class FocusStatus(val stacks: Int, val required: Int, val full: Boolean)
 
 enum class ArcaneCastResult { SUCCESS, MANA_LOCKED, WRONG_WEAPON, INSUFFICIENT_MANA, COOLDOWN }
 

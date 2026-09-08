@@ -1,11 +1,15 @@
 package nl.riddernix.dungeonplugin.classes
 
+import net.kyori.adventure.bossbar.BossBar
+import net.kyori.adventure.text.Component
 import nl.riddernix.dungeonplugin.DungeonPlugin
 import org.bukkit.Bukkit
 import org.bukkit.Color
+import org.bukkit.Location
 import org.bukkit.Particle
 import org.bukkit.Sound
 import org.bukkit.attribute.Attribute
+import org.bukkit.entity.Arrow
 import org.bukkit.entity.Player
 import org.bukkit.scheduler.BukkitRunnable
 import org.bukkit.scoreboard.DisplaySlot
@@ -17,6 +21,9 @@ import java.util.UUID
 class FeedbackService(private val plugin: DungeonPlugin) {
 
     private val boards = HashMap<UUID, Scoreboard>()
+
+    /** The Archer's persistent Focus readout, shown once a bar starts building. */
+    private val focusBars = HashMap<UUID, BossBar>()
 
     fun refresh(player: Player) {
         updateTabName(player)
@@ -66,10 +73,40 @@ class FeedbackService(private val plugin: DungeonPlugin) {
             objective.getScore("$text§${index.toString(16)}").score = index
         }
         if (player.scoreboard != board) player.scoreboard = board
+        updateFocusBar(player)
     }
 
     fun remove(player: Player) {
         boards.remove(player.uniqueId)
+        focusBars.remove(player.uniqueId)?.let(player::hideBossBar)
+    }
+
+    /** Hides every Focus bar - called on plugin disable so a reload leaves none orphaned. */
+    fun shutdown() {
+        focusBars.forEach { (id, bar) -> plugin.server.getPlayer(id)?.hideBossBar(bar) }
+        focusBars.clear()
+    }
+
+    /**
+     * The Archer's Focus bossbar: appears the moment a bar starts building,
+     * fills white as stacks land, and flips to a full yellow "FOCUSED" once a
+     * Focus Shot is banked.
+     */
+    private fun updateFocusBar(player: Player) {
+        val status = plugin.classPassives.focusStatus(player)
+        if (status == null || status.stacks <= 0) {
+            focusBars.remove(player.uniqueId)?.let(player::hideBossBar)
+            return
+        }
+        val bar = focusBars.getOrPut(player.uniqueId) {
+            BossBar.bossBar(Component.empty(), 0f, BossBar.Color.WHITE, BossBar.Overlay.PROGRESS)
+                .also { player.showBossBar(it) }
+        }
+        bar.name(Component.text(
+            if (status.full) "⚡ FOCUSED  —  left-click for Focus Shot"
+            else "Focus  ${status.stacks} / ${status.required}"))
+        bar.progress((status.stacks.toFloat() / status.required.toFloat()).coerceIn(0f, 1f))
+        bar.color(if (status.full) BossBar.Color.YELLOW else BossBar.Color.WHITE)
     }
 
     /** Confirmed post-commit purchase feedback. Particles are deliberately non-damaging. */
@@ -128,6 +165,35 @@ class FeedbackService(private val plugin: DungeonPlugin) {
         player.world.spawnParticle(Particle.SWEEP_ATTACK, at, if (berserk) 3 else 1, 0.4, 0.3, 0.4, 0.0)
         player.world.spawnParticle(Particle.CRIT, at, if (berserk) 24 else 14, 0.5, 0.4, 0.5, 0.25)
         player.playSound(player.location, Sound.ENTITY_PLAYER_ATTACK_CRIT, 0.9f, if (berserk) 0.85f else 1.1f)
+    }
+
+    /** Focus Shot leaving the bow: a heavy release and a glinting trail that rides the arrow. */
+    fun focusShotFired(player: Player, arrow: Arrow) {
+        player.playSound(player.location, Sound.ITEM_CROSSBOW_LOADING_END, 0.9f, 0.8f)
+        player.playSound(player.location, Sound.ENTITY_ARROW_SHOOT, 1.0f, 0.6f)
+        player.playSound(player.location, Sound.ENTITY_PLAYER_ATTACK_CRIT, 0.8f, 1.4f)
+        val cyan = Particle.DustOptions(Color.fromRGB(90, 210, 255), 1.2f)
+        object : BukkitRunnable() {
+            private var ticks = 0
+            override fun run() {
+                if (ticks++ >= 60 || !arrow.isValid || arrow.isDead || arrow.isInBlock) {
+                    cancel(); return
+                }
+                val at = arrow.location
+                at.world?.spawnParticle(Particle.DUST, at, 4, 0.03, 0.03, 0.03, 0.0, cyan)
+                at.world?.spawnParticle(Particle.CRIT, at, 2, 0.02, 0.02, 0.02, 0.0)
+            }
+        }.runTaskTimer(plugin, 1L, 1L)
+    }
+
+    /** Focus Shot connecting: a sharp burst at the impact point. */
+    fun focusShotImpact(where: Location) {
+        val world = where.world ?: return
+        world.spawnParticle(Particle.CRIT, where, 30, 0.25, 0.25, 0.25, 0.35)
+        world.spawnParticle(Particle.FIREWORK, where, 10, 0.2, 0.2, 0.2, 0.08)
+        world.spawnParticle(Particle.SWEEP_ATTACK, where, 2, 0.1, 0.1, 0.1, 0.0)
+        world.playSound(where, Sound.ENTITY_ARROW_HIT_PLAYER, 1.0f, 0.7f)
+        world.playSound(where, Sound.ENTITY_GENERIC_EXPLODE, 0.35f, 1.6f)
     }
 
     fun tauntTriggered(player: Player) {
