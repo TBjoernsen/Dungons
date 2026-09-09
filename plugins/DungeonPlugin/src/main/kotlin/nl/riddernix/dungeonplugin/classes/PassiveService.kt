@@ -28,6 +28,9 @@ class PassiveService(private val plugin: DungeonPlugin) {
 
     private var activeTaunt: ActiveTaunt? = null
 
+    /** Per Archer: wall-clock ms before Scope can trigger again. */
+    private val scopeReadyAt = HashMap<UUID, Long>()
+
     fun tick() {
         maintainTaunt()
         val now = System.currentTimeMillis()
@@ -158,6 +161,29 @@ class PassiveService(private val plugin: DungeonPlugin) {
         if (plugin.classes.activeClass(player.uniqueId) != ClassType.ARCHER) return false
         val rank = plugin.classes.signatureRank(player.uniqueId)
         return rank > 0 && plugin.classes.data(player.uniqueId).focus >= focusThreshold(rank)
+    }
+
+    /**
+     * Archer "Scope": crouching mid-air at Focus rank `archer.scope-min-rank`+
+     * grants a short Slow Falling to steady a shot. Fired from the sneak
+     * event; rests `archer.scope-cooldown-seconds` between uses.
+     */
+    @Suppress("DEPRECATION")
+    fun tryScope(player: Player) {
+        if (plugin.classes.activeClass(player.uniqueId) != ClassType.ARCHER) return
+        if (plugin.classes.signatureRank(player.uniqueId) <
+            plugin.classesConfig.getInt("archer.scope-min-rank", 5)) return
+        if (player.isOnGround || player.isGliding) return
+        val now = System.currentTimeMillis()
+        if ((scopeReadyAt[player.uniqueId] ?: 0L) > now) return
+        val durationTicks = plugin.classesConfig.getInt("archer.scope-duration-ticks", 24).coerceIn(5, 200)
+        val cooldownMs = (plugin.classesConfig.getDouble("archer.scope-cooldown-seconds", 3.0)
+            .coerceAtLeast(0.0) * 1000.0).toLong()
+        scopeReadyAt[player.uniqueId] = now + cooldownMs
+        player.addPotionEffect(PotionEffect(PotionEffectType.SLOW_FALLING, durationTicks, 0, true, false, true))
+        player.playSound(player.location, Sound.ITEM_SPYGLASS_USE, 0.7f, 1.25f)
+        player.world.spawnParticle(Particle.END_ROD, player.location.clone().add(0.0, 1.0, 0.0), 6, 0.25, 0.3, 0.25, 0.01)
+        player.sendActionBar(Component.text("§bScope §7- steady your shot"))
     }
 
     /**

@@ -199,7 +199,7 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
 
         var chargeNote = ""
         if (!forward && plugin.classes.signatureRank(player.uniqueId) >=
-            cfg.getInt("abilities.archer.wind-jump-double-charge-min-rank", 5)) {
+            cfg.getInt("abilities.archer.wind-jump-double-charge-min-rank", 4)) {
             val secs = cfg.getDouble("abilities.archer.wind-jump-second-charge-seconds", 3.0).coerceAtLeast(0.0)
             windDashChargeUntil[player.uniqueId] = System.currentTimeMillis() + (secs * 1000).toLong()
             chargeNote = " §e+ Wind Dash"

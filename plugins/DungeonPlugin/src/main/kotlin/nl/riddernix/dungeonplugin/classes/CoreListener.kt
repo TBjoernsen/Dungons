@@ -155,6 +155,13 @@ class CoreListener(private val plugin: DungeonPlugin) : Listener {
         }
     }
 
+    @EventHandler(ignoreCancelled = true)
+    fun onArcherScopeSneak(event: PlayerToggleSneakEvent) {
+        if (!event.isSneaking) return
+        if (!plugin.queries.isInDungeon(event.player)) return
+        plugin.classPassives.tryScope(event.player)
+    }
+
     @EventHandler
     fun onArmorChange(event: PlayerArmorChangeEvent) {
         if (!isArmor(event.newItem)) return

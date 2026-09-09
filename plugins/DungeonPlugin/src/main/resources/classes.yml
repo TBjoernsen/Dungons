@@ -116,6 +116,12 @@ archer:
   skyfall-radius: 4.0
   skyfall-damage-multiplier: 1.5
   skyfall-knockup: 0.35
+  # "Scope" (Focus rank scope-min-rank+): crouching in mid-air grants Slow
+  # Falling for scope-duration-ticks to steady a shot, then rests for
+  # scope-cooldown-seconds before it can trigger again.
+  scope-min-rank: 5
+  scope-duration-ticks: 24
+  scope-cooldown-seconds: 3.0
 
 # Rage is retained while a Warrior remains in combat. After 15 seconds
 # without damage dealt or received, it drains at this rate each second.
@@ -216,7 +222,7 @@ abilities:
     # no lift) - usable within wind-jump-second-charge-seconds of the jump.
     # wind-dash-forward-multiplier turns jump-velocity into that dash's
     # horizontal speed.
-    wind-jump-double-charge-min-rank: 5
+    wind-jump-double-charge-min-rank: 4
     wind-jump-second-charge-seconds: 3.0
     wind-dash-forward-multiplier: 1.7
   paladin:

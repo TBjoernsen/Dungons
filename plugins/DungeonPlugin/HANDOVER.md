@@ -192,9 +192,21 @@ BossDefinition scenery accessors were kept).
   the shared `FeedbackService.arrowTrail(projectile, color)` - one dust per
   tick, lime for Skyfall, cyan for the Focus Shot.
 
+## Archer Wind Dash + Scope (2026-09-09)
+
+- **Wind Dash** min rank lowered to `abilities.archer.wind-jump-double-charge-min-rank`
+  **4** (was 5) - config default and the `archerDoubleJump` fallback.
+- **Scope** (new, Focus rank `archer.scope-min-rank` = 5): crouch mid-air →
+  `PassiveService.tryScope` grants `SLOW_FALLING` for
+  `archer.scope-duration-ticks` (24) with a `archer.scope-cooldown-seconds`
+  (3.0) rest. Fired from a new `CoreListener.onArcherScopeSneak`
+  (`PlayerToggleSneakEvent`, alongside `onPaladinSneak`); gated on archer +
+  rank + airborne + not gliding + off cooldown. Spyglass sound + END_ROD +
+  "Scope" actionbar. `scopeReadyAt` map in `PassiveService`.
+
 ## Archer Wind Dash: max-rank second charge (2026-09-09)
 
-- At Focus rank >= `abilities.archer.wind-jump-double-charge-min-rank` (5) a
+- At Focus rank >= `abilities.archer.wind-jump-double-charge-min-rank` (now 4) a
   Wind Jump grants a second charge: `windDashChargeUntil` is set for
   `wind-jump-second-charge-seconds` (3.0). Pressing F again inside that
   window runs `archerDoubleJump(player, forward = true)` - a horizontal
