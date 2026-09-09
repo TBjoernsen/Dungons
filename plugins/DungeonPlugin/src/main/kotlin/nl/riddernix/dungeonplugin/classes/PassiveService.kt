@@ -319,9 +319,10 @@ class PassiveService(private val plugin: DungeonPlugin) {
         consecrations.remove(player.uniqueId)?.task?.cancel()
         val centre = player.location.clone()
         val world = centre.world ?: return
-        val radius = cfg.getDouble("paladin.consecration-radius", 6.0).coerceIn(1.0, 24.0)
+        val radius = cfg.getDouble("paladin.consecration-radius", 8.0).coerceIn(1.0, 24.0)
         val interval = cfg.getInt("paladin.consecration-tick-interval", 10).coerceIn(2, 40).toLong()
         val slowAmp = cfg.getInt("paladin.consecration-slow-amplifier", 0)
+        val dot = cfg.getDouble("paladin.consecration-dot", 1.0).coerceAtLeast(0.0)
         val slowTicks = (interval + 5L).toInt()
         val radiusSq = radius * radius
         val id = player.uniqueId
@@ -332,14 +333,19 @@ class PassiveService(private val plugin: DungeonPlugin) {
                 if (elapsed > durationTicks || !player.isOnline || player.world != world) {
                     cancel(); consecrations.remove(id); return
                 }
-                if (slowAmp >= 0) {
+                if (slowAmp >= 0 || dot > 0.0) {
                     for (entity in world.getNearbyEntities(centre, radius, 4.0, radius)) {
                         if (entity !is LivingEntity || entity is Player) continue
                         if (!plugin.queries.isDungeonMob(entity) && entity !is Mob) continue
                         val dx = entity.location.x - centre.x
                         val dz = entity.location.z - centre.z
                         if (dx * dx + dz * dz > radiusSq) continue
-                        entity.addPotionEffect(PotionEffect(PotionEffectType.SLOWNESS, slowTicks, slowAmp, true, false, true))
+                        // Sourceless: the ground burns them, it does not knock
+                        // them out of the ring.
+                        if (dot > 0.0) entity.damage(dot)
+                        if (slowAmp >= 0) {
+                            entity.addPotionEffect(PotionEffect(PotionEffectType.SLOWNESS, slowTicks, slowAmp, true, false, true))
+                        }
                     }
                 }
                 plugin.classFeedback.paladinConsecrationTick(centre, radius)

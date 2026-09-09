@@ -225,9 +225,10 @@ build-and-spend loop, plus rank-scaled Shield and a Smite passive.
   effect is reactive via `inConsecration(player)`: **anyone** standing in
   it takes `consecration-damage-reduction` (0.20) less damage
   (`handleIncomingDamage`, after the class `when`) and heals 1 HP per
-  `consecration-heal-per-damage` (5) damage dealt (`handleDamage`). No mob
-  DoT, no per-pulse heal. `FeedbackService.paladinConsecrationTick` draws
-  the ring.
+  `consecration-heal-per-damage` (5) damage dealt (`handleDamage`). The
+  tick also burns mobs for `consecration-dot` (1.0, sourceless) + slows
+  them. `consecration-radius` 8. `FeedbackService.paladinConsecrationTick`
+  draws the ring.
 - **Radius taunt.** `targetAllMobs` -> `targetMobsInRadius`
   (`taunt-radius` 32), re-pulled each `maintainTaunt`.
 - **Presence + decay.** `updateTauntPresence` in `tick()` - gold aura,

@@ -219,13 +219,15 @@ paladin:
   # It is a buff zone: anyone (Paladin or ally) standing in it takes
   # consecration-damage-reduction less damage and heals 1 health per
   # consecration-heal-per-damage damage they deal. Mobs inside are slowed
-  # (consecration-slow-amplifier, -1 = off). Deliberately large - shrink
-  # to taste.
-  consecration-radius: 6.0
+  # (consecration-slow-amplifier, -1 = off) and burn for consecration-dot
+  # per pulse (sourceless - no knockback). Deliberately large - shrink to
+  # taste.
+  consecration-radius: 8.0
   consecration-tick-interval: 10
   consecration-damage-reduction: 0.20
   consecration-heal-per-damage: 5.0
   consecration-slow-amplifier: 0
+  consecration-dot: 1.0
 
 # Mage Mana + Arcane Bolt (the baseline staff attack, left-click). Mana and
 # the bolt are usable from Difficulty 1; Difficulty 3 unlocks Arcane Charge,
