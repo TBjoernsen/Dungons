@@ -184,9 +184,10 @@ paladin:
   # Taunt now re-pulls every mob within taunt-radius each tick instead of
   # every mob in the world.
   taunt-radius: 32.0
-  # --- Taunt stance (fightable) --------------------------------------
+  # --- Taunt stance (fightable, but a tank's) ------------------------
   taunt-slowness-amplifier: 0        # 0 = Slowness I (keep it light)
-  taunt-damage-reduction: 0.30       # flat, while the stance is up
+  taunt-resistance-amplifier: 1      # 1 = Resistance II; stacks with the flat cut below
+  taunt-damage-reduction: 0.30       # flat, on top of Resistance
   taunt-knockback-resistance: 1.0    # 1.0 = nothing can shove you off the point
   # --- Zeal + Holy Nova ---------------------------------------------
   # Damage soaked during Taunt charges Zeal; at zeal-threshold it releases a
@@ -203,11 +204,12 @@ paladin:
   nova-regen-seconds: 4.0
   # --- Consecrated Ground -----------------------------------------------
   # A ring of light dropped where you activate Taunt, lasting its duration.
-  # Mobs inside take consecration-dot per pulse and are slowed; allies inside
-  # get consecration-ally-heal per pulse. Deliberately large - shrink to taste.
+  # Mobs inside take consecration-dot per pulse (sourceless - it burns, it
+  # does not knock back) and are slowed; allies inside get consecration-ally
+  # -heal per pulse. Deliberately large - shrink to taste.
   consecration-radius: 6.0
   consecration-tick-interval: 10
-  consecration-dot: 1.5
+  consecration-dot: 1.0
   consecration-ally-heal: 0.5
   # --- Smite (holy damage on the axe while Taunting) ------------------
   smite-base: 2.0

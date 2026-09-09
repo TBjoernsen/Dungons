@@ -197,11 +197,13 @@ BossDefinition scenery accessors were kept).
 Turtle Master is gone. Taunt is now a fightable stance built around a
 build-and-spend loop, plus rank-scaled Shield and a Smite passive.
 
-- **Fightable stance.** `activateTaunt` drops the Resistance III / Slowness
-  IV potion for **Slowness `paladin.taunt-slowness-amplifier` (0 = I)** + a
-  transient `KNOCKBACK_RESISTANCE` modifier (`tauntKnockbackKey`,
+- **Fightable stance.** `activateTaunt` = **Slowness
+  `paladin.taunt-slowness-amplifier` (0 = I)** + **Resistance
+  `taunt-resistance-amplifier` (1 = II)** + a transient
+  `KNOCKBACK_RESISTANCE` modifier (`tauntKnockbackKey`,
   `taunt-knockback-resistance` 1.0) + a flat `taunt-damage-reduction`
-  (0.30) applied in `handleIncomingDamage`.
+  (0.30) in `handleIncomingDamage` (stacks with Resistance - a Paladin
+  being swarmed has to survive).
 - **Zeal -> Holy Nova.** Damage soaked during Taunt charges
   `PlayerClassData.zeal` (`zeal-per-damage`); at `zeal-threshold` (60) it
   auto-fires `releaseHolyNova(player, 1.0)`; whatever is banked fires
@@ -211,16 +213,21 @@ build-and-spend loop, plus rank-scaled Shield and a Smite passive.
 - **Consecrated Ground.** `startConsecration` runs a `BukkitRunnable`
   (tracked in `consecrationTasks`, cancelled on re-cast / Taunt end /
   disable) for the Taunt duration: circular `consecration-radius` (6) at
-  the *cast spot*, `consecration-dot` + Slowness to mobs, `consecration
-  -ally-heal` to players each `consecration-tick-interval`.
-  `FeedbackService.paladinConsecrationTick` draws the ring.
+  the *cast spot*, `consecration-dot` (1.0, **sourceless `damage()` - no
+  knockback**) + Slowness to mobs, `consecration-ally-heal` to players each
+  `consecration-tick-interval`. `FeedbackService.paladinConsecrationTick`
+  draws the ring.
 - **Radius taunt.** `targetAllMobs` -> `targetMobsInRadius`
   (`taunt-radius` 32), re-pulled each `maintainTaunt`.
 - **Presence + decay.** `updateTauntPresence` in `tick()` - gold aura,
   one-shot "Taunt fading..." under 1.6s (`tauntFadeWarned`). Judgment
   bleeds out of combat via `decayJudgmentOutOfCombat`
   (`judgment-decay-*`, `lastJudgmentCombatAt` set in `buildTaunt`).
-  Readout shows `ACTIVE Ns | Zeal x/threshold`.
+- **Zeal boss bar.** `PassiveService.tauntStatus` -> `TauntStatus`;
+  `FeedbackService.zealBars` + `updateZealBar` (from `refresh`) shows a
+  bar while Taunt is up whose title carries Zeal, the live Smite bonus and
+  the seconds left. `FeedbackService.shutdown()` re-added + wired in
+  `onDisable`. Sidebar readout also shows `ACTIVE Ns | Zeal x/threshold`.
 - **Smite.** `handleDamage` Paladin branch: `+smite-base +
   smite-per-rank*(rank-1)` holy damage to mobs while `isTaunting`, with an
   END_ROD spark.

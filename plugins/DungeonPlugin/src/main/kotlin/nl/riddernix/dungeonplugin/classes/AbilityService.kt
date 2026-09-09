@@ -235,11 +235,16 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         if (rank >= cfg.getInt("abilities.paladin.shield-bless-min-rank", 3)) {
             target.removePotionEffect(PotionEffectType.SLOWNESS)
             target.removePotionEffect(PotionEffectType.WEAKNESS)
-            val blessTicks = (cfg.getDouble("abilities.paladin.shield-bless-seconds", 3.0).coerceAtLeast(0.0) * 20).toInt()
+            val blessSeconds = cfg.getDouble("abilities.paladin.shield-bless-seconds", 3.0).coerceAtLeast(0.0)
+            val blessTicks = (blessSeconds * 20).toInt()
             if (blessTicks > 0) {
                 target.addPotionEffect(PotionEffect(PotionEffectType.RESISTANCE, blessTicks, 0, true, false, true))
             }
             blessed = true
+            if (target != player) {
+                target.sendActionBar(Component.text(
+                    "§6✦ Blessed §7- Slowness/Weakness cleansed, Resistance ${blessSeconds.toInt()}s", NamedTextColor.GOLD))
+            }
         }
 
         val expiresAt = System.currentTimeMillis() + (seconds * 1000).toLong()

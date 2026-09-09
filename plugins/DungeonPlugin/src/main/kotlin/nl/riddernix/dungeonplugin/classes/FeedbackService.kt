@@ -1,5 +1,7 @@
 package nl.riddernix.dungeonplugin.classes
 
+import net.kyori.adventure.bossbar.BossBar
+import net.kyori.adventure.text.Component
 import nl.riddernix.dungeonplugin.DungeonPlugin
 import org.bukkit.Bukkit
 import org.bukkit.Color
@@ -22,6 +24,9 @@ import java.util.UUID
 class FeedbackService(private val plugin: DungeonPlugin) {
 
     private val boards = HashMap<UUID, Scoreboard>()
+
+    /** The Paladin's Zeal / Taunt boss bar, shown only while their Taunt is active. */
+    private val zealBars = HashMap<UUID, BossBar>()
 
     fun refresh(player: Player) {
         updateTabName(player)
@@ -71,10 +76,41 @@ class FeedbackService(private val plugin: DungeonPlugin) {
             objective.getScore("$text§${index.toString(16)}").score = index
         }
         if (player.scoreboard != board) player.scoreboard = board
+        updateZealBar(player)
+    }
+
+    /**
+     * Paladin Zeal boss bar: appears while Taunt is up, fills toward the Holy
+     * Nova, and its title also states the live Smite bonus and time left -
+     * the three "invisible" perks (Zeal, Smite, stance timer) in one place.
+     */
+    private fun updateZealBar(player: Player) {
+        val status = plugin.classPassives.tauntStatus(player)
+        if (status == null) {
+            zealBars.remove(player.uniqueId)?.let { player.hideBossBar(it) }
+            return
+        }
+        val bar = zealBars.getOrPut(player.uniqueId) {
+            BossBar.bossBar(Component.empty(), 0f, BossBar.Color.YELLOW, BossBar.Overlay.PROGRESS)
+                .also { player.showBossBar(it) }
+        }
+        val zeal = status.zeal.toInt()
+        val threshold = status.zealThreshold.toInt()
+        bar.name(Component.text(
+            "⚜ Zeal $zeal / $threshold   ·   Smite +${String.format(Locale.US, "%.1f", status.smiteBonus)}" +
+                "   ·   ${status.secondsLeft.toInt()}s"))
+        bar.progress((status.zeal / status.zealThreshold).toFloat().coerceIn(0f, 1f))
+    }
+
+    /** Hides every Zeal bar - called on plugin disable so a reload leaves none orphaned. */
+    fun shutdown() {
+        zealBars.forEach { (id, bar) -> plugin.server.getPlayer(id)?.hideBossBar(bar) }
+        zealBars.clear()
     }
 
     fun remove(player: Player) {
         boards.remove(player.uniqueId)
+        zealBars.remove(player.uniqueId)?.let { player.hideBossBar(it) }
     }
 
     /** Confirmed post-commit purchase feedback. Particles are deliberately non-damaging. */

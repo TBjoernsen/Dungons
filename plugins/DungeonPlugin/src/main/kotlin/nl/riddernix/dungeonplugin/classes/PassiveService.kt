@@ -159,11 +159,14 @@ class PassiveService(private val plugin: DungeonPlugin) {
         val durationTicks = tauntDurationTicks(rank)
         activeTaunt = ActiveTaunt(player.uniqueId, System.currentTimeMillis() + durationTicks * 50L, rank)
 
-        // A stance you can fight in: Slowness I (not the old Turtle Master IV),
-        // a knockback lock so nothing shoves you off the point, and the flat
-        // mitigation applied in handleIncomingDamage.
+        // A stance you can fight in, but still a tank's: Slowness I (not the
+        // old Turtle Master IV), a knockback lock, real Resistance, plus the
+        // flat mitigation applied in handleIncomingDamage. Being swarmed as a
+        // Paladin has to be survivable.
         val slowAmp = cfg.getInt("paladin.taunt-slowness-amplifier", 0).coerceIn(0, 5)
         player.addPotionEffect(PotionEffect(PotionEffectType.SLOWNESS, durationTicks, slowAmp, true, false, true))
+        val resistAmp = cfg.getInt("paladin.taunt-resistance-amplifier", 1).coerceIn(0, 4)
+        player.addPotionEffect(PotionEffect(PotionEffectType.RESISTANCE, durationTicks, resistAmp, true, false, true))
         applyTauntKnockbackLock(player, cfg.getDouble("paladin.taunt-knockback-resistance", 1.0).coerceIn(0.0, 1.0))
 
         targetMobsInRadius(player)
@@ -177,6 +180,17 @@ class PassiveService(private val plugin: DungeonPlugin) {
     fun isTaunting(player: Player): Boolean {
         val t = activeTaunt ?: return false
         return t.playerId == player.uniqueId && t.expiresAt > System.currentTimeMillis()
+    }
+
+    /** Live Taunt state for the HUD boss bar, or null unless this player's Taunt is up. */
+    fun tauntStatus(player: Player): TauntStatus? {
+        if (!isTaunting(player)) return null
+        val rank = plugin.classes.signatureRank(player.uniqueId).coerceAtLeast(1)
+        val cfg = plugin.classesConfig
+        val threshold = cfg.getDouble("paladin.zeal-threshold", 60.0).coerceAtLeast(1.0)
+        val smite = cfg.getDouble("paladin.smite-base", 2.0) + cfg.getDouble("paladin.smite-per-rank", 1.5) * (rank - 1)
+        val remainMs = (activeTaunt?.expiresAt ?: 0L) - System.currentTimeMillis()
+        return TauntStatus(plugin.classes.data(player.uniqueId).zeal, threshold, smite, (remainMs / 1000.0).coerceAtLeast(0.0))
     }
 
     private fun applyTauntKnockbackLock(player: Player, value: Double) {
@@ -269,7 +283,9 @@ class PassiveService(private val plugin: DungeonPlugin) {
                             entity.health = (entity.health + allyHeal).coerceIn(0.0, maxHp)
                         }
                         entity is LivingEntity && (plugin.queries.isDungeonMob(entity) || entity is Mob) -> {
-                            if (dot > 0.0) entity.damage(dot, player)
+                            // Sourceless damage: the ground burns them, it does
+                            // not shove them - no knockback away from the Paladin.
+                            if (dot > 0.0) entity.damage(dot)
                             entity.addPotionEffect(PotionEffect(PotionEffectType.SLOWNESS, slowTicks, 0, true, false, true))
                         }
                     }
@@ -854,6 +870,9 @@ class PassiveService(private val plugin: DungeonPlugin) {
 }
 
 private data class ActiveTaunt(val playerId: UUID, val expiresAt: Long, val rank: Int)
+
+/** Snapshot of an active Taunt for the Paladin's Zeal boss bar. */
+data class TauntStatus(val zeal: Double, val zealThreshold: Double, val smiteBonus: Double, val secondsLeft: Double)
 
 enum class ArcaneCastResult { SUCCESS, MANA_LOCKED, WRONG_WEAPON, INSUFFICIENT_MANA, COOLDOWN }
 
