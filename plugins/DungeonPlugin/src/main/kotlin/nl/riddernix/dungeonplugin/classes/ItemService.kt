@@ -5,6 +5,7 @@ import org.bukkit.Material
 import org.bukkit.NamespacedKey
 import org.bukkit.entity.Player
 import org.bukkit.entity.Projectile
+import org.bukkit.inventory.ItemFlag
 import org.bukkit.inventory.ItemStack
 import org.bukkit.persistence.PersistentDataType
 
@@ -104,6 +105,9 @@ class ItemService(plugin: DungeonPlugin) {
         @Suppress("DEPRECATION")
         meta.lore = lore
         meta.persistentDataContainer.set(itemKindKey, PersistentDataType.STRING, kind)
+        // Class-layer items never wear out.
+        meta.isUnbreakable = true
+        meta.addItemFlags(ItemFlag.HIDE_UNBREAKABLE)
         item.itemMeta = meta
         return item
     }

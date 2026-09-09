@@ -7,8 +7,10 @@ import org.bukkit.Location
 import org.bukkit.Particle
 import org.bukkit.Sound
 import org.bukkit.attribute.Attribute
+import org.bukkit.entity.AbstractArrow
 import org.bukkit.entity.Arrow
 import org.bukkit.entity.Player
+import org.bukkit.entity.Projectile
 import org.bukkit.scheduler.BukkitRunnable
 import org.bukkit.scoreboard.DisplaySlot
 import org.bukkit.scoreboard.Scoreboard
@@ -132,21 +134,25 @@ class FeedbackService(private val plugin: DungeonPlugin) {
         player.playSound(player.location, Sound.ENTITY_PLAYER_ATTACK_CRIT, 0.9f, if (berserk) 0.85f else 1.1f)
     }
 
-    /** Focus Shot leaving the bow: a heavy release and a glinting trail that rides the arrow. */
+    /** Focus Shot leaving the bow: a heavy release and a thin cyan trail on the arrow. */
     fun focusShotFired(player: Player, arrow: Arrow) {
         player.playSound(player.location, Sound.ITEM_CROSSBOW_LOADING_END, 0.9f, 0.8f)
         player.playSound(player.location, Sound.ENTITY_ARROW_SHOOT, 1.0f, 0.6f)
         player.playSound(player.location, Sound.ENTITY_PLAYER_ATTACK_CRIT, 0.8f, 1.4f)
-        val cyan = Particle.DustOptions(Color.fromRGB(90, 210, 255), 1.2f)
+        arrowTrail(arrow, Color.fromRGB(60, 220, 235))
+    }
+
+    /** A sparse coloured dust trail that rides a fired arrow until it lands or expires. */
+    private fun arrowTrail(arrow: Projectile, color: Color) {
+        val dust = Particle.DustOptions(color, 1.0f)
         object : BukkitRunnable() {
             private var ticks = 0
             override fun run() {
-                if (ticks++ >= 60 || !arrow.isValid || arrow.isDead || arrow.isInBlock) {
+                val stuck = (arrow as? AbstractArrow)?.isInBlock == true
+                if (ticks++ >= 80 || !arrow.isValid || arrow.isDead || stuck) {
                     cancel(); return
                 }
-                val at = arrow.location
-                at.world?.spawnParticle(Particle.DUST, at, 4, 0.03, 0.03, 0.03, 0.0, cyan)
-                at.world?.spawnParticle(Particle.CRIT, at, 2, 0.02, 0.02, 0.02, 0.0)
+                arrow.world.spawnParticle(Particle.DUST, arrow.location, 1, 0.0, 0.0, 0.0, 0.0, dust)
             }
         }.runTaskTimer(plugin, 1L, 1L)
     }
@@ -161,33 +167,25 @@ class FeedbackService(private val plugin: DungeonPlugin) {
         world.playSound(where, Sound.ENTITY_GENERIC_EXPLODE, 0.35f, 1.6f)
     }
 
-    /** A Skyfall arrow leaving the bow: a wind-charged loose and a swirling trail on the arrow. */
-    fun skyfallArmed(player: Player, arrow: org.bukkit.entity.Projectile) {
+    /** A Skyfall arrow leaving the bow: a wind-charged loose and a thin lime trail on the arrow. */
+    fun skyfallArmed(player: Player, arrow: Projectile) {
         player.playSound(player.location, Sound.ENTITY_WIND_CHARGE_THROW, 1.0f, 0.8f)
         player.playSound(player.location, Sound.ENTITY_ARROW_SHOOT, 1.0f, 0.7f)
-        val gust = Particle.DustOptions(Color.fromRGB(200, 235, 255), 1.3f)
-        object : BukkitRunnable() {
-            private var ticks = 0
-            override fun run() {
-                if (ticks++ >= 80 || !arrow.isValid || arrow.isDead) {
-                    cancel(); return
-                }
-                val at = arrow.location
-                at.world?.spawnParticle(Particle.CLOUD, at, 3, 0.06, 0.06, 0.06, 0.0)
-                at.world?.spawnParticle(Particle.DUST, at, 3, 0.04, 0.04, 0.04, 0.0, gust)
-            }
-        }.runTaskTimer(plugin, 1L, 1L)
+        arrowTrail(arrow, Color.fromRGB(120, 230, 60))
     }
 
-    /** Skyfall arrow landing: a downward shockwave burst at the impact point. */
+    /**
+     * Skyfall arrow landing: a loose lime particle poof - a burst, not a
+     * blast (no explosion textures) - with an airy chime instead of a bang.
+     */
     fun skyfallDetonate(where: Location) {
         val world = where.world ?: return
-        world.spawnParticle(Particle.EXPLOSION_EMITTER, where, 1, 0.0, 0.0, 0.0, 0.0)
-        world.spawnParticle(Particle.EXPLOSION, where, 6, 1.1, 0.2, 1.1, 0.0)
-        world.spawnParticle(Particle.CLOUD, where, 40, 1.4, 0.15, 1.4, 0.08)
-        world.spawnParticle(Particle.CRIT, where, 40, 1.0, 0.3, 1.0, 0.4)
-        world.playSound(where, Sound.ENTITY_GENERIC_EXPLODE, 0.9f, 1.15f)
-        world.playSound(where, Sound.ENTITY_WIND_CHARGE_WIND_BURST, 1.0f, 0.7f)
+        val lime = Particle.DustOptions(Color.fromRGB(140, 235, 70), 1.4f)
+        world.spawnParticle(Particle.DUST, where, 22, 1.2, 0.35, 1.2, 0.0, lime)
+        world.spawnParticle(Particle.POOF, where, 14, 0.9, 0.2, 0.9, 0.02)
+        world.spawnParticle(Particle.END_ROD, where, 8, 0.5, 0.15, 0.5, 0.05)
+        world.playSound(where, Sound.ENTITY_WIND_CHARGE_WIND_BURST, 0.9f, 1.35f)
+        world.playSound(where, Sound.BLOCK_AMETHYST_BLOCK_CHIME, 0.7f, 0.8f)
     }
 
     fun tauntTriggered(player: Player) {

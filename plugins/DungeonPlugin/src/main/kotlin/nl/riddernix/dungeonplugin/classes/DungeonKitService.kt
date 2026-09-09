@@ -5,6 +5,7 @@ import org.bukkit.Material
 import org.bukkit.configuration.file.YamlConfiguration
 import org.bukkit.enchantments.Enchantment
 import org.bukkit.entity.Player
+import org.bukkit.inventory.ItemFlag
 import org.bukkit.inventory.ItemStack
 import java.io.File
 import java.io.IOException
@@ -43,18 +44,27 @@ class DungeonKitService(private val plugin: DungeonPlugin) {
         player.inventory.heldItemSlot = 0
 
         when (classType) {
-            ClassType.WARRIOR -> player.inventory.setItem(0, ItemStack(Material.NETHERITE_SWORD))
+            ClassType.WARRIOR -> player.inventory.setItem(0, unbreakable(ItemStack(Material.NETHERITE_SWORD)))
             ClassType.ARCHER -> {
                 val bow = ItemStack(Material.BOW)
                 bow.addEnchantment(Enchantment.INFINITY, 1)
-                player.inventory.setItem(0, bow)
+                player.inventory.setItem(0, unbreakable(bow))
                 player.inventory.setItem(8, ItemStack(Material.ARROW))
             }
-            ClassType.PALADIN -> player.inventory.setItem(0, ItemStack(Material.NETHERITE_AXE))
+            ClassType.PALADIN -> player.inventory.setItem(0, unbreakable(ItemStack(Material.NETHERITE_AXE)))
             ClassType.MAGE -> player.inventory.setItem(0, plugin.classItems.mageStaff())
         }
         player.updateInventory()
         player.sendMessage("§6Dungeon kit equipped. §7Your inventory will return when the dungeon ends.")
+    }
+
+    /** Kit weapons are loaners - they must never wear out mid-run. */
+    private fun unbreakable(item: ItemStack): ItemStack {
+        item.editMeta { meta ->
+            meta.isUnbreakable = true
+            meta.addItemFlags(ItemFlag.HIDE_UNBREAKABLE)
+        }
+        return item
     }
 
     private fun restoreInventory(player: Player) {

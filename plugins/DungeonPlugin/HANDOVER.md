@@ -186,8 +186,18 @@ BossDefinition scenery accessors were kept).
 - `detonateSkyfall`: mobs within `archer.skyfall-radius` (4.0) take
   `archerAttackBonus * archer.skyfall-damage-multiplier` (1.5) and a
   `skyfall-knockup` (0.35) pop away from centre. No terrain damage.
-  `FeedbackService.skyfallArmed` (wind-charge loose + gust trail) /
-  `skyfallDetonate` (EXPLOSION_EMITTER + cloud/crit shockwave).
+- **Visuals (revised 2026-09-09):** `skyfallDetonate` is a loose lime DUST +
+  POOF + END_ROD poof (no explosion textures) with WIND_CHARGE_WIND_BURST +
+  AMETHYST_BLOCK_CHIME instead of an explosion bang. Arrow trails come from
+  the shared `FeedbackService.arrowTrail(projectile, color)` - one dust per
+  tick, lime for Skyfall, cyan for the Focus Shot.
+
+## Class kit items are unbreakable (2026-09-09)
+
+- `DungeonKitService.equipKit` wraps the Warrior sword / Archer bow /
+  Paladin axe in a local `unbreakable()` (`isUnbreakable` + `HIDE_UNBREAKABLE`).
+  `ItemService.taggedItem` does the same for every tagged item, so the Mage
+  staff (and shards) are covered too. Loaner gear no longer wears out.
 
 ## Warrior Dash polish (2026-09-08)
 
