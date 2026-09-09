@@ -98,8 +98,7 @@ class FeedbackService(private val plugin: DungeonPlugin) {
         val threshold = status.zealThreshold.toInt()
         bar.name(Component.text(
             "⚜ Taunt ${status.secondsLeft.toInt()}s   ·   Zeal $zeal / $threshold   ·   " +
-                "Smite +${String.format(Locale.US, "%.1f", status.smiteBonus)} " +
-                "(+${String.format(Locale.US, "%.1f", status.pendingRetribution)} on release)"))
+                "next Smite +${String.format(Locale.US, "%.1f", status.smiteBonus + status.pendingRetribution)}"))
         bar.progress((status.zeal / status.zealThreshold).toFloat().coerceIn(0f, 1f))
     }
 

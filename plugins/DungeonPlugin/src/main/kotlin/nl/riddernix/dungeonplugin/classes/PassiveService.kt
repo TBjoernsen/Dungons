@@ -33,9 +33,16 @@ class PassiveService(private val plugin: DungeonPlugin) {
     private var activeTaunt: ActiveTaunt? = null
     private var tauntFadeWarned = false
 
-    /** Per Paladin: the running Consecrated Ground task, so a re-cast replaces it. */
-    private val consecrationTasks = HashMap<UUID, BukkitTask>()
+    /** Per Paladin: their live Consecrated Ground - a fixed circle that buffs anyone standing in it. */
+    private val consecrations = HashMap<UUID, Consecration>()
     private val tauntKnockbackKey = NamespacedKey(plugin, "paladin_taunt_kb")
+
+    private class Consecration(
+        val centre: Location,
+        val radiusSq: Double,
+        val expiresAt: Long,
+        val task: BukkitTask,
+    )
 
     /** Per Archer: wall-clock ms before Scope can trigger again. */
     private val scopeReadyAt = HashMap<UUID, Long>()
@@ -57,7 +64,7 @@ class PassiveService(private val plugin: DungeonPlugin) {
             } else if (classType == ClassType.PALADIN) {
                 decayJudgmentOutOfCombat(data, rank, now)
                 updateTauntPresence(player, now)
-                if (data.retributionUntil > now) {
+                if (data.retributionUntil > now && data.retributionPower > 0.0) {
                     val gold = Particle.DustOptions(org.bukkit.Color.fromRGB(255, 235, 150), 1.3f)
                     player.world.spawnParticle(Particle.DUST, player.location.clone().add(0.0, 1.2, 0.0), 6, 0.35, 0.5, 0.35, 0.0, gold)
                 }
@@ -111,12 +118,18 @@ class PassiveService(private val plugin: DungeonPlugin) {
             ClassType.PALADIN -> if (isTaunting(player)) {
                 // The Taunt stance is a fightable one: flat mitigation on top
                 // of Resistance, and every hit soaked banks Zeal - which at
-                // Taunt end fires the Holy Nova AND empowers Smite (Retribution).
+                // Taunt end fires the Holy Nova and arms the next Smite.
                 val cut = plugin.classesConfig.getDouble("paladin.taunt-damage-reduction", 0.30).coerceIn(0.0, 0.9)
                 event.damage *= (1.0 - cut)
                 addZeal(player, event.finalDamage * plugin.classesConfig.getDouble("paladin.zeal-per-damage", 1.0))
             }
             else -> Unit
+        }
+        // Consecrated Ground absorbs damage for anyone standing in it -
+        // Paladin or ally, regardless of class.
+        if (inConsecration(player)) {
+            val cut = plugin.classesConfig.getDouble("paladin.consecration-damage-reduction", 0.20).coerceIn(0.0, 0.9)
+            event.damage *= (1.0 - cut)
         }
     }
 
@@ -131,23 +144,33 @@ class PassiveService(private val plugin: DungeonPlugin) {
             ClassType.PALADIN -> if (rank > 0 && plugin.classItems.isAllowedWeapon(ClassType.PALADIN, damager.inventory.itemInMainHand)) {
                 buildTaunt(damager, event.finalDamage, rank)
                 val victim = event.entity
-                if (victim is LivingEntity && victim !is Player) {
-                    val empowered = plugin.classes.data(damager.uniqueId).retributionUntil > System.currentTimeMillis()
-                    val smite = smiteBonus(damager, rank)
-                    if (smite > 0.0) {
-                        event.damage += smite
-                        val at = victim.location.clone().add(0.0, 1.0, 0.0)
-                        if (empowered) {
-                            victim.world.spawnParticle(Particle.END_ROD, at, 18, 0.25, 0.35, 0.25, 0.05)
-                            victim.world.spawnParticle(Particle.TOTEM_OF_UNDYING, at, 8, 0.2, 0.3, 0.2, 0.1)
-                            victim.world.playSound(victim.location, Sound.BLOCK_BELL_USE, 0.5f, 1.6f)
-                        } else {
-                            victim.world.spawnParticle(Particle.END_ROD, at, 6, 0.2, 0.3, 0.2, 0.02)
-                        }
-                    }
+                val data = plugin.classes.data(damager.uniqueId)
+                // Smite is the ONE stored strike after Taunt ends - not a
+                // window, not a buff during Taunt. It lands on the next mob the
+                // Paladin hits, then it is spent.
+                if (victim is LivingEntity && victim !is Player && !isTaunting(damager) &&
+                    data.retributionUntil > System.currentTimeMillis() && data.retributionPower > 0.0) {
+                    val bonus = smiteFlat(rank) +
+                        plugin.classesConfig.getDouble("paladin.retribution-bonus", 12.0) * data.retributionPower.coerceIn(0.0, 1.0)
+                    event.damage += bonus
+                    data.retributionUntil = 0L
+                    data.retributionPower = 0.0
+                    val at = victim.location.clone().add(0.0, 1.0, 0.0)
+                    victim.world.spawnParticle(Particle.END_ROD, at, 24, 0.3, 0.4, 0.3, 0.06)
+                    victim.world.spawnParticle(Particle.TOTEM_OF_UNDYING, at, 12, 0.25, 0.35, 0.25, 0.12)
+                    victim.world.playSound(victim.location, Sound.ITEM_TRIDENT_THUNDER, 0.5f, 1.4f)
+                    damager.sendActionBar(Component.text("§6§lSMITE"))
+                    plugin.refreshClassPlayer(damager)
                 }
             }
             else -> Unit
+        }
+        // Consecrated Ground lifesteal: standing in the circle heals you
+        // 1 health per `consecration-heal-per-damage` damage you deal.
+        val healPer = plugin.classesConfig.getDouble("paladin.consecration-heal-per-damage", 5.0)
+        if (healPer > 0.0 && event.finalDamage > 0.0 && inConsecration(damager)) {
+            val maxHp = damager.getAttribute(Attribute.MAX_HEALTH)?.value ?: 20.0
+            damager.health = (damager.health + event.finalDamage / healPer).coerceIn(0.0, maxHp)
         }
     }
 
@@ -233,30 +256,24 @@ class PassiveService(private val plugin: DungeonPlugin) {
     private fun zealThreshold(): Double =
         plugin.classesConfig.getDouble("paladin.zeal-threshold", 90.0).coerceAtLeast(1.0)
 
-    /**
-     * The Smite bonus on this axe hit: the flat `smite-base + smite-per-rank`
-     * while the Taunt stance is up, and during the post-Taunt Retribution
-     * window that same base plus `retribution-bonus * retributionPower`
-     * (0..1 = how much damage you soaked). Zero otherwise.
-     */
-    private fun smiteBonus(player: Player, rank: Int): Double {
-        val cfg = plugin.classesConfig
-        val base = cfg.getDouble("paladin.smite-base", 2.0) + cfg.getDouble("paladin.smite-per-rank", 1.5) * (rank - 1)
-        val data = plugin.classes.data(player.uniqueId)
-        if (data.retributionUntil > System.currentTimeMillis()) {
-            return base + cfg.getDouble("paladin.retribution-bonus", 12.0) * data.retributionPower.coerceIn(0.0, 1.0)
-        }
-        return if (isTaunting(player)) base else 0.0
-    }
+    /** The flat portion of a Smite: `smite-base + smite-per-rank * (rank - 1)`. */
+    private fun smiteFlat(rank: Int): Double =
+        plugin.classesConfig.getDouble("paladin.smite-base", 2.0) +
+            plugin.classesConfig.getDouble("paladin.smite-per-rank", 1.5) * (rank - 1)
 
-    /** Opens the post-Taunt Retribution window: Smite empowered by how full Zeal was. */
+    /**
+     * Arms a single empowered Smite for after Taunt: the Paladin's next axe
+     * hit carries `smiteFlat + retribution-bonus * power` (power 0..1 = how
+     * full Zeal was), then it is spent. `smite-armed-timeout-seconds` is only
+     * a safety cap so a stored strike does not linger across a whole dungeon.
+     */
     private fun startRetribution(player: Player, power: Double) {
-        val secs = plugin.classesConfig.getDouble("paladin.retribution-seconds", 6.0).coerceAtLeast(0.0)
-        if (power <= 0.0 || secs <= 0.0) return
+        if (power <= 0.0) return
+        val timeout = plugin.classesConfig.getDouble("paladin.smite-armed-timeout-seconds", 20.0).coerceAtLeast(1.0)
         val data = plugin.classes.data(player.uniqueId)
-        data.retributionUntil = System.currentTimeMillis() + (secs * 1000.0).toLong()
+        data.retributionUntil = System.currentTimeMillis() + (timeout * 1000.0).toLong()
         data.retributionPower = power.coerceIn(0.0, 1.0)
-        player.sendActionBar(Component.text("§6§lRETRIBUTION §7- your Smite is empowered"))
+        player.sendActionBar(Component.text("§6§lSMITE ARMED §7- your next strike"))
         player.playSound(player.location, Sound.ITEM_TOTEM_USE, 0.5f, 0.9f)
     }
 
@@ -299,43 +316,48 @@ class PassiveService(private val plugin: DungeonPlugin) {
 
     private fun startConsecration(player: Player, durationTicks: Int) {
         val cfg = plugin.classesConfig
-        consecrationTasks.remove(player.uniqueId)?.cancel()
+        consecrations.remove(player.uniqueId)?.task?.cancel()
         val centre = player.location.clone()
         val world = centre.world ?: return
         val radius = cfg.getDouble("paladin.consecration-radius", 6.0).coerceIn(1.0, 24.0)
         val interval = cfg.getInt("paladin.consecration-tick-interval", 10).coerceIn(2, 40).toLong()
-        val dot = cfg.getDouble("paladin.consecration-dot", 1.5).coerceAtLeast(0.0)
-        val allyHeal = cfg.getDouble("paladin.consecration-ally-heal", 0.5).coerceAtLeast(0.0)
+        val slowAmp = cfg.getInt("paladin.consecration-slow-amplifier", 0)
         val slowTicks = (interval + 5L).toInt()
         val radiusSq = radius * radius
+        val id = player.uniqueId
         val task = object : BukkitRunnable() {
             private var elapsed = 0L
             override fun run() {
                 elapsed += interval
                 if (elapsed > durationTicks || !player.isOnline || player.world != world) {
-                    cancel(); consecrationTasks.remove(player.uniqueId); return
+                    cancel(); consecrations.remove(id); return
                 }
-                for (entity in world.getNearbyEntities(centre, radius, 4.0, radius)) {
-                    val dx = entity.location.x - centre.x
-                    val dz = entity.location.z - centre.z
-                    if (dx * dx + dz * dz > radiusSq) continue
-                    when {
-                        entity is Player -> if (allyHeal > 0.0) {
-                            val maxHp = entity.getAttribute(Attribute.MAX_HEALTH)?.value ?: 20.0
-                            entity.health = (entity.health + allyHeal).coerceIn(0.0, maxHp)
-                        }
-                        entity is LivingEntity && (plugin.queries.isDungeonMob(entity) || entity is Mob) -> {
-                            // Sourceless damage: the ground burns them, it does
-                            // not shove them - no knockback away from the Paladin.
-                            if (dot > 0.0) entity.damage(dot)
-                            entity.addPotionEffect(PotionEffect(PotionEffectType.SLOWNESS, slowTicks, 0, true, false, true))
-                        }
+                if (slowAmp >= 0) {
+                    for (entity in world.getNearbyEntities(centre, radius, 4.0, radius)) {
+                        if (entity !is LivingEntity || entity is Player) continue
+                        if (!plugin.queries.isDungeonMob(entity) && entity !is Mob) continue
+                        val dx = entity.location.x - centre.x
+                        val dz = entity.location.z - centre.z
+                        if (dx * dx + dz * dz > radiusSq) continue
+                        entity.addPotionEffect(PotionEffect(PotionEffectType.SLOWNESS, slowTicks, slowAmp, true, false, true))
                     }
                 }
                 plugin.classFeedback.paladinConsecrationTick(centre, radius)
             }
         }.runTaskTimer(plugin, interval, interval)
-        consecrationTasks[player.uniqueId] = task
+        consecrations[id] = Consecration(centre, radiusSq, System.currentTimeMillis() + durationTicks * 50L, task)
+    }
+
+    /** True while the player stands in any live Consecrated Ground - the circle's buff zone. */
+    fun inConsecration(player: Player): Boolean {
+        val now = System.currentTimeMillis()
+        return consecrations.values.any { c ->
+            c.expiresAt > now && c.centre.world == player.world && run {
+                val dx = player.location.x - c.centre.x
+                val dz = player.location.z - c.centre.z
+                dx * dx + dz * dz <= c.radiusSq
+            }
+        }
     }
 
     private fun targetMobsInRadius(player: Player) {
@@ -607,9 +629,8 @@ class PassiveService(private val plugin: DungeonPlugin) {
                     val secs = ((taunt!!.expiresAt - System.currentTimeMillis()) / 1000.0).coerceAtLeast(0.0).roundToInt()
                     "Taunt $rank: §6ACTIVE ${secs}s §7| Zeal ${data.zeal.roundToInt()}/${zealThreshold().roundToInt()}"
                 }
-                else if (data.retributionUntil > System.currentTimeMillis()) {
-                    val secs = ((data.retributionUntil - System.currentTimeMillis()) / 1000.0).coerceAtLeast(0.0).roundToInt()
-                    "Taunt $rank: §6RETRIBUTION ${secs}s"
+                else if (data.retributionUntil > System.currentTimeMillis() && data.retributionPower > 0.0) {
+                    "Taunt $rank: §6SMITE ARMED §7- next strike"
                 }
                 else if (data.judgment >= tauntThreshold(rank)) "Taunt $rank: §6READY"
                 else "Taunt $rank: ${data.judgment.roundToInt()}/${tauntThreshold(rank).roundToInt()} damage"
@@ -867,7 +888,7 @@ class PassiveService(private val plugin: DungeonPlugin) {
             plugin.classes.activeClass(player.uniqueId) != ClassType.PALADIN
         if (ended) {
             activeTaunt = null
-            consecrationTasks.remove(taunt.playerId)?.cancel()
+            consecrations.remove(taunt.playerId)?.task?.cancel()
             if (player != null) {
                 removeTauntKnockbackLock(player)
                 if (player.isOnline) {

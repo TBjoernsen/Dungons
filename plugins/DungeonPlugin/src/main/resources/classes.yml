@@ -193,19 +193,21 @@ paladin:
   taunt-resistance-amplifier: 1      # 1 = Resistance II; stacks with the flat cut below
   taunt-damage-reduction: 0.30       # flat, on top of Resistance
   taunt-knockback-resistance: 1.0    # 1.0 = nothing can shove you off the point
-  # --- Zeal -> Holy Nova + Retribution --------------------------------
-  # Damage soaked during Taunt banks Zeal (it no longer auto-fires
-  # mid-fight). When Taunt ends the banked fraction (zeal / zeal-threshold)
-  # releases BOTH:
-  #   - a one-shot Holy Nova (mob damage + ally heal/regen in nova-radius,
-  #     per-rank scaled), and
-  #   - Retribution: for retribution-seconds your Smite carries an extra
-  #     retribution-bonus * fraction holy damage per axe hit, on top of the
-  #     normal Smite.
+  # --- Zeal -> Holy Nova + armed Smite ------------------------------
+  # Damage soaked during Taunt banks Zeal (no mid-fight auto-fire). When
+  # Taunt ends the banked fraction (zeal / zeal-threshold) does two things:
+  #   - fires a one-shot Holy Nova (mob damage + ally heal/regen in
+  #     nova-radius, per-rank scaled), and
+  #   - ARMS one Smite: the Paladin's next axe hit after Taunt is over
+  #     carries smite-base (+ per-rank) + retribution-bonus * fraction holy
+  #     damage, then it is spent. smite-armed-timeout-seconds is only a
+  #     safety cap so a stored strike does not linger across a dungeon.
   zeal-threshold: 90.0
   zeal-per-damage: 1.0
-  retribution-seconds: 6.0
   retribution-bonus: 12.0
+  smite-armed-timeout-seconds: 20.0
+  smite-base: 2.0
+  smite-per-rank: 1.5
   nova-radius: 6.0
   nova-damage: 6.0
   nova-damage-per-rank: 2.0
@@ -214,16 +216,16 @@ paladin:
   nova-regen-seconds: 4.0
   # --- Consecrated Ground -----------------------------------------------
   # A ring of light dropped where you activate Taunt, lasting its duration.
-  # Mobs inside take consecration-dot per pulse (sourceless - it burns, it
-  # does not knock back) and are slowed; allies inside get consecration-ally
-  # -heal per pulse. Deliberately large - shrink to taste.
+  # It is a buff zone: anyone (Paladin or ally) standing in it takes
+  # consecration-damage-reduction less damage and heals 1 health per
+  # consecration-heal-per-damage damage they deal. Mobs inside are slowed
+  # (consecration-slow-amplifier, -1 = off). Deliberately large - shrink
+  # to taste.
   consecration-radius: 6.0
   consecration-tick-interval: 10
-  consecration-dot: 1.0
-  consecration-ally-heal: 0.5
-  # --- Smite (holy damage on the axe while Taunting) ------------------
-  smite-base: 2.0
-  smite-per-rank: 1.5
+  consecration-damage-reduction: 0.20
+  consecration-heal-per-damage: 5.0
+  consecration-slow-amplifier: 0
 
 # Mage Mana + Arcane Bolt (the baseline staff attack, left-click). Mana and
 # the bolt are usable from Difficulty 1; Difficulty 3 unlocks Arcane Charge,

@@ -204,27 +204,30 @@ build-and-spend loop, plus rank-scaled Shield and a Smite passive.
   `taunt-knockback-resistance` 1.0) + a flat `taunt-damage-reduction`
   (0.30) in `handleIncomingDamage` (stacks with Resistance - a Paladin
   being swarmed has to survive).
-- **Zeal -> Holy Nova + Retribution.** Damage soaked during Taunt banks
-  `PlayerClassData.zeal` (`zeal-per-damage`, cap `zeal-threshold` 90) - no
-  mid-fight auto-fire any more. When Taunt ends, `power = zeal/threshold`
-  drives BOTH `releaseHolyNova(player, power)` (mob damage + ally
-  heal/regen in `nova-radius`, per-rank scaled; `FeedbackService.paladinHolyNova`)
-  AND `startRetribution(player, power)` -> `retributionUntil` /
-  `retributionPower` on `PlayerClassData`.
-- **Smite = Retribution's delivery.** `smiteBonus(player, rank)`: the flat
-  `smite-base + smite-per-rank*(rank-1)` while `isTaunting`; during the
-  post-Taunt window (`retributionUntil > now`) that base **plus
-  `retribution-bonus * retributionPower`** per axe hit, with a bigger
-  END_ROD/TOTEM burst + bell. Zero otherwise. `retributionUntil` is also
-  cleared on a fresh `activateTaunt`. Sidebar shows a `RETRIBUTION Ns`
-  state; boss-bar title carries `Smite +N (+X on release)`.
-- **Consecrated Ground.** `startConsecration` runs a `BukkitRunnable`
-  (tracked in `consecrationTasks`, cancelled on re-cast / Taunt end /
-  disable) for the Taunt duration: circular `consecration-radius` (6) at
-  the *cast spot*, `consecration-dot` (1.0, **sourceless `damage()` - no
-  knockback**) + Slowness to mobs, `consecration-ally-heal` to players each
-  `consecration-tick-interval`. `FeedbackService.paladinConsecrationTick`
-  draws the ring.
+- **Zeal -> Holy Nova + one armed Smite.** Damage soaked during Taunt
+  banks `PlayerClassData.zeal` (`zeal-per-damage`, cap `zeal-threshold`
+  90) - no mid-fight auto-fire. When Taunt ends, `power = zeal/threshold`
+  drives `releaseHolyNova(player, power)` (mob damage + ally heal/regen in
+  `nova-radius`, per-rank scaled) **and** `startRetribution(player, power)`
+  which sets `retributionUntil` (= now + `smite-armed-timeout-seconds`
+  safety cap) / `retributionPower`.
+- **Smite = the one strike after Taunt.** No Smite during Taunt. The
+  Paladin's **next axe hit** while not taunting (and `retributionUntil >
+  now`) adds `smiteFlat(rank) + retribution-bonus * retributionPower`,
+  then clears both fields (single use). Big END_ROD/TOTEM burst +
+  `ITEM_TRIDENT_THUNDER` + `§6§lSMITE`. `retributionUntil` also cleared on
+  a fresh `activateTaunt`. Sidebar shows `SMITE ARMED - next strike`;
+  boss-bar title shows `next Smite +N`.
+- **Consecrated Ground = a buff zone.** `startConsecration` stores a
+  `Consecration(centre, radiusSq, expiresAt, task)` in `consecrations`
+  (cancelled on re-cast / Taunt end); the task only refreshes mob Slowness
+  (`consecration-slow-amplifier`, -1 = off) and draws the ring. The real
+  effect is reactive via `inConsecration(player)`: **anyone** standing in
+  it takes `consecration-damage-reduction` (0.20) less damage
+  (`handleIncomingDamage`, after the class `when`) and heals 1 HP per
+  `consecration-heal-per-damage` (5) damage dealt (`handleDamage`). No mob
+  DoT, no per-pulse heal. `FeedbackService.paladinConsecrationTick` draws
+  the ring.
 - **Radius taunt.** `targetAllMobs` -> `targetMobsInRadius`
   (`taunt-radius` 32), re-pulled each `maintainTaunt`.
 - **Presence + decay.** `updateTauntPresence` in `tick()` - gold aura,
