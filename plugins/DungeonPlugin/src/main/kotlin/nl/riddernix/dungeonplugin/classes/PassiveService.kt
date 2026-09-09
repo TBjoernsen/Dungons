@@ -751,6 +751,9 @@ class PassiveService(private val plugin: DungeonPlugin) {
     }
 
     private fun buildTaunt(player: Player, damage: Double, rank: Int) {
+        // No Judgment builds while the Taunt stance is already up - you spend
+        // that window, you do not charge the next one during it.
+        if (isTaunting(player)) return
         val data = plugin.classes.data(player.uniqueId)
         data.lastJudgmentCombatAt = System.currentTimeMillis()
         val wasReady = data.judgment >= tauntThreshold(rank)
@@ -803,8 +806,11 @@ class PassiveService(private val plugin: DungeonPlugin) {
         (player.getAttribute(Attribute.ATTACK_DAMAGE)?.value ?: 1.0) *
             plugin.classesConfig.getDouble("archer.attack-stat-damage-multiplier", 1.0).coerceAtLeast(0.0)
 
-    private fun tauntThreshold(rank: Int): Double =
-        (plugin.classesConfig.getDouble("paladin.taunt-damage-threshold", 75.0) - (rank - 1) * 4.0).coerceAtLeast(20.0)
+    private fun tauntThreshold(rank: Int): Double {
+        val base = plugin.classesConfig.getDouble("paladin.taunt-damage-threshold", 250.0)
+        val perRank = plugin.classesConfig.getDouble("paladin.taunt-threshold-per-rank", 15.0)
+        return (base - (rank - 1) * perRank).coerceAtLeast(20.0)
+    }
 
     private fun tauntDurationTicks(rank: Int): Int =
         ((plugin.classesConfig.getDouble("paladin.taunt-duration-seconds", 8.0) + (rank - 1)) * 20.0).roundToInt().coerceAtLeast(20)

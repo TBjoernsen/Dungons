@@ -176,7 +176,11 @@ warrior:
 # you can still fight in: it pulls nearby mobs, drops Consecrated Ground,
 # and turns the damage you soak into a Holy Nova (Zeal).
 paladin:
-  taunt-damage-threshold: 75.0
+  # Axe damage needed to charge a Taunt at Rank I, minus
+  # taunt-threshold-per-rank for each rank past I. Judgment does NOT build
+  # while a Taunt is already active.
+  taunt-damage-threshold: 250.0
+  taunt-threshold-per-rank: 15.0
   taunt-duration-seconds: 8.0
   # Judgment (the pre-Taunt charge) bleeds out of combat like Rage / Focus.
   judgment-decay-delay-seconds: 15.0
