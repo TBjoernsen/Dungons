@@ -14,6 +14,7 @@ import org.bukkit.event.Listener
 import org.bukkit.event.block.Action
 import org.bukkit.event.entity.EntityDamageByEntityEvent
 import org.bukkit.event.entity.EntityDamageEvent
+import org.bukkit.event.entity.EntityDeathEvent
 import org.bukkit.event.entity.EntityShootBowEvent
 import org.bukkit.event.entity.ProjectileHitEvent
 import org.bukkit.event.inventory.InventoryClickEvent
@@ -166,9 +167,22 @@ class CoreListener(private val plugin: DungeonPlugin) : Listener {
     fun onWarriorBerserkSneak(event: PlayerToggleSneakEvent) {
         if (!event.isSneaking) return
         if (!plugin.queries.isInDungeon(event.player)) return
-        if (plugin.classPassives.activateBerserk(event.player) == BerserkActivationResult.NOT_READY) {
-            event.player.sendActionBar(Component.text("§7Rage is not full yet."))
+        when (plugin.classPassives.activateBerserk(event.player)) {
+            BerserkActivationResult.NOT_READY ->
+                event.player.sendActionBar(Component.text("§7Rage is not full yet."))
+            BerserkActivationResult.ON_COOLDOWN ->
+                event.player.sendActionBar(Component.text(
+                    "§7Berserk cooling down (${plugin.classPassives.berserkCooldownSeconds(event.player)}s)."))
+            else -> Unit
         }
+    }
+
+    /** A mob kill by a Berserk Warrior stretches Bloodlust. */
+    @EventHandler(priority = EventPriority.MONITOR)
+    fun onWarriorBloodlustKill(event: EntityDeathEvent) {
+        if (event.entity is Player) return
+        val killer = event.entity.killer ?: return
+        plugin.classPassives.bloodlustOnKill(killer)
     }
 
     @EventHandler

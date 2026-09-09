@@ -203,21 +203,30 @@ fires a "BERSERK READY - press Sneak" cue on the fill.
   (`BerserkActivationResult`). `startBerserk` sets `data.berserkStartedAt`
   (new `PlayerClassData` field, cleared in `clearCombatResources`),
   `rageActiveUntil`, STR/SPD via `refreshBerserkPotions`, then
-  `seismicSlam` - AoE `warrior.slam-*` (damage 8 / radius 4 / knockback /
-  Slowness III for slam-stagger-ticks). `FeedbackService.warriorSlam`
-  (explosion + netherrack debris + embers + explode/roar/anvil).
+  `seismicSlam` - AoE `warrior.slam-*` (damage 8 / radius 4 /
+  knockback 0.6 + knockup 0.28 / Slowness III for slam-stagger-ticks).
+  `FeedbackService.warriorSlam` (explosion + netherrack debris + embers +
+  explode/roar/anvil).
 - **Berserk = survival tool.** `applyBerserkOnHit` (from `handleDamage`
   while `isBerserk`): lifesteal `berserk-lifesteal-fraction` of melee
   damage dealt from rank `berserk-lifesteal-min-rank` (2);
   `handleIncomingDamage` cuts damage by `berserk-damage-reduction` from
   rank `berserk-resistance-min-rank` (3).
-- **Snowball.** From `berserk-extend-min-rank` (4) each melee hit extends
-  `rageActiveUntil` by `berserk-extend-ticks-per-hit`, hard-capped at
-  `berserkStartedAt + berserk-max-seconds` (10); potions re-applied to the
-  new remaining.
+- **Cooldown.** After Berserk ends there is a `berserk-cooldown-seconds`
+  (7.5) rest - `activateBerserk` returns `ON_COOLDOWN`
+  (`berserkCooldownSeconds(player)` = `rageActiveUntil + cd - now`). The
+  bar can refill during the rest; a full bar on cooldown shows
+  `full - CD Ns` in the readout.
+- **Bloodlust (kills only).** From `bloodlust-min-rank` (4) each *kill*
+  during Berserk (`CoreListener.onWarriorBloodlustKill` ->
+  `PassiveService.bloodlustOnKill`) stretches `rageActiveUntil` by
+  `bloodlust-ticks-per-kill` (20), hard-capped at `berserkStartedAt +
+  berserk-max-seconds` (10); potions re-applied. "BLOODLUST +Ns" cue.
+  Melee *hits* no longer extend - `applyBerserkOnHit` split into
+  `berserkLifesteal` (still per-hit) + `bloodlustOnKill`.
 - **Rank identity.** STR/SPD II at `berserk-strength-2-min-rank` (4) /
-  `berserk-speed-2-min-rank` (5); lifesteal @2, resistance @3, extend @4,
-  wider slam (`slam-shockwave-radius-multiplier`) at
+  `berserk-speed-2-min-rank` (5); lifesteal @2, resistance @3, Bloodlust
+  @4, wider slam (`slam-shockwave-radius-multiplier`) at
   `berserk-shockwave-min-rank` (5).
 - **Presence.** `updateBerserkPresence` in `tick()` (1 Hz): FLAME/SMALL_FLAME
   aura, one-shot "Rage fading..." under 1.6s left, "Your Rage subsides." on

@@ -140,11 +140,14 @@ warrior:
 
   # --- Berserk (Sneak to unleash a full bar) ---------------------------
   # Duration in ticks = berserk-base-ticks + rank * berserk-ticks-per-rank
-  # (3s at Rank I, 8s at Rank V), capped at berserk-max-seconds once hits
-  # start extending it.
+  # (3s at Rank I, 8s at Rank V), never past berserk-max-seconds once
+  # Bloodlust starts stretching it. After Berserk ends you cannot go
+  # Berserk again for berserk-cooldown-seconds (the bar can refill during
+  # that rest).
   berserk-base-ticks: 60
   berserk-ticks-per-rank: 20
   berserk-max-seconds: 10.0
+  berserk-cooldown-seconds: 7.5
   # Strength I / Speed I from Rank I; they step to level II at these ranks.
   berserk-strength-2-min-rank: 4
   berserk-speed-2-min-rank: 5
@@ -155,14 +158,15 @@ warrior:
   berserk-lifesteal-fraction: 0.25
   berserk-resistance-min-rank: 3
   berserk-damage-reduction: 0.25
-  # From berserk-extend-min-rank, each melee hit during Berserk extends it
-  # by berserk-extend-ticks-per-hit (never past berserk-max-seconds total).
-  berserk-extend-min-rank: 4
-  berserk-extend-ticks-per-hit: 8
+  # Bloodlust: from bloodlust-min-rank, every KILL during Berserk stretches
+  # it by bloodlust-ticks-per-kill (never past berserk-max-seconds total).
+  bloodlust-min-rank: 4
+  bloodlust-ticks-per-kill: 20
   # Seismic Slam - the AoE stomp on Berserk activation.
   slam-radius: 4.0
   slam-damage: 8.0
-  slam-knockback: 0.9
+  slam-knockback: 0.6
+  slam-knockup: 0.28
   slam-stagger-ticks: 40
   # From berserk-shockwave-min-rank the slam's radius grows by this factor.
   berserk-shockwave-min-rank: 5

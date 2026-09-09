@@ -102,7 +102,7 @@ class PassiveService(private val plugin: DungeonPlugin) {
         when (plugin.classes.activeClass(damager.uniqueId)) {
             ClassType.WARRIOR -> if (rank > 0 && plugin.classItems.isAllowedWeapon(ClassType.WARRIOR, damager.inventory.itemInMainHand)) {
                 addRage(damager, event.finalDamage * 6.0)          // no-op while Berserk is running
-                if (isBerserk(damager)) applyBerserkOnHit(damager, event.finalDamage, rank)
+                if (isBerserk(damager)) berserkLifesteal(damager, event.finalDamage, rank)
             }
             ClassType.PALADIN -> if (rank > 0 && plugin.classItems.isAllowedWeapon(ClassType.PALADIN, damager.inventory.itemInMainHand)) {
                 buildTaunt(damager, event.finalDamage, rank)
@@ -356,7 +356,8 @@ class PassiveService(private val plugin: DungeonPlugin) {
                 else if (data.rageActiveUntil > System.currentTimeMillis()) {
                     "Rage $rank: §4BERSERK ${((data.rageActiveUntil - System.currentTimeMillis()) / 1000.0).coerceAtLeast(0.0).roundToInt()}s"
                 } else if (data.rage >= rageThreshold(rank)) {
-                    "Rage $rank: §6READY §7[Sneak]"
+                    val cd = berserkCooldownSeconds(player)
+                    if (cd > 0) "Rage $rank: §7full - CD ${cd}s" else "Rage $rank: §6READY §7[Sneak]"
                 } else "Rage $rank: ${data.rage.roundToInt()}/${rageThreshold(rank).roundToInt()}"
             }
             ClassType.ARCHER -> if (rank == 0) "Focus: unlock Rank I in the skill tree" else if (data.focus >= focusThreshold(rank)) {
@@ -390,7 +391,8 @@ class PassiveService(private val plugin: DungeonPlugin) {
             return listOf("Taunt $rank: READY", "§6[SNEAK] §fto activate")
         }
         if (activeClass == ClassType.WARRIOR && rank > 0 &&
-            data.rageActiveUntil <= System.currentTimeMillis() && data.rage >= rageThreshold(rank)) {
+            data.rageActiveUntil <= System.currentTimeMillis() && data.rage >= rageThreshold(rank) &&
+            berserkCooldownSeconds(player) == 0) {
             return listOf("Rage $rank: §6READY", "§6[SNEAK] §fto go Berserk")
         }
         return listOf(readout(player))
@@ -418,10 +420,23 @@ class PassiveService(private val plugin: DungeonPlugin) {
         val wasReady = data.rage >= threshold
         data.rage = (data.rage + amount).coerceAtMost(threshold)
         if (!wasReady && data.rage >= threshold) {
-            player.sendActionBar(Component.text("§4§lBERSERK READY §7- press §fSneak"))
-            player.playSound(player.location, Sound.ENTITY_RAVAGER_ROAR, 0.5f, 0.75f)
+            if (berserkCooldownSeconds(player) > 0) {
+                player.sendActionBar(Component.text("§4Rage full §7- Berserk on cooldown"))
+            } else {
+                player.sendActionBar(Component.text("§4§lBERSERK READY §7- press §fSneak"))
+                player.playSound(player.location, Sound.ENTITY_RAVAGER_ROAR, 0.5f, 0.75f)
+            }
             plugin.refreshClassPlayer(player)
         }
+    }
+
+    /** Seconds until this Warrior may go Berserk again (0 = ready now). */
+    fun berserkCooldownSeconds(player: Player): Int {
+        val data = plugin.classes.data(player.uniqueId)
+        val cdMs = (plugin.classesConfig.getDouble("warrior.berserk-cooldown-seconds", 7.5)
+            .coerceAtLeast(0.0) * 1000.0).toLong()
+        val remain = (data.rageActiveUntil + cdMs) - System.currentTimeMillis()
+        return if (remain <= 0L) 0 else ((remain + 999L) / 1000L).toInt()
     }
 
     /** The Warrior's Sneak input: unleash a full Rage bar into Berserk with a Seismic Slam. */
@@ -431,6 +446,7 @@ class PassiveService(private val plugin: DungeonPlugin) {
         if (rank == 0) return BerserkActivationResult.LOCKED
         val data = plugin.classes.data(player.uniqueId)
         if (data.rageActiveUntil > System.currentTimeMillis()) return BerserkActivationResult.ALREADY_ACTIVE
+        if (berserkCooldownSeconds(player) > 0) return BerserkActivationResult.ON_COOLDOWN
         if (data.rage < rageThreshold(rank)) return BerserkActivationResult.NOT_READY
         startBerserk(player, data, rank)
         return BerserkActivationResult.SUCCESS
@@ -459,30 +475,40 @@ class PassiveService(private val plugin: DungeonPlugin) {
         player.addPotionEffect(PotionEffect(PotionEffectType.SPEED, ticks, spdAmp, true, false, true))
     }
 
-    /** Per-hit Berserk perks: lifesteal (rank-gated) and a hit-fuelled extension toward a cap (rank-gated). */
-    private fun applyBerserkOnHit(player: Player, dealt: Double, rank: Int) {
+    /** Berserk lifesteal: heal a rank-gated fraction of the melee damage the Warrior deals. */
+    private fun berserkLifesteal(player: Player, dealt: Double, rank: Int) {
         val cfg = plugin.classesConfig
-        if (dealt > 0.0 && rank >= cfg.getInt("warrior.berserk-lifesteal-min-rank", 2)) {
-            val frac = cfg.getDouble("warrior.berserk-lifesteal-fraction", 0.25).coerceIn(0.0, 1.0)
-            if (frac > 0.0) {
-                val maxHp = player.getAttribute(Attribute.MAX_HEALTH)?.value ?: 20.0
-                player.health = (player.health + dealt * frac).coerceIn(0.0, maxHp)
-            }
-        }
-        if (rank >= cfg.getInt("warrior.berserk-extend-min-rank", 4)) {
-            val data = plugin.classes.data(player.uniqueId)
-            val now = System.currentTimeMillis()
-            val extendMs = cfg.getInt("warrior.berserk-extend-ticks-per-hit", 8).coerceAtLeast(0) * 50L
-            // Hard cap measured from when this Berserk began: a great fight
-            // stretches it toward the ceiling, but it still ends on schedule.
-            val capMs = data.berserkStartedAt +
-                (cfg.getDouble("warrior.berserk-max-seconds", 10.0).coerceAtLeast(0.0) * 1000.0).toLong()
-            val newUntil = minOf(data.rageActiveUntil + extendMs, capMs)
-            if (newUntil > data.rageActiveUntil) {
-                data.rageActiveUntil = newUntil
-                refreshBerserkPotions(player, rank, ((newUntil - now) / 50L).toInt().coerceAtLeast(1))
-            }
-        }
+        if (dealt <= 0.0 || rank < cfg.getInt("warrior.berserk-lifesteal-min-rank", 2)) return
+        val frac = cfg.getDouble("warrior.berserk-lifesteal-fraction", 0.25).coerceIn(0.0, 1.0)
+        if (frac <= 0.0) return
+        val maxHp = player.getAttribute(Attribute.MAX_HEALTH)?.value ?: 20.0
+        player.health = (player.health + dealt * frac).coerceIn(0.0, maxHp)
+    }
+
+    /**
+     * Bloodlust: a kill during Berserk stretches it by
+     * `warrior.bloodlust-ticks-per-kill`, never past
+     * `berserkStartedAt + warrior.berserk-max-seconds`. Rank-gated by
+     * `warrior.bloodlust-min-rank`. Called from the kill event.
+     */
+    fun bloodlustOnKill(player: Player) {
+        if (plugin.classes.activeClass(player.uniqueId) != ClassType.WARRIOR || !isBerserk(player)) return
+        val rank = plugin.classes.signatureRank(player.uniqueId)
+        val cfg = plugin.classesConfig
+        if (rank < cfg.getInt("warrior.bloodlust-min-rank", 4)) return
+        val data = plugin.classes.data(player.uniqueId)
+        val now = System.currentTimeMillis()
+        val extendMs = cfg.getInt("warrior.bloodlust-ticks-per-kill", 20).coerceAtLeast(0) * 50L
+        val capMs = data.berserkStartedAt +
+            (cfg.getDouble("warrior.berserk-max-seconds", 10.0).coerceAtLeast(0.0) * 1000.0).toLong()
+        val newUntil = minOf(data.rageActiveUntil + extendMs, capMs)
+        if (newUntil <= data.rageActiveUntil) return
+        data.rageActiveUntil = newUntil
+        refreshBerserkPotions(player, rank, ((newUntil - now) / 50L).toInt().coerceAtLeast(1))
+        player.sendActionBar(Component.text("§4§lBLOODLUST §7+${"%.1f".format(extendMs / 1000.0)}s"))
+        player.world.spawnParticle(Particle.DUST, player.location.clone().add(0.0, 1.0, 0.0), 14, 0.4, 0.5, 0.4, 0.0,
+            Particle.DustOptions(org.bukkit.Color.fromRGB(150, 0, 0), 1.5f))
+        player.playSound(player.location, Sound.ENTITY_WITHER_SPAWN, 0.22f, 1.7f)
     }
 
     /** Berserk's opening blow: an AoE stomp around the Warrior - damage, knockback, a brief stagger. */
@@ -492,7 +518,8 @@ class PassiveService(private val plugin: DungeonPlugin) {
         val radius = cfg.getDouble("warrior.slam-radius", 4.0).coerceIn(1.0, 12.0) *
             (if (shockwave) cfg.getDouble("warrior.slam-shockwave-radius-multiplier", 1.6) else 1.0)
         val damage = cfg.getDouble("warrior.slam-damage", 8.0).coerceAtLeast(0.0)
-        val knockback = cfg.getDouble("warrior.slam-knockback", 0.9).coerceAtLeast(0.0)
+        val knockback = cfg.getDouble("warrior.slam-knockback", 0.6).coerceAtLeast(0.0)
+        val knockUp = cfg.getDouble("warrior.slam-knockup", 0.28).coerceIn(0.0, 1.0)
         val staggerTicks = cfg.getInt("warrior.slam-stagger-ticks", 40).coerceAtLeast(0)
         val centre = player.location
         centre.world?.getNearbyEntities(centre, radius, 3.0, radius)
@@ -502,7 +529,7 @@ class PassiveService(private val plugin: DungeonPlugin) {
                 if (damage > 0.0) mob.damage(damage, player)
                 val push = mob.location.toVector().subtract(centre.toVector())
                 if (push.lengthSquared() > 1e-6) push.normalize() else push.zero()
-                mob.velocity = mob.velocity.add(push.multiply(knockback)).setY(0.35)
+                mob.velocity = mob.velocity.add(push.multiply(knockback)).setY(knockUp)
                 if (staggerTicks > 0) {
                     mob.addPotionEffect(PotionEffect(PotionEffectType.SLOWNESS, staggerTicks, 2, true, false, true))
                 }
@@ -652,4 +679,4 @@ enum class FocusShotResult { SUCCESS, LOCKED, WRONG_WEAPON, NOT_CHARGED }
 
 enum class TauntActivationResult { SUCCESS, LOCKED, NOT_READY, ALREADY_ACTIVE }
 
-enum class BerserkActivationResult { SUCCESS, WRONG_CLASS, LOCKED, NOT_READY, ALREADY_ACTIVE }
+enum class BerserkActivationResult { SUCCESS, WRONG_CLASS, LOCKED, NOT_READY, ALREADY_ACTIVE, ON_COOLDOWN }
