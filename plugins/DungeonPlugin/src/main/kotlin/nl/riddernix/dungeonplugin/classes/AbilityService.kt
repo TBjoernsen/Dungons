@@ -50,8 +50,8 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
     private val shieldCapacityKey = NamespacedKey(plugin, "paladin_active_shield_capacity")
     private val healHighlightTeamName = "dp_heal_hover"
 
-    /** Called by the class layer's periodic task to maintain Mage heal targeting. */
-    fun tick() {
+    /** Refreshes the Mage's heal-target highlight. Runs several times a second so the glow tracks the crosshair. */
+    fun tickHealHover() {
         plugin.server.onlinePlayers.forEach { caster ->
             val canTarget = plugin.queries.isInDungeon(caster) &&
                 plugin.classes.activeClass(caster.uniqueId) == ClassType.MAGE &&
@@ -283,7 +283,7 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
             return
         }
 
-        val target = raycastHealTarget(caster) ?: caster
+        val target = currentHealTarget(caster) ?: caster
         data.mana -= cost
         mageHealCooldownUntil[caster.uniqueId] = now + mageHealCooldownMillis()
         target.addPotionEffect(PotionEffect(PotionEffectType.REGENERATION, 100, 1, true, true, true))
@@ -319,6 +319,28 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
             distance += 0.25
         }
         return result
+    }
+
+    /**
+     * Who a Heal cast actually lands on: commit the ally currently under the
+     * highlight ([tickHealHover] validated range + cone + line of sight for it
+     * a few ticks ago), as long as they are still online, alive, in the same
+     * world and within `heal-range`. Only if there is no live highlight does
+     * it fall back to a fresh cone check for this exact instant. Returns null
+     * -> [castMageHeal] heals the caster.
+     *
+     * This is the fix for "highlight reaches far, heal only lands point-blank":
+     * the click no longer re-runs a tight angular cone against a target that
+     * is a pixel wide at range - it just confirms what is already glowing.
+     */
+    private fun currentHealTarget(caster: Player): Player? {
+        val range = plugin.classesConfig.getDouble("abilities.mage.heal-range", 50.0).coerceAtLeast(0.0)
+        val hovered = hoveredHealTargets[caster.uniqueId]?.let { plugin.server.getPlayer(it.playerId) }
+        if (hovered != null && hovered.isOnline && !hovered.isDead && hovered.world == caster.world &&
+            hovered.location.distanceSquared(caster.location) <= range * range) {
+            return hovered
+        }
+        return raycastHealTarget(caster)
     }
 
     /**

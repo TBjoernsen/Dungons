@@ -192,6 +192,24 @@ BossDefinition scenery accessors were kept).
   the shared `FeedbackService.arrowTrail(projectile, color)` - one dust per
   tick, lime for Skyfall, cyan for the Focus Shot.
 
+## Mage Heal targeting: commit the highlight (2026-09-09)
+
+Symptom: the heal-target glow reached far but the heal only landed
+point-blank. Cause: both the glow and the cast re-ran `raycastHealTarget`
+(a 12deg angular cone), so at range the click had to be pixel-perfect,
+and the hover task only ran at 1 Hz so the glow was up to a second stale;
+a missed cone silently self-heals.
+
+- `AbilityService.tick()` -> `tickHealHover()`, moved off the 20-tick
+  class loop onto its own `runTaskTimer(..., 4L, 4L)` so the glow tracks
+  the crosshair.
+- `castMageHeal` now targets `currentHealTarget(caster)`: the player under
+  the live highlight if still online / alive / same world / within
+  `heal-range`, else a fresh `raycastHealTarget` for that instant, else
+  null (self-heal). The click confirms the glow instead of re-aiming.
+- Future idea noted with the user: combine this with a homing heal orb
+  (Arcane-Bolt-orb tech) that flies to the glowing ally.
+
 ## Warrior Berserk overhaul (2026-09-09)
 
 Rage no longer auto-erupts. A full bar is a **banked Berserk** (and no

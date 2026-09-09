@@ -336,12 +336,14 @@ class DungeonPlugin : JavaPlugin() {
             }
             server.scheduler.runTaskTimer(this, Runnable {
                 classPassives.tick()
-                classAbilities.tick()
                 for (player in server.onlinePlayers) {
                     coreListener?.stripArmor(player)
                     refreshClassPlayer(player)
                 }
             }, 20L, 20L)
+            // The Mage heal-target highlight runs several times a second so the
+            // glow you see is the ally a click will actually commit to.
+            server.scheduler.runTaskTimer(this, Runnable { classAbilities.tickHealHover() }, 4L, 4L)
         }
 
         server.scheduler.runTaskTimer(this, Runnable {
