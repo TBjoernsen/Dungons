@@ -214,9 +214,10 @@ fires a "BERSERK READY - press Sneak" cue on the fill.
   rank `berserk-resistance-min-rank` (3).
 - **Cooldown.** After Berserk ends there is a `berserk-cooldown-seconds`
   (7.5) rest - `activateBerserk` returns `ON_COOLDOWN`
-  (`berserkCooldownSeconds(player)` = `rageActiveUntil + cd - now`). The
-  bar can refill during the rest; a full bar on cooldown shows
-  `full - CD Ns` in the readout.
+  (`berserkCooldownSeconds(player)` = `rageActiveUntil + cd - now`).
+  `addRage` bails whenever `berserkCooldownSeconds > 0`, so **no Rage
+  builds during Berserk or its cooldown**; the bar only starts refilling
+  once the rest clears. Readout shows `cooldown Ns`.
 - **Bloodlust (kills only).** From `bloodlust-min-rank` (4) each *kill*
   during Berserk (`CoreListener.onWarriorBloodlustKill` ->
   `PassiveService.bloodlustOnKill`) stretches `rageActiveUntil` by

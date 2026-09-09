@@ -352,12 +352,14 @@ class PassiveService(private val plugin: DungeonPlugin) {
         val rank = plugin.classes.signatureRank(player.uniqueId)
         return when (plugin.classes.activeClass(player.uniqueId)) {
             ClassType.WARRIOR -> {
+                val cd = berserkCooldownSeconds(player)
                 if (rank == 0) "Rage: unlock Rank I in the skill tree"
                 else if (data.rageActiveUntil > System.currentTimeMillis()) {
                     "Rage $rank: §4BERSERK ${((data.rageActiveUntil - System.currentTimeMillis()) / 1000.0).coerceAtLeast(0.0).roundToInt()}s"
+                } else if (cd > 0) {
+                    "Rage $rank: §7cooldown ${cd}s"
                 } else if (data.rage >= rageThreshold(rank)) {
-                    val cd = berserkCooldownSeconds(player)
-                    if (cd > 0) "Rage $rank: §7full - CD ${cd}s" else "Rage $rank: §6READY §7[Sneak]"
+                    "Rage $rank: §6READY §7[Sneak]"
                 } else "Rage $rank: ${data.rage.roundToInt()}/${rageThreshold(rank).roundToInt()}"
             }
             ClassType.ARCHER -> if (rank == 0) "Focus: unlock Rank I in the skill tree" else if (data.focus >= focusThreshold(rank)) {
@@ -405,27 +407,24 @@ class PassiveService(private val plugin: DungeonPlugin) {
     /**
      * Lets an active ability feed the Rage bar - the Warrior Dash uses this so
      * it plugs into the Berserk loop. Shares [addRage]'s guards: a no-op below
-     * Rage Rank I or while Berserk is running, and it can fill the bar to
-     * "ready" (it no longer auto-erupts - the player unleashes it with Sneak).
+     * Rage Rank I or while Berserk (or its cooldown) is running, and it can
+     * fill the bar to "ready" (unleashed with Sneak, it no longer auto-erupts).
      */
     fun feedRage(player: Player, amount: Double) = addRage(player, amount)
 
     private fun addRage(player: Player, amount: Double) {
         val data = plugin.classes.data(player.uniqueId)
         val rank = plugin.classes.signatureRank(player.uniqueId)
-        if (rank == 0 || data.rageActiveUntil > System.currentTimeMillis()) return
+        // No Rage builds during Berserk itself or its post-Berserk cooldown.
+        if (rank == 0 || berserkCooldownSeconds(player) > 0) return
         if (amount <= 0.0) return
         data.lastRageCombatAt = System.currentTimeMillis()
         val threshold = rageThreshold(rank)
         val wasReady = data.rage >= threshold
         data.rage = (data.rage + amount).coerceAtMost(threshold)
         if (!wasReady && data.rage >= threshold) {
-            if (berserkCooldownSeconds(player) > 0) {
-                player.sendActionBar(Component.text("§4Rage full §7- Berserk on cooldown"))
-            } else {
-                player.sendActionBar(Component.text("§4§lBERSERK READY §7- press §fSneak"))
-                player.playSound(player.location, Sound.ENTITY_RAVAGER_ROAR, 0.5f, 0.75f)
-            }
+            player.sendActionBar(Component.text("§4§lBERSERK READY §7- press §fSneak"))
+            player.playSound(player.location, Sound.ENTITY_RAVAGER_ROAR, 0.5f, 0.75f)
             plugin.refreshClassPlayer(player)
         }
     }
