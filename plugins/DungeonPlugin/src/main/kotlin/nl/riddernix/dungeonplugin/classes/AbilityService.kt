@@ -213,17 +213,35 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
     }
 
     private fun paladinShield(player: Player): Boolean {
+        val cfg = plugin.classesConfig
+        val rank = plugin.classes.signatureRank(player.uniqueId).coerceAtLeast(1)
         val target = (player.getTargetEntity(12) as? Player)?.takeIf { it.world == player.world } ?: player
-        val seconds = plugin.classesConfig.getDouble("abilities.paladin.shield-seconds", 4.0)
-        val shieldHealth = plugin.classesConfig.getDouble("abilities.paladin.shield-hearts", 5.0) * 2.0
+        val seconds = cfg.getDouble("abilities.paladin.shield-seconds", 4.0)
+        val hearts = cfg.getDouble("abilities.paladin.shield-hearts", 5.0) +
+            cfg.getDouble("abilities.paladin.shield-hearts-per-rank", 1.0) * (rank - 1)
+        val shieldHealth = hearts * 2.0
+        val absorbAmp = cfg.getInt("abilities.paladin.absorption-amplifier", 1).coerceIn(0, 4)
         val capacity = target.getAttribute(Attribute.MAX_ABSORPTION)
         capacity?.removeModifier(shieldCapacityKey)
         capacity?.addTransientModifier(AttributeModifier(shieldCapacityKey, shieldHealth, AttributeModifier.Operation.ADD_NUMBER))
         // The native effect makes the client render yellow hearts
-        // consistently; the amount is immediately limited to the requested
-        // five-heart shield.
-        target.addPotionEffect(PotionEffect(PotionEffectType.ABSORPTION, (seconds * 20).toInt(), 1, true, false, true))
+        // consistently; the amount is immediately limited to the shield size.
+        target.addPotionEffect(PotionEffect(PotionEffectType.ABSORPTION, (seconds * 20).toInt(), absorbAmp, true, false, true))
         target.absorptionAmount = maxOf(target.absorptionAmount, shieldHealth)
+
+        // Bless (high rank): scrub the ally's Slowness / Weakness and grant a
+        // brief Resistance on top of the shield.
+        var blessed = false
+        if (rank >= cfg.getInt("abilities.paladin.shield-bless-min-rank", 3)) {
+            target.removePotionEffect(PotionEffectType.SLOWNESS)
+            target.removePotionEffect(PotionEffectType.WEAKNESS)
+            val blessTicks = (cfg.getDouble("abilities.paladin.shield-bless-seconds", 3.0).coerceAtLeast(0.0) * 20).toInt()
+            if (blessTicks > 0) {
+                target.addPotionEffect(PotionEffect(PotionEffectType.RESISTANCE, blessTicks, 0, true, false, true))
+            }
+            blessed = true
+        }
+
         val expiresAt = System.currentTimeMillis() + (seconds * 1000).toLong()
         shieldExpiry[target.uniqueId] = expiresAt
         plugin.server.scheduler.runTask(plugin, Runnable {
@@ -238,8 +256,10 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
             if (target.absorptionAmount <= shieldHealth) target.absorptionAmount = 0.0
             shieldExpiry.remove(target.uniqueId)
         }, (seconds * 20).toLong())
+        plugin.classFeedback.paladinShieldCast(target)
         val recipient = if (target == player) "yourself" else target.name
-        player.sendActionBar(Component.text("Shielded $recipient.", NamedTextColor.GOLD))
+        player.sendActionBar(Component.text(
+            (if (blessed) "Blessed & shielded " else "Shielded ") + recipient + ".", NamedTextColor.GOLD))
         return true
     }
 

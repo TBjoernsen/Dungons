@@ -172,14 +172,46 @@ warrior:
   berserk-shockwave-min-rank: 5
   slam-shockwave-radius-multiplier: 1.6
 
-# Paladin Taunt builds from axe damage. The newest Taunt owner has aggro from
-# all loaded mobs in their current world.
+# Paladin Taunt builds from axe damage, then Sneak to unleash a tank stance
+# you can still fight in: it pulls nearby mobs, drops Consecrated Ground,
+# and turns the damage you soak into a Holy Nova (Zeal).
 paladin:
   taunt-damage-threshold: 75.0
   taunt-duration-seconds: 8.0
-  # Mirrors the Turtle Master trade-off: high resistance with heavy slowness.
-  turtle-master-resistance-amplifier: 2
-  turtle-master-slowness-amplifier: 3
+  # Judgment (the pre-Taunt charge) bleeds out of combat like Rage / Focus.
+  judgment-decay-delay-seconds: 15.0
+  judgment-decay-per-second: 5.0
+  # Taunt now re-pulls every mob within taunt-radius each tick instead of
+  # every mob in the world.
+  taunt-radius: 32.0
+  # --- Taunt stance (fightable) --------------------------------------
+  taunt-slowness-amplifier: 0        # 0 = Slowness I (keep it light)
+  taunt-damage-reduction: 0.30       # flat, while the stance is up
+  taunt-knockback-resistance: 1.0    # 1.0 = nothing can shove you off the point
+  # --- Zeal + Holy Nova ---------------------------------------------
+  # Damage soaked during Taunt charges Zeal; at zeal-threshold it releases a
+  # Holy Nova at once, and whatever is banked releases (scaled) when Taunt
+  # ends. The Nova damages mobs and heals + regens allies in nova-radius,
+  # both scaling per signature rank.
+  zeal-threshold: 60.0
+  zeal-per-damage: 1.0
+  nova-radius: 6.0
+  nova-damage: 6.0
+  nova-damage-per-rank: 2.0
+  nova-heal: 4.0
+  nova-heal-per-rank: 1.0
+  nova-regen-seconds: 4.0
+  # --- Consecrated Ground -----------------------------------------------
+  # A ring of light dropped where you activate Taunt, lasting its duration.
+  # Mobs inside take consecration-dot per pulse and are slowed; allies inside
+  # get consecration-ally-heal per pulse. Deliberately large - shrink to taste.
+  consecration-radius: 6.0
+  consecration-tick-interval: 10
+  consecration-dot: 1.5
+  consecration-ally-heal: 0.5
+  # --- Smite (holy damage on the axe while Taunting) ------------------
+  smite-base: 2.0
+  smite-per-rank: 1.5
 
 # Mage Mana + Arcane Bolt (the baseline staff attack, left-click). Mana and
 # the bolt are usable from Difficulty 1; Difficulty 3 unlocks Arcane Charge,
@@ -263,6 +295,11 @@ abilities:
     shield-seconds: 4.0
     absorption-amplifier: 1
     shield-hearts: 5.0
+    shield-hearts-per-rank: 1.0
+    # From shield-bless-min-rank the Shield also strips the ally's Slowness /
+    # Weakness and grants Resistance I for shield-bless-seconds.
+    shield-bless-min-rank: 3
+    shield-bless-seconds: 3.0
   mage:
     cooldown-seconds: 5.0
     blink-distance: 10.0

@@ -192,6 +192,46 @@ BossDefinition scenery accessors were kept).
   the shared `FeedbackService.arrowTrail(projectile, color)` - one dust per
   tick, lime for Skyfall, cyan for the Focus Shot.
 
+## Paladin "Holy Bulwark" overhaul (2026-09-09)
+
+Turtle Master is gone. Taunt is now a fightable stance built around a
+build-and-spend loop, plus rank-scaled Shield and a Smite passive.
+
+- **Fightable stance.** `activateTaunt` drops the Resistance III / Slowness
+  IV potion for **Slowness `paladin.taunt-slowness-amplifier` (0 = I)** + a
+  transient `KNOCKBACK_RESISTANCE` modifier (`tauntKnockbackKey`,
+  `taunt-knockback-resistance` 1.0) + a flat `taunt-damage-reduction`
+  (0.30) applied in `handleIncomingDamage`.
+- **Zeal -> Holy Nova.** Damage soaked during Taunt charges
+  `PlayerClassData.zeal` (`zeal-per-damage`); at `zeal-threshold` (60) it
+  auto-fires `releaseHolyNova(player, 1.0)`; whatever is banked fires
+  (scaled) when Taunt ends in `maintainTaunt`. Nova = `nova-damage`
+  (+`per-rank`) to mobs, `nova-heal` (+`per-rank`) + `nova-regen-seconds`
+  Regen to players, in `nova-radius`. `FeedbackService.paladinHolyNova`.
+- **Consecrated Ground.** `startConsecration` runs a `BukkitRunnable`
+  (tracked in `consecrationTasks`, cancelled on re-cast / Taunt end /
+  disable) for the Taunt duration: circular `consecration-radius` (6) at
+  the *cast spot*, `consecration-dot` + Slowness to mobs, `consecration
+  -ally-heal` to players each `consecration-tick-interval`.
+  `FeedbackService.paladinConsecrationTick` draws the ring.
+- **Radius taunt.** `targetAllMobs` -> `targetMobsInRadius`
+  (`taunt-radius` 32), re-pulled each `maintainTaunt`.
+- **Presence + decay.** `updateTauntPresence` in `tick()` - gold aura,
+  one-shot "Taunt fading..." under 1.6s (`tauntFadeWarned`). Judgment
+  bleeds out of combat via `decayJudgmentOutOfCombat`
+  (`judgment-decay-*`, `lastJudgmentCombatAt` set in `buildTaunt`).
+  Readout shows `ACTIVE Ns | Zeal x/threshold`.
+- **Smite.** `handleDamage` Paladin branch: `+smite-base +
+  smite-per-rank*(rank-1)` holy damage to mobs while `isTaunting`, with an
+  END_ROD spark.
+- **Shield rank identity.** `AbilityService.paladinShield`:
+  `shield-hearts + shield-hearts-per-rank*(rank-1)`, wired
+  `absorption-amplifier`, and from `shield-bless-min-rank` (3) also strips
+  Slowness/Weakness + grants Resistance I for `shield-bless-seconds`.
+  `FeedbackService.paladinShieldCast` gold flash.
+- `ActiveTaunt` gains `rank`. `PlayerClassData` gains `zeal` +
+  `lastJudgmentCombatAt` (cleared in `clearCombatResources`).
+
 ## Mage Heal targeting: commit the highlight (2026-09-09)
 
 Symptom: the heal-target glow reached far but the heal only landed

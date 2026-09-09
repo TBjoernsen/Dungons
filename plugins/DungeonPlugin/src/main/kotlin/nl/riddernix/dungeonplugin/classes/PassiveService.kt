@@ -5,9 +5,11 @@ import net.kyori.adventure.text.format.NamedTextColor
 import nl.riddernix.dungeonplugin.DungeonPlugin
 import org.bukkit.Location
 import org.bukkit.Material
+import org.bukkit.NamespacedKey
 import org.bukkit.Particle
 import org.bukkit.Sound
 import org.bukkit.attribute.Attribute
+import org.bukkit.attribute.AttributeModifier
 import org.bukkit.entity.Arrow
 import org.bukkit.entity.LivingEntity
 import org.bukkit.entity.Mob
@@ -19,6 +21,8 @@ import org.bukkit.event.entity.EntityShootBowEvent
 import org.bukkit.event.entity.ProjectileHitEvent
 import org.bukkit.potion.PotionEffect
 import org.bukkit.potion.PotionEffectType
+import org.bukkit.scheduler.BukkitRunnable
+import org.bukkit.scheduler.BukkitTask
 import java.util.UUID
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
@@ -27,6 +31,11 @@ import kotlin.math.sqrt
 class PassiveService(private val plugin: DungeonPlugin) {
 
     private var activeTaunt: ActiveTaunt? = null
+    private var tauntFadeWarned = false
+
+    /** Per Paladin: the running Consecrated Ground task, so a re-cast replaces it. */
+    private val consecrationTasks = HashMap<UUID, BukkitTask>()
+    private val tauntKnockbackKey = NamespacedKey(plugin, "paladin_taunt_kb")
 
     /** Per Archer: wall-clock ms before Scope can trigger again. */
     private val scopeReadyAt = HashMap<UUID, Long>()
@@ -45,6 +54,9 @@ class PassiveService(private val plugin: DungeonPlugin) {
             if (classType == ClassType.WARRIOR) {
                 decayRageOutOfCombat(data, rank, now)
                 updateBerserkPresence(player, data, now)
+            } else if (classType == ClassType.PALADIN) {
+                decayJudgmentOutOfCombat(data, rank, now)
+                updateTauntPresence(player, now)
             } else if (classType == ClassType.MAGE) {
                 // Mana and Arcane Bolt are baseline. Arcane Charge is the
                 // Difficulty-3 signature enhancement, not a gate on casting.
@@ -92,6 +104,14 @@ class PassiveService(private val plugin: DungeonPlugin) {
                     plugin.refreshClassPlayer(player)
                 }
             }
+            ClassType.PALADIN -> if (isTaunting(player)) {
+                // The Taunt stance is a fightable one: flat mitigation on top
+                // of Slowness I, and every hit soaked charges Zeal toward the
+                // Holy Nova.
+                val cut = plugin.classesConfig.getDouble("paladin.taunt-damage-reduction", 0.30).coerceIn(0.0, 0.9)
+                event.damage *= (1.0 - cut)
+                addZeal(player, event.finalDamage * plugin.classesConfig.getDouble("paladin.zeal-per-damage", 1.0))
+            }
             else -> Unit
         }
     }
@@ -106,12 +126,22 @@ class PassiveService(private val plugin: DungeonPlugin) {
             }
             ClassType.PALADIN -> if (rank > 0 && plugin.classItems.isAllowedWeapon(ClassType.PALADIN, damager.inventory.itemInMainHand)) {
                 buildTaunt(damager, event.finalDamage, rank)
+                // Smite: holy damage on the axe while the Taunt stance is up.
+                if (isTaunting(damager) && event.entity is LivingEntity && event.entity !is Player) {
+                    val smite = plugin.classesConfig.getDouble("paladin.smite-base", 2.0) +
+                        plugin.classesConfig.getDouble("paladin.smite-per-rank", 1.5) * (rank - 1)
+                    if (smite > 0.0) {
+                        event.damage += smite
+                        event.entity.world.spawnParticle(Particle.END_ROD,
+                            event.entity.location.clone().add(0.0, 1.0, 0.0), 6, 0.2, 0.3, 0.2, 0.02)
+                    }
+                }
             }
             else -> Unit
         }
     }
 
-    /** Activates a fully charged Taunt. Called from the Paladin's Left-Shift input. */
+    /** Activates a fully charged Taunt. Called from the Paladin's Sneak input. */
     fun activateTaunt(player: Player): TauntActivationResult {
         val data = plugin.classes.data(player.uniqueId)
         val rank = plugin.classes.signatureRank(player.uniqueId)
@@ -122,20 +152,167 @@ class PassiveService(private val plugin: DungeonPlugin) {
         }
         if (data.judgment < tauntThreshold(rank)) return TauntActivationResult.NOT_READY
 
+        val cfg = plugin.classesConfig
         data.judgment = 0.0
+        data.zeal = 0.0
+        tauntFadeWarned = false
         val durationTicks = tauntDurationTicks(rank)
-        activeTaunt = ActiveTaunt(player.uniqueId, System.currentTimeMillis() + durationTicks * 50L)
-        // Turtle Master is a potion recipe combining these two effects; Paper
-        // exposes the effects themselves rather than a separate TURTLE_MASTER
-        // effect type.
-        player.addPotionEffect(PotionEffect(PotionEffectType.RESISTANCE, durationTicks, turtleMasterResistanceAmplifier(), true, false, true))
-        player.addPotionEffect(PotionEffect(PotionEffectType.SLOWNESS, durationTicks, turtleMasterSlownessAmplifier(), true, false, true))
-        targetAllMobs(player)
+        activeTaunt = ActiveTaunt(player.uniqueId, System.currentTimeMillis() + durationTicks * 50L, rank)
+
+        // A stance you can fight in: Slowness I (not the old Turtle Master IV),
+        // a knockback lock so nothing shoves you off the point, and the flat
+        // mitigation applied in handleIncomingDamage.
+        val slowAmp = cfg.getInt("paladin.taunt-slowness-amplifier", 0).coerceIn(0, 5)
+        player.addPotionEffect(PotionEffect(PotionEffectType.SLOWNESS, durationTicks, slowAmp, true, false, true))
+        applyTauntKnockbackLock(player, cfg.getDouble("paladin.taunt-knockback-resistance", 1.0).coerceIn(0.0, 1.0))
+
+        targetMobsInRadius(player)
+        startConsecration(player, durationTicks)
         plugin.classFeedback.tauntTriggered(player)
-        player.sendMessage("§6Taunt activated! §fNearby mobs now focus you.")
+        player.sendActionBar(Component.text("§6§lHOLD THE LINE §7- ground consecrated"))
         plugin.refreshClassPlayer(player)
         return TauntActivationResult.SUCCESS
     }
+
+    fun isTaunting(player: Player): Boolean {
+        val t = activeTaunt ?: return false
+        return t.playerId == player.uniqueId && t.expiresAt > System.currentTimeMillis()
+    }
+
+    private fun applyTauntKnockbackLock(player: Player, value: Double) {
+        val attr = player.getAttribute(Attribute.KNOCKBACK_RESISTANCE) ?: return
+        attr.getModifier(tauntKnockbackKey)?.let { attr.removeModifier(it) }
+        if (value > 0.0) {
+            attr.addTransientModifier(AttributeModifier(tauntKnockbackKey, value, AttributeModifier.Operation.ADD_NUMBER))
+        }
+    }
+
+    private fun removeTauntKnockbackLock(player: Player) {
+        val attr = player.getAttribute(Attribute.KNOCKBACK_RESISTANCE) ?: return
+        attr.getModifier(tauntKnockbackKey)?.let { attr.removeModifier(it) }
+    }
+
+    private fun addZeal(player: Player, amount: Double) {
+        if (amount <= 0.0) return
+        val data = plugin.classes.data(player.uniqueId)
+        val threshold = plugin.classesConfig.getDouble("paladin.zeal-threshold", 60.0).coerceAtLeast(1.0)
+        data.zeal = (data.zeal + amount).coerceAtMost(threshold)
+        if (data.zeal >= threshold) {
+            releaseHolyNova(player, 1.0)
+            data.zeal = 0.0
+        }
+        plugin.refreshClassPlayer(player)
+    }
+
+    /**
+     * The Holy Nova: mobs around the Paladin take holy damage, nearby allies
+     * (and the Paladin) are healed and briefly regenerate. [power] 0..1 scales
+     * the payout - a full charge fires at 1.0, a parting nova on Taunt expiry
+     * fires at whatever fraction of Zeal was banked.
+     */
+    fun releaseHolyNova(player: Player, power: Double) {
+        val cfg = plugin.classesConfig
+        val p = power.coerceIn(0.0, 1.0)
+        if (p <= 0.0) return
+        val rank = plugin.classes.signatureRank(player.uniqueId).coerceAtLeast(1)
+        val radius = cfg.getDouble("paladin.nova-radius", 6.0).coerceIn(1.0, 24.0)
+        val mobDamage = (cfg.getDouble("paladin.nova-damage", 6.0) +
+            cfg.getDouble("paladin.nova-damage-per-rank", 2.0) * (rank - 1)) * p
+        val allyHeal = (cfg.getDouble("paladin.nova-heal", 4.0) +
+            cfg.getDouble("paladin.nova-heal-per-rank", 1.0) * (rank - 1)) * p
+        val regenTicks = (cfg.getDouble("paladin.nova-regen-seconds", 4.0).coerceAtLeast(0.0) * 20.0).toInt()
+        val centre = player.location
+        val world = centre.world ?: return
+        for (entity in world.getNearbyEntities(centre, radius, radius, radius)) {
+            when {
+                entity is Player -> {
+                    if (allyHeal > 0.0) {
+                        val maxHp = entity.getAttribute(Attribute.MAX_HEALTH)?.value ?: 20.0
+                        entity.health = (entity.health + allyHeal).coerceIn(0.0, maxHp)
+                    }
+                    if (regenTicks > 0) {
+                        entity.addPotionEffect(PotionEffect(PotionEffectType.REGENERATION, regenTicks, 0, true, false, true))
+                    }
+                }
+                entity is LivingEntity && (plugin.queries.isDungeonMob(entity) || entity is Mob) ->
+                    if (mobDamage > 0.0) entity.damage(mobDamage, player)
+            }
+        }
+        plugin.classFeedback.paladinHolyNova(centre, radius)
+    }
+
+    private fun startConsecration(player: Player, durationTicks: Int) {
+        val cfg = plugin.classesConfig
+        consecrationTasks.remove(player.uniqueId)?.cancel()
+        val centre = player.location.clone()
+        val world = centre.world ?: return
+        val radius = cfg.getDouble("paladin.consecration-radius", 6.0).coerceIn(1.0, 24.0)
+        val interval = cfg.getInt("paladin.consecration-tick-interval", 10).coerceIn(2, 40).toLong()
+        val dot = cfg.getDouble("paladin.consecration-dot", 1.5).coerceAtLeast(0.0)
+        val allyHeal = cfg.getDouble("paladin.consecration-ally-heal", 0.5).coerceAtLeast(0.0)
+        val slowTicks = (interval + 5L).toInt()
+        val radiusSq = radius * radius
+        val task = object : BukkitRunnable() {
+            private var elapsed = 0L
+            override fun run() {
+                elapsed += interval
+                if (elapsed > durationTicks || !player.isOnline || player.world != world) {
+                    cancel(); consecrationTasks.remove(player.uniqueId); return
+                }
+                for (entity in world.getNearbyEntities(centre, radius, 4.0, radius)) {
+                    val dx = entity.location.x - centre.x
+                    val dz = entity.location.z - centre.z
+                    if (dx * dx + dz * dz > radiusSq) continue
+                    when {
+                        entity is Player -> if (allyHeal > 0.0) {
+                            val maxHp = entity.getAttribute(Attribute.MAX_HEALTH)?.value ?: 20.0
+                            entity.health = (entity.health + allyHeal).coerceIn(0.0, maxHp)
+                        }
+                        entity is LivingEntity && (plugin.queries.isDungeonMob(entity) || entity is Mob) -> {
+                            if (dot > 0.0) entity.damage(dot, player)
+                            entity.addPotionEffect(PotionEffect(PotionEffectType.SLOWNESS, slowTicks, 0, true, false, true))
+                        }
+                    }
+                }
+                plugin.classFeedback.paladinConsecrationTick(centre, radius)
+            }
+        }.runTaskTimer(plugin, interval, interval)
+        consecrationTasks[player.uniqueId] = task
+    }
+
+    private fun targetMobsInRadius(player: Player) {
+        val radius = plugin.classesConfig.getDouble("paladin.taunt-radius", 32.0).coerceIn(4.0, 128.0)
+        for (entity in player.world.getNearbyEntities(player.location, radius, radius, radius)) {
+            val mob = entity as? Mob ?: continue
+            if (mob.isValid && !mob.isDead) mob.target = player
+        }
+    }
+
+    private fun updateTauntPresence(player: Player, now: Long) {
+        val t = activeTaunt ?: return
+        if (t.playerId != player.uniqueId) return
+        val remain = t.expiresAt - now
+        if (remain <= 0L) return
+        val gold = Particle.DustOptions(org.bukkit.Color.fromRGB(255, 210, 90), 1.4f)
+        player.world.spawnParticle(Particle.DUST, player.location.clone().add(0.0, 1.1, 0.0), 8, 0.4, 0.6, 0.4, 0.0, gold)
+        if (remain in 1..1600 && !tauntFadeWarned) {
+            tauntFadeWarned = true
+            player.sendActionBar(Component.text("§6Taunt fading..."))
+            player.playSound(player.location, Sound.BLOCK_BEACON_DEACTIVATE, 0.5f, 1.2f)
+        }
+    }
+
+    private fun decayJudgmentOutOfCombat(data: PlayerClassData, rank: Int, now: Long) {
+        if (rank == 0 || data.judgment <= 0.0 || data.judgment >= tauntThreshold(rank)) return
+        if (now - data.lastJudgmentCombatAt < judgmentDecayDelayMillis()) return
+        data.judgment = (data.judgment - judgmentDecayPerSecond()).coerceAtLeast(0.0)
+    }
+
+    private fun judgmentDecayDelayMillis(): Long =
+        (plugin.classesConfig.getDouble("paladin.judgment-decay-delay-seconds", 15.0).coerceAtLeast(0.0) * 1000.0).toLong()
+
+    private fun judgmentDecayPerSecond(): Double =
+        plugin.classesConfig.getDouble("paladin.judgment-decay-per-second", 5.0).coerceAtLeast(0.0)
 
     fun handleBowShoot(event: EntityShootBowEvent) {
         val player = event.entity as? Player ?: return
@@ -368,8 +545,12 @@ class PassiveService(private val plugin: DungeonPlugin) {
             ClassType.PALADIN -> if (rank == 0) "Taunt: unlock Rank I in the skill tree" else {
                 val taunt = activeTaunt
                 val active = taunt?.playerId == player.uniqueId && taunt.expiresAt > System.currentTimeMillis()
-                if (active) "Taunt $rank: ACTIVE ${((activeTaunt!!.expiresAt - System.currentTimeMillis()) / 1000.0).coerceAtLeast(0.0).roundToInt()}s"
-                else if (data.judgment >= tauntThreshold(rank)) "Taunt $rank: READY"
+                if (active) {
+                    val secs = ((taunt!!.expiresAt - System.currentTimeMillis()) / 1000.0).coerceAtLeast(0.0).roundToInt()
+                    val zt = plugin.classesConfig.getDouble("paladin.zeal-threshold", 60.0).roundToInt()
+                    "Taunt $rank: §6ACTIVE ${secs}s §7| Zeal ${data.zeal.roundToInt()}/$zt"
+                }
+                else if (data.judgment >= tauntThreshold(rank)) "Taunt $rank: §6READY"
                 else "Taunt $rank: ${data.judgment.roundToInt()}/${tauntThreshold(rank).roundToInt()} damage"
             }
             ClassType.MAGE -> if (rank == 0) {
@@ -555,6 +736,7 @@ class PassiveService(private val plugin: DungeonPlugin) {
 
     private fun buildTaunt(player: Player, damage: Double, rank: Int) {
         val data = plugin.classes.data(player.uniqueId)
+        data.lastJudgmentCombatAt = System.currentTimeMillis()
         val wasReady = data.judgment >= tauntThreshold(rank)
         data.judgment = (data.judgment + damage.coerceAtLeast(0.0)).coerceAtMost(tauntThreshold(rank))
         if (!wasReady && data.judgment >= tauntThreshold(rank)) {
@@ -611,29 +793,30 @@ class PassiveService(private val plugin: DungeonPlugin) {
     private fun tauntDurationTicks(rank: Int): Int =
         ((plugin.classesConfig.getDouble("paladin.taunt-duration-seconds", 8.0) + (rank - 1)) * 20.0).roundToInt().coerceAtLeast(20)
 
-    private fun turtleMasterResistanceAmplifier(): Int =
-        plugin.classesConfig.getInt("paladin.turtle-master-resistance-amplifier", 2).coerceIn(0, 4)
-
-    private fun turtleMasterSlownessAmplifier(): Int =
-        plugin.classesConfig.getInt("paladin.turtle-master-slowness-amplifier", 3).coerceIn(0, 5)
-
     private fun maintainTaunt() {
         val taunt = activeTaunt ?: return
         val player = plugin.server.getPlayer(taunt.playerId)
-        if (player == null || !player.isOnline || taunt.expiresAt <= System.currentTimeMillis() ||
+        val ended = player == null || !player.isOnline || taunt.expiresAt <= System.currentTimeMillis() ||
             plugin.classes.activeClass(player.uniqueId) != ClassType.PALADIN
-        ) {
+        if (ended) {
             activeTaunt = null
+            consecrationTasks.remove(taunt.playerId)?.cancel()
+            if (player != null) {
+                removeTauntKnockbackLock(player)
+                if (player.isOnline) {
+                    // Fire whatever Zeal was banked as a parting Holy Nova.
+                    val data = plugin.classes.data(player.uniqueId)
+                    val threshold = plugin.classesConfig.getDouble("paladin.zeal-threshold", 60.0).coerceAtLeast(1.0)
+                    val power = (data.zeal / threshold).coerceIn(0.0, 1.0)
+                    data.zeal = 0.0
+                    if (power > 0.0) releaseHolyNova(player, power)
+                    player.sendActionBar(Component.text("§7The line breaks - Taunt ends."))
+                    plugin.refreshClassPlayer(player)
+                }
+            }
             return
         }
-        targetAllMobs(player)
-    }
-
-    /** The sole active record means the most recently activated Paladin always wins aggro. */
-    private fun targetAllMobs(player: Player) {
-        player.world.entities.filterIsInstance<Mob>().forEach { mob ->
-            if (mob.isValid && !mob.isDead) mob.target = player
-        }
+        targetMobsInRadius(player!!)
     }
 
     private fun maxMana(rank: Int): Double =
@@ -670,7 +853,7 @@ class PassiveService(private val plugin: DungeonPlugin) {
     }
 }
 
-private data class ActiveTaunt(val playerId: UUID, val expiresAt: Long)
+private data class ActiveTaunt(val playerId: UUID, val expiresAt: Long, val rank: Int)
 
 enum class ArcaneCastResult { SUCCESS, MANA_LOCKED, WRONG_WEAPON, INSUFFICIENT_MANA, COOLDOWN }
 

@@ -203,6 +203,40 @@ class FeedbackService(private val plugin: DungeonPlugin) {
         world.playSound(where, Sound.BLOCK_AMETHYST_BLOCK_CHIME, 0.7f, 0.8f)
     }
 
+    /** Holy Nova: a golden burst that damages mobs and mends allies around the Paladin. */
+    fun paladinHolyNova(centre: Location, radius: Double) {
+        val world = centre.world ?: return
+        val gold = Particle.DustOptions(Color.fromRGB(255, 224, 130), 1.8f)
+        world.spawnParticle(Particle.DUST, centre.clone().add(0.0, 1.0, 0.0), 60, radius * 0.5, 0.6, radius * 0.5, 0.0, gold)
+        world.spawnParticle(Particle.END_ROD, centre.clone().add(0.0, 0.8, 0.0), 30, radius * 0.4, 0.4, radius * 0.4, 0.06)
+        world.spawnParticle(Particle.TOTEM_OF_UNDYING, centre.clone().add(0.0, 1.0, 0.0), 24, 0.5, 0.6, 0.5, 0.15)
+        world.playSound(centre, Sound.ITEM_TOTEM_USE, 0.55f, 1.35f)
+        world.playSound(centre, Sound.BLOCK_BELL_RESONATE, 0.8f, 1.4f)
+    }
+
+    /** One pulse of Consecrated Ground - a low ring of light on the floor. */
+    fun paladinConsecrationTick(centre: Location, radius: Double) {
+        val world = centre.world ?: return
+        val gold = Particle.DustOptions(Color.fromRGB(255, 205, 90), 1.3f)
+        val points = (radius * 6).toInt().coerceIn(12, 80)
+        for (i in 0 until points) {
+            val a = Math.PI * 2 * i / points
+            val x = centre.x + kotlin.math.cos(a) * radius
+            val z = centre.z + kotlin.math.sin(a) * radius
+            world.spawnParticle(Particle.DUST, x, centre.y + 0.1, z, 1, 0.0, 0.0, 0.0, 0.0, gold)
+        }
+        world.spawnParticle(Particle.END_ROD, centre.clone().add(0.0, 0.15, 0.0), 3, radius * 0.35, 0.05, radius * 0.35, 0.0)
+    }
+
+    /** Shield / Bless landing on an ally: a golden flash and a soft chime. */
+    fun paladinShieldCast(target: Player) {
+        val at = target.location.clone().add(0.0, 1.0, 0.0)
+        target.world.spawnParticle(Particle.END_ROD, at, 24, 0.35, 0.55, 0.35, 0.04)
+        target.world.spawnParticle(Particle.TOTEM_OF_UNDYING, at, 18, 0.3, 0.5, 0.3, 0.1)
+        target.world.playSound(target.location, Sound.BLOCK_BEACON_ACTIVATE, 0.5f, 1.7f)
+        target.world.playSound(target.location, Sound.ITEM_ARMOR_EQUIP_GOLD, 0.7f, 1.2f)
+    }
+
     fun tauntTriggered(player: Player) {
         val center = player.location.clone().add(0.0, 0.85, 0.0)
         val gold = Particle.DustOptions(Color.fromRGB(255, 205, 55), 1.55f)

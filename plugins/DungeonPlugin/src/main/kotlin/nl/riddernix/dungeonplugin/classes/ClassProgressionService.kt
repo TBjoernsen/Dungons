@@ -443,7 +443,14 @@ class PlayerClassData {
     /** Runtime-only combat timestamp; Rage decays after time without combat. */
     var lastRageCombatAt: Long = System.currentTimeMillis()
     var focus: Int = 0
+
+    /** Paladin: the pre-Taunt charge, and its out-of-combat decay timestamp. */
     var judgment: Double = 0.0
+    var lastJudgmentCombatAt: Long = System.currentTimeMillis()
+
+    /** Paladin: damage soaked during an active Taunt, released as a Holy Nova. */
+    var zeal: Double = 0.0
+
     var mana: Double = 0.0
 
     /**
@@ -463,6 +470,7 @@ class PlayerClassData {
         berserkStartedAt = 0L
         focus = 0
         judgment = 0.0
+        zeal = 0.0
         mana = 0.0
         debugSignatureRank = -1
     }
