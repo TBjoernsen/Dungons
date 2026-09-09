@@ -148,6 +148,7 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         }
         player.world.spawnParticle(Particle.CLOUD, player.location.clone().add(0.0, 0.12, 0.0), 20, 0.28, 0.05, 0.28, 0.08)
         player.velocity = player.velocity.clone().setY(plugin.classesConfig.getDouble("abilities.archer.jump-velocity", 0.9))
+        player.world.playSound(player.location, Sound.ENTITY_WIND_CHARGE_WIND_BURST, 1.0f, 1.1f)
         player.sendActionBar(Component.text("Wind Jump!", NamedTextColor.GREEN))
         return true
     }

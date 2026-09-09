@@ -388,16 +388,6 @@ class PassiveService(private val plugin: DungeonPlugin) {
         return (base + (rank - 1).coerceAtLeast(0) * perRank).coerceAtLeast(1.0)
     }
 
-    /** Current Focus state for HUD use, or null unless the player is an Archer with Focus unlocked. */
-    fun focusStatus(player: Player): FocusStatus? {
-        if (plugin.classes.activeClass(player.uniqueId) != ClassType.ARCHER) return null
-        val rank = plugin.classes.signatureRank(player.uniqueId)
-        if (rank == 0) return null
-        val required = focusThreshold(rank)
-        val stacks = plugin.classes.data(player.uniqueId).focus
-        return FocusStatus(stacks, required, stacks >= required)
-    }
-
     private fun archerAttackBonus(player: Player): Double =
         (player.getAttribute(Attribute.ATTACK_DAMAGE)?.value ?: 1.0) *
             plugin.classesConfig.getDouble("archer.attack-stat-damage-multiplier", 1.0).coerceAtLeast(0.0)
@@ -468,9 +458,6 @@ class PassiveService(private val plugin: DungeonPlugin) {
 }
 
 private data class ActiveTaunt(val playerId: UUID, val expiresAt: Long)
-
-/** Snapshot of an Archer's Focus bar for the HUD. */
-data class FocusStatus(val stacks: Int, val required: Int, val full: Boolean)
 
 enum class ArcaneCastResult { SUCCESS, MANA_LOCKED, WRONG_WEAPON, INSUFFICIENT_MANA, COOLDOWN }
 

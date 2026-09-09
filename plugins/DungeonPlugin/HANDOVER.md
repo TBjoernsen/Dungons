@@ -159,14 +159,10 @@ BossDefinition scenery accessors were kept).
   `arrow.pierceLevel` from `focus-shot-pierce-from-rank` (4; rank − that + 1,
   cap 4), `isGlowing`, and speed `focus-shot-speed` (3.4). The old flat
   `focusShotDamageMultiplier(): 2.0` is gone.
-- **FOCUSED indicator.** `PassiveService.focusStatus(player): FocusStatus?`
-  (stacks / required / full, or null unless an Archer with Focus unlocked).
-  `FeedbackService` owns a per-player `BossBar` (`focusBars`), built/updated
-  in `updateFocusBar` from `refresh()`: white progress while building,
-  full yellow "⚡ FOCUSED" once a shot is banked; hidden at 0 stacks / class
-  change / quit. New `FeedbackService.shutdown()` (wired in `onDisable`)
-  clears them on reload. A quiet `END_ROD` aura in `PassiveService.tick()`
-  while full and in a dungeon.
+- **FOCUSED indicator.** A quiet `END_ROD` aura in `PassiveService.tick()`
+  while the bar is full and the player is in a dungeon, plus the existing
+  sidebar readout line and the per-hit / full actionbar cues. (An earlier
+  boss-bar version was removed at the user's request.)
 - **Feedback methods:** `FeedbackService.focusShotFired(player, arrow)`
   (heavy release + a cyan/crit trail task riding the arrow) and
   `focusShotImpact(location)` (crit + firework + sweep burst, sharp hit sound).
