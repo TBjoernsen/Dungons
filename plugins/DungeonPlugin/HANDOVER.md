@@ -204,12 +204,20 @@ build-and-spend loop, plus rank-scaled Shield and a Smite passive.
   `taunt-knockback-resistance` 1.0) + a flat `taunt-damage-reduction`
   (0.30) in `handleIncomingDamage` (stacks with Resistance - a Paladin
   being swarmed has to survive).
-- **Zeal -> Holy Nova.** Damage soaked during Taunt charges
-  `PlayerClassData.zeal` (`zeal-per-damage`); at `zeal-threshold` (60) it
-  auto-fires `releaseHolyNova(player, 1.0)`; whatever is banked fires
-  (scaled) when Taunt ends in `maintainTaunt`. Nova = `nova-damage`
-  (+`per-rank`) to mobs, `nova-heal` (+`per-rank`) + `nova-regen-seconds`
-  Regen to players, in `nova-radius`. `FeedbackService.paladinHolyNova`.
+- **Zeal -> Holy Nova + Retribution.** Damage soaked during Taunt banks
+  `PlayerClassData.zeal` (`zeal-per-damage`, cap `zeal-threshold` 90) - no
+  mid-fight auto-fire any more. When Taunt ends, `power = zeal/threshold`
+  drives BOTH `releaseHolyNova(player, power)` (mob damage + ally
+  heal/regen in `nova-radius`, per-rank scaled; `FeedbackService.paladinHolyNova`)
+  AND `startRetribution(player, power)` -> `retributionUntil` /
+  `retributionPower` on `PlayerClassData`.
+- **Smite = Retribution's delivery.** `smiteBonus(player, rank)`: the flat
+  `smite-base + smite-per-rank*(rank-1)` while `isTaunting`; during the
+  post-Taunt window (`retributionUntil > now`) that base **plus
+  `retribution-bonus * retributionPower`** per axe hit, with a bigger
+  END_ROD/TOTEM burst + bell. Zero otherwise. `retributionUntil` is also
+  cleared on a fresh `activateTaunt`. Sidebar shows a `RETRIBUTION Ns`
+  state; boss-bar title carries `Smite +N (+X on release)`.
 - **Consecrated Ground.** `startConsecration` runs a `BukkitRunnable`
   (tracked in `consecrationTasks`, cancelled on re-cast / Taunt end /
   disable) for the Taunt duration: circular `consecration-radius` (6) at
@@ -228,9 +236,6 @@ build-and-spend loop, plus rank-scaled Shield and a Smite passive.
   bar while Taunt is up whose title carries Zeal, the live Smite bonus and
   the seconds left. `FeedbackService.shutdown()` re-added + wired in
   `onDisable`. Sidebar readout also shows `ACTIVE Ns | Zeal x/threshold`.
-- **Smite.** `handleDamage` Paladin branch: `+smite-base +
-  smite-per-rank*(rank-1)` holy damage to mobs while `isTaunting`, with an
-  END_ROD spark.
 - **Shield rank identity.** `AbilityService.paladinShield`:
   `shield-hearts + shield-hearts-per-rank*(rank-1)`, wired
   `absorption-amplifier`, and from `shield-bless-min-rank` (3) also strips

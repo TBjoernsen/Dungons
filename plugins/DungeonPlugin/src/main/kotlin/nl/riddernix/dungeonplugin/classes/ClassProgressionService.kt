@@ -448,8 +448,14 @@ class PlayerClassData {
     var judgment: Double = 0.0
     var lastJudgmentCombatAt: Long = System.currentTimeMillis()
 
-    /** Paladin: damage soaked during an active Taunt, released as a Holy Nova. */
+    /**
+     * Paladin: damage soaked during an active Taunt. On Taunt end it releases
+     * a Holy Nova and, for [retributionUntil], empowers Smite by
+     * [retributionPower] (0..1 = how full Zeal was).
+     */
     var zeal: Double = 0.0
+    var retributionUntil: Long = 0L
+    var retributionPower: Double = 0.0
 
     var mana: Double = 0.0
 
@@ -471,6 +477,8 @@ class PlayerClassData {
         focus = 0
         judgment = 0.0
         zeal = 0.0
+        retributionUntil = 0L
+        retributionPower = 0.0
         mana = 0.0
         debugSignatureRank = -1
     }

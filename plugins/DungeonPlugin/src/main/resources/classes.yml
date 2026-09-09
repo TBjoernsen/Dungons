@@ -193,13 +193,19 @@ paladin:
   taunt-resistance-amplifier: 1      # 1 = Resistance II; stacks with the flat cut below
   taunt-damage-reduction: 0.30       # flat, on top of Resistance
   taunt-knockback-resistance: 1.0    # 1.0 = nothing can shove you off the point
-  # --- Zeal + Holy Nova ---------------------------------------------
-  # Damage soaked during Taunt charges Zeal; at zeal-threshold it releases a
-  # Holy Nova at once, and whatever is banked releases (scaled) when Taunt
-  # ends. The Nova damages mobs and heals + regens allies in nova-radius,
-  # both scaling per signature rank.
-  zeal-threshold: 60.0
+  # --- Zeal -> Holy Nova + Retribution --------------------------------
+  # Damage soaked during Taunt banks Zeal (it no longer auto-fires
+  # mid-fight). When Taunt ends the banked fraction (zeal / zeal-threshold)
+  # releases BOTH:
+  #   - a one-shot Holy Nova (mob damage + ally heal/regen in nova-radius,
+  #     per-rank scaled), and
+  #   - Retribution: for retribution-seconds your Smite carries an extra
+  #     retribution-bonus * fraction holy damage per axe hit, on top of the
+  #     normal Smite.
+  zeal-threshold: 90.0
   zeal-per-damage: 1.0
+  retribution-seconds: 6.0
+  retribution-bonus: 12.0
   nova-radius: 6.0
   nova-damage: 6.0
   nova-damage-per-rank: 2.0
