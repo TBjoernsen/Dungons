@@ -211,6 +211,14 @@ abilities:
     # How long after a Wind Jump a full-Focus drawn bow shot still counts as
     # a Skyfall strike (you also have to still be off the ground).
     wind-jump-window-seconds: 4.0
+    # At Focus rank wind-jump-double-charge-min-rank or higher, a Wind Jump
+    # grants a second charge - a forward Wind Dash (same air-only mechanics,
+    # no lift) - usable within wind-jump-second-charge-seconds of the jump.
+    # wind-dash-forward-multiplier turns jump-velocity into that dash's
+    # horizontal speed.
+    wind-jump-double-charge-min-rank: 5
+    wind-jump-second-charge-seconds: 3.0
+    wind-dash-forward-multiplier: 1.7
   paladin:
     cooldown-seconds: 7.5
     shield-seconds: 4.0

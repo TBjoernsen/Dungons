@@ -42,6 +42,9 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
 
     /** Per Archer: the wall-clock ms until which a Wind Jump still counts for a Skyfall shot. */
     private val windJumpUntil = HashMap<UUID, Long>()
+
+    /** Per max-rank Archer: ms until which a granted second Wind Jump charge (a forward Wind Dash) can be spent. */
+    private val windDashChargeUntil = HashMap<UUID, Long>()
     private val hoveredHealTargets = HashMap<UUID, HoveredHealTarget>()
     private val originalGlowStates = HashMap<UUID, Boolean>()
     private val shieldCapacityKey = NamespacedKey(plugin, "paladin_active_shield_capacity")
@@ -77,6 +80,7 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         cooldownUntil.remove(player.uniqueId)
         mageHealCooldownUntil.remove(player.uniqueId)
         windJumpUntil.remove(player.uniqueId)
+        windDashChargeUntil.remove(player.uniqueId)
         updateHoveredHealTarget(player, null)
     }
 
@@ -105,6 +109,18 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         val classType = plugin.classes.activeClass(player.uniqueId) ?: return
         if (!plugin.classItems.isAllowedWeapon(classType, player.inventory.itemInMainHand)) return
         event.isCancelled = true
+
+        // A max-Focus Archer's granted second charge: a forward Wind Dash
+        // spendable inside its window, ahead of (and ignoring) the cooldown.
+        if (classType == ClassType.ARCHER &&
+            (windDashChargeUntil[player.uniqueId] ?: 0L) > System.currentTimeMillis()) {
+            windDashChargeUntil.remove(player.uniqueId)
+            if (archerDoubleJump(player, forward = true)) {
+                cooldownUntil[player.uniqueId] = System.currentTimeMillis() + cooldownMillis(classType)
+            }
+            return
+        }
+
         val remaining = (cooldownUntil[player.uniqueId] ?: 0L) - System.currentTimeMillis()
         if (remaining > 0) {
             player.sendActionBar(Component.text("Ability ready in ${ceil(remaining / 1000.0).toInt()}s.", NamedTextColor.GRAY))
@@ -112,7 +128,7 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         }
         val activated = when (classType) {
             ClassType.WARRIOR -> warriorDash(player)
-            ClassType.ARCHER -> archerDoubleJump(player)
+            ClassType.ARCHER -> archerDoubleJump(player, forward = false)
             ClassType.PALADIN -> paladinShield(player)
             ClassType.MAGE -> mageBlink(player)
         }
@@ -153,20 +169,46 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         return true
     }
 
-    private fun archerDoubleJump(player: Player): Boolean {
+    /**
+     * The Archer F-key. [forward] `false` is the vertical Wind Jump; `true` is
+     * the forward Wind Dash - same air-only mechanics and cues, horizontal
+     * launch instead of lift. A first Wind Jump at max Focus rank grants a
+     * short window in which the next press becomes a Wind Dash.
+     */
+    private fun archerDoubleJump(player: Player, forward: Boolean): Boolean {
         @Suppress("DEPRECATION")
         if (player.isOnGround) {
-            player.sendActionBar(Component.text("Double Jump can only be used in the air.", NamedTextColor.GRAY))
+            player.sendActionBar(Component.text(
+                if (forward) "Wind Dash needs you airborne." else "Double Jump can only be used in the air.",
+                NamedTextColor.GRAY))
             return false
         }
+        val cfg = plugin.classesConfig
+        val power = cfg.getDouble("abilities.archer.jump-velocity", 0.9)
         player.world.spawnParticle(Particle.CLOUD, player.location.clone().add(0.0, 0.12, 0.0), 20, 0.28, 0.05, 0.28, 0.08)
-        player.velocity = player.velocity.clone().setY(plugin.classesConfig.getDouble("abilities.archer.jump-velocity", 0.9))
-        player.world.playSound(player.location, Sound.ENTITY_WIND_CHARGE_WIND_BURST, 1.0f, 1.1f)
-        val windowSeconds = plugin.classesConfig.getDouble("abilities.archer.wind-jump-window-seconds", 4.0).coerceAtLeast(0.0)
+        if (forward) {
+            val push = cfg.getDouble("abilities.archer.wind-dash-forward-multiplier", 1.7)
+            player.velocity = horizontalDirection(player).multiply(power * push).setY(0.3)
+        } else {
+            player.velocity = player.velocity.clone().setY(power)
+        }
+        player.world.playSound(player.location, Sound.ENTITY_WIND_CHARGE_WIND_BURST, 1.0f, if (forward) 0.85f else 1.1f)
+
+        val windowSeconds = cfg.getDouble("abilities.archer.wind-jump-window-seconds", 4.0).coerceAtLeast(0.0)
         windJumpUntil[player.uniqueId] = System.currentTimeMillis() + (windowSeconds * 1000).toLong()
+
+        var chargeNote = ""
+        if (!forward && plugin.classes.signatureRank(player.uniqueId) >=
+            cfg.getInt("abilities.archer.wind-jump-double-charge-min-rank", 5)) {
+            val secs = cfg.getDouble("abilities.archer.wind-jump-second-charge-seconds", 3.0).coerceAtLeast(0.0)
+            windDashChargeUntil[player.uniqueId] = System.currentTimeMillis() + (secs * 1000).toLong()
+            chargeNote = " §e+ Wind Dash"
+        }
         val focused = plugin.classPassives.focusFull(player)
         player.sendActionBar(Component.text(
-            if (focused) "Wind Jump! §b§lSkyfall armed" else "Wind Jump!", NamedTextColor.GREEN))
+            (if (forward) "Wind Dash!" else "Wind Jump!") +
+                (if (focused) " §b§lSkyfall armed" else "") + chargeNote,
+            NamedTextColor.GREEN))
         return true
     }
 

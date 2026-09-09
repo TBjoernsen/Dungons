@@ -192,6 +192,22 @@ BossDefinition scenery accessors were kept).
   the shared `FeedbackService.arrowTrail(projectile, color)` - one dust per
   tick, lime for Skyfall, cyan for the Focus Shot.
 
+## Archer Wind Dash: max-rank second charge (2026-09-09)
+
+- At Focus rank >= `abilities.archer.wind-jump-double-charge-min-rank` (5) a
+  Wind Jump grants a second charge: `windDashChargeUntil` is set for
+  `wind-jump-second-charge-seconds` (3.0). Pressing F again inside that
+  window runs `archerDoubleJump(player, forward = true)` - a horizontal
+  launch (`horizontalDirection * jump-velocity * wind-dash-forward-multiplier`
+  (1.7), Y 0.3) with the same air-only gate, particles and wind-burst sound.
+- `AbilityService.onSwapHands` checks `windDashChargeUntil` **before** the
+  cooldown gate so the second charge ignores the 2.5s cooldown; spending it
+  (or the vertical jump) still (re)applies the cooldown afterwards.
+- `archerDoubleJump` gained a `forward` param; the vertical call site passes
+  `false`. Actionbar appends " + Wind Dash" when the charge is armed, and
+  "Wind Dash!" on the forward leg. The forward dash also refreshes
+  `windJumpUntil`, so a Skyfall shot can still follow it.
+
 ## Class kit items are unbreakable (2026-09-09)
 
 - `DungeonKitService.equipKit` wraps the Warrior sword / Archer bow /
