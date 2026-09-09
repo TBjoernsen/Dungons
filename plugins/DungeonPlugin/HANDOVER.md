@@ -192,6 +192,38 @@ BossDefinition scenery accessors were kept).
   the shared `FeedbackService.arrowTrail(projectile, color)` - one dust per
   tick, lime for Skyfall, cyan for the Focus Shot.
 
+## Warrior Berserk overhaul (2026-09-09)
+
+Rage no longer auto-erupts. A full bar is a **banked Berserk** (and no
+longer decays - `decayRageOutOfCombat` bails at threshold). `addRage` just
+fires a "BERSERK READY - press Sneak" cue on the fill.
+
+- **Manual unleash + Seismic Slam.** `CoreListener.onWarriorBerserkSneak`
+  (`PlayerToggleSneakEvent`) -> `PassiveService.activateBerserk`
+  (`BerserkActivationResult`). `startBerserk` sets `data.berserkStartedAt`
+  (new `PlayerClassData` field, cleared in `clearCombatResources`),
+  `rageActiveUntil`, STR/SPD via `refreshBerserkPotions`, then
+  `seismicSlam` - AoE `warrior.slam-*` (damage 8 / radius 4 / knockback /
+  Slowness III for slam-stagger-ticks). `FeedbackService.warriorSlam`
+  (explosion + netherrack debris + embers + explode/roar/anvil).
+- **Berserk = survival tool.** `applyBerserkOnHit` (from `handleDamage`
+  while `isBerserk`): lifesteal `berserk-lifesteal-fraction` of melee
+  damage dealt from rank `berserk-lifesteal-min-rank` (2);
+  `handleIncomingDamage` cuts damage by `berserk-damage-reduction` from
+  rank `berserk-resistance-min-rank` (3).
+- **Snowball.** From `berserk-extend-min-rank` (4) each melee hit extends
+  `rageActiveUntil` by `berserk-extend-ticks-per-hit`, hard-capped at
+  `berserkStartedAt + berserk-max-seconds` (10); potions re-applied to the
+  new remaining.
+- **Rank identity.** STR/SPD II at `berserk-strength-2-min-rank` (4) /
+  `berserk-speed-2-min-rank` (5); lifesteal @2, resistance @3, extend @4,
+  wider slam (`slam-shockwave-radius-multiplier`) at
+  `berserk-shockwave-min-rank` (5).
+- **Presence.** `updateBerserkPresence` in `tick()` (1 Hz): FLAME/SMALL_FLAME
+  aura, one-shot "Rage fading..." under 1.6s left, "Your Rage subsides." on
+  end (via `berserkActive` / `berserkFadeWarned` sets). Sidebar readout adds
+  a `§6READY §7[Sneak]` state and a two-line ready prompt in `readoutLines`.
+
 ## Archer Wind Dash + Scope (2026-09-09)
 
 - **Wind Dash** min rank lowered to `abilities.archer.wind-jump-double-charge-min-rank`

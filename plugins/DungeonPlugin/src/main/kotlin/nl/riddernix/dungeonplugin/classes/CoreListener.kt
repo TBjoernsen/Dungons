@@ -162,6 +162,15 @@ class CoreListener(private val plugin: DungeonPlugin) : Listener {
         plugin.classPassives.tryScope(event.player)
     }
 
+    @EventHandler(ignoreCancelled = true)
+    fun onWarriorBerserkSneak(event: PlayerToggleSneakEvent) {
+        if (!event.isSneaking) return
+        if (!plugin.queries.isInDungeon(event.player)) return
+        if (plugin.classPassives.activateBerserk(event.player) == BerserkActivationResult.NOT_READY) {
+            event.player.sendActionBar(Component.text("§7Rage is not full yet."))
+        }
+    }
+
     @EventHandler
     fun onArmorChange(event: PlayerArmorChangeEvent) {
         if (!isArmor(event.newItem)) return

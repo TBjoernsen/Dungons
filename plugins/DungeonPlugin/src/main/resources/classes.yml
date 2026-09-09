@@ -123,21 +123,50 @@ archer:
   scope-duration-ticks: 24
   scope-cooldown-seconds: 3.0
 
-# Rage is retained while a Warrior remains in combat. After 15 seconds
-# without damage dealt or received, it drains at this rate each second.
+# Rage builds from melee damage dealt and taken. It no longer auto-erupts:
+# a full bar is a banked Berserk you unleash with Sneak (and a full bar
+# does not decay). A partial bar drains rage-decay-per-second after
+# rage-decay-delay-seconds without combat.
 warrior:
   rage-decay-delay-seconds: 15.0
   rage-decay-per-second: 10.0
-  # Rage needed to erupt into Berserk at Rage Rank I. Each rank past I
-  # lowers the requirement by rage-threshold-per-rank, so higher ranks
-  # erupt sooner (Rank V at the defaults needs 200 - 4*8 = 168).
+  # Rage needed to bank a Berserk at Rank I; each rank past I lowers it by
+  # rage-threshold-per-rank (Rank V at the defaults needs 200 - 4*8 = 168).
   rage-threshold-base: 200.0
   rage-threshold-per-rank: 8.0
-  # Rage the Dash adds when it connects with at least one enemy, so the Dash
-  # feeds the Berserk loop instead of sitting on its own cooldown. Shares
-  # Rage's guards: nothing below Rage Rank I or while Berserk is already
-  # running. 0 turns it off.
+  # Rage the Dash adds when it connects with at least one enemy. Shares
+  # Rage's guards (nothing below Rank I or while Berserk runs). 0 = off.
   dash-rage-on-hit: 25.0
+
+  # --- Berserk (Sneak to unleash a full bar) ---------------------------
+  # Duration in ticks = berserk-base-ticks + rank * berserk-ticks-per-rank
+  # (3s at Rank I, 8s at Rank V), capped at berserk-max-seconds once hits
+  # start extending it.
+  berserk-base-ticks: 60
+  berserk-ticks-per-rank: 20
+  berserk-max-seconds: 10.0
+  # Strength I / Speed I from Rank I; they step to level II at these ranks.
+  berserk-strength-2-min-rank: 4
+  berserk-speed-2-min-rank: 5
+  # While Berserk: from berserk-lifesteal-min-rank, heal
+  # berserk-lifesteal-fraction of the melee damage you deal; from
+  # berserk-resistance-min-rank, take berserk-damage-reduction less damage.
+  berserk-lifesteal-min-rank: 2
+  berserk-lifesteal-fraction: 0.25
+  berserk-resistance-min-rank: 3
+  berserk-damage-reduction: 0.25
+  # From berserk-extend-min-rank, each melee hit during Berserk extends it
+  # by berserk-extend-ticks-per-hit (never past berserk-max-seconds total).
+  berserk-extend-min-rank: 4
+  berserk-extend-ticks-per-hit: 8
+  # Seismic Slam - the AoE stomp on Berserk activation.
+  slam-radius: 4.0
+  slam-damage: 8.0
+  slam-knockback: 0.9
+  slam-stagger-ticks: 40
+  # From berserk-shockwave-min-rank the slam's radius grows by this factor.
+  berserk-shockwave-min-rank: 5
+  slam-shockwave-radius-multiplier: 1.6
 
 # Paladin Taunt builds from axe damage. The newest Taunt owner has aggro from
 # all loaded mobs in their current world.

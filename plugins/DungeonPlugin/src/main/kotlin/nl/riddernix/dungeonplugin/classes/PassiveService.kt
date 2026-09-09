@@ -31,6 +31,10 @@ class PassiveService(private val plugin: DungeonPlugin) {
     /** Per Archer: wall-clock ms before Scope can trigger again. */
     private val scopeReadyAt = HashMap<UUID, Long>()
 
+    /** Warriors currently inside a Berserk window - so [tick] can fire the "started/fading/ended" cues once each. */
+    private val berserkActive = HashSet<UUID>()
+    private val berserkFadeWarned = HashSet<UUID>()
+
     fun tick() {
         maintainTaunt()
         val now = System.currentTimeMillis()
@@ -40,6 +44,7 @@ class PassiveService(private val plugin: DungeonPlugin) {
             val classType = plugin.classes.activeClass(player.uniqueId)
             if (classType == ClassType.WARRIOR) {
                 decayRageOutOfCombat(data, rank, now)
+                updateBerserkPresence(player, data, now)
             } else if (classType == ClassType.MAGE) {
                 // Mana and Arcane Bolt are baseline. Arcane Charge is the
                 // Difficulty-3 signature enhancement, not a gate on casting.
@@ -62,7 +67,13 @@ class PassiveService(private val plugin: DungeonPlugin) {
         val data = plugin.classes.data(player.uniqueId)
         when (plugin.classes.activeClass(player.uniqueId)) {
             ClassType.WARRIOR -> {
-                if (plugin.classes.signatureRank(player.uniqueId) > 0) addRage(player, event.finalDamage * 4.0)
+                val rank = plugin.classes.signatureRank(player.uniqueId)
+                if (rank > 0 && isBerserk(player) &&
+                    rank >= plugin.classesConfig.getInt("warrior.berserk-resistance-min-rank", 3)) {
+                    val cut = plugin.classesConfig.getDouble("warrior.berserk-damage-reduction", 0.25).coerceIn(0.0, 0.9)
+                    event.damage *= (1.0 - cut)
+                }
+                if (rank > 0) addRage(player, event.finalDamage * 4.0)
             }
             ClassType.ARCHER -> {
                 if (data.focus > 0) {
@@ -90,7 +101,8 @@ class PassiveService(private val plugin: DungeonPlugin) {
         val rank = plugin.classes.signatureRank(damager.uniqueId)
         when (plugin.classes.activeClass(damager.uniqueId)) {
             ClassType.WARRIOR -> if (rank > 0 && plugin.classItems.isAllowedWeapon(ClassType.WARRIOR, damager.inventory.itemInMainHand)) {
-                addRage(damager, event.finalDamage * 6.0)
+                addRage(damager, event.finalDamage * 6.0)          // no-op while Berserk is running
+                if (isBerserk(damager)) applyBerserkOnHit(damager, event.finalDamage, rank)
             }
             ClassType.PALADIN -> if (rank > 0 && plugin.classItems.isAllowedWeapon(ClassType.PALADIN, damager.inventory.itemInMainHand)) {
                 buildTaunt(damager, event.finalDamage, rank)
@@ -342,7 +354,9 @@ class PassiveService(private val plugin: DungeonPlugin) {
             ClassType.WARRIOR -> {
                 if (rank == 0) "Rage: unlock Rank I in the skill tree"
                 else if (data.rageActiveUntil > System.currentTimeMillis()) {
-                    "Rage $rank: BERSERK ${((data.rageActiveUntil - System.currentTimeMillis()) / 1000.0).coerceAtLeast(0.0).roundToInt()}s"
+                    "Rage $rank: §4BERSERK ${((data.rageActiveUntil - System.currentTimeMillis()) / 1000.0).coerceAtLeast(0.0).roundToInt()}s"
+                } else if (data.rage >= rageThreshold(rank)) {
+                    "Rage $rank: §6READY §7[Sneak]"
                 } else "Rage $rank: ${data.rage.roundToInt()}/${rageThreshold(rank).roundToInt()}"
             }
             ClassType.ARCHER -> if (rank == 0) "Focus: unlock Rank I in the skill tree" else if (data.focus >= focusThreshold(rank)) {
@@ -366,28 +380,31 @@ class PassiveService(private val plugin: DungeonPlugin) {
 
     fun experienceToNextLevel(player: Player): Int = plugin.classes.experienceToNextLevel(player)
 
-    /** Sidebar-friendly readout. A charged Taunt deliberately uses two compact lines. */
+    /** Sidebar-friendly readout. A charged Taunt / a full Rage bar use two compact lines. */
     fun readoutLines(player: Player): List<String> {
         val data = plugin.classes.data(player.uniqueId)
         val rank = plugin.classes.signatureRank(player.uniqueId)
-        return if (plugin.classes.activeClass(player.uniqueId) == ClassType.PALADIN && rank > 0 &&
-            activeTaunt?.playerId != player.uniqueId && data.judgment >= tauntThreshold(rank)
-        ) {
-            listOf("Taunt $rank: READY", "§6[SNEAK] §fto activate")
-        } else {
-            listOf(readout(player))
+        val activeClass = plugin.classes.activeClass(player.uniqueId)
+        if (activeClass == ClassType.PALADIN && rank > 0 &&
+            activeTaunt?.playerId != player.uniqueId && data.judgment >= tauntThreshold(rank)) {
+            return listOf("Taunt $rank: READY", "§6[SNEAK] §fto activate")
         }
+        if (activeClass == ClassType.WARRIOR && rank > 0 &&
+            data.rageActiveUntil <= System.currentTimeMillis() && data.rage >= rageThreshold(rank)) {
+            return listOf("Rage $rank: §6READY", "§6[SNEAK] §fto go Berserk")
+        }
+        return listOf(readout(player))
     }
 
-    /** True while the Warrior's Berserk window from a spent Rage bar is still open. */
+    /** True while the Warrior's Berserk window is open. */
     fun isBerserk(player: Player): Boolean =
         plugin.classes.data(player.uniqueId).rageActiveUntil > System.currentTimeMillis()
 
     /**
      * Lets an active ability feed the Rage bar - the Warrior Dash uses this so
-     * it plugs into the Berserk loop instead of standing apart from it. Shares
-     * every guard in [addRage]: a no-op below Rage Rank I or while Berserk is
-     * already running, and it can tip the bar over the threshold and erupt.
+     * it plugs into the Berserk loop. Shares [addRage]'s guards: a no-op below
+     * Rage Rank I or while Berserk is running, and it can fill the bar to
+     * "ready" (it no longer auto-erupts - the player unleashes it with Sneak).
      */
     fun feedRage(player: Player, amount: Double) = addRage(player, amount)
 
@@ -397,15 +414,116 @@ class PassiveService(private val plugin: DungeonPlugin) {
         if (rank == 0 || data.rageActiveUntil > System.currentTimeMillis()) return
         if (amount <= 0.0) return
         data.lastRageCombatAt = System.currentTimeMillis()
-        data.rage = (data.rage + amount).coerceAtMost(rageThreshold(rank))
-        if (data.rage >= rageThreshold(rank)) {
-            data.rage = 0.0
-            val durationTicks = 60 + rank * 20
-            data.rageActiveUntil = System.currentTimeMillis() + durationTicks * 50L
-            player.addPotionEffect(PotionEffect(PotionEffectType.STRENGTH, durationTicks, if (rank >= 4) 1 else 0, true, false, true))
-            player.addPotionEffect(PotionEffect(PotionEffectType.SPEED, durationTicks, if (rank >= 5) 1 else 0, true, false, true))
-            plugin.classFeedback.rageTriggered(player)
-            player.sendMessage("§cRage erupts! §fDamage and speed increased.")
+        val threshold = rageThreshold(rank)
+        val wasReady = data.rage >= threshold
+        data.rage = (data.rage + amount).coerceAtMost(threshold)
+        if (!wasReady && data.rage >= threshold) {
+            player.sendActionBar(Component.text("§4§lBERSERK READY §7- press §fSneak"))
+            player.playSound(player.location, Sound.ENTITY_RAVAGER_ROAR, 0.5f, 0.75f)
+            plugin.refreshClassPlayer(player)
+        }
+    }
+
+    /** The Warrior's Sneak input: unleash a full Rage bar into Berserk with a Seismic Slam. */
+    fun activateBerserk(player: Player): BerserkActivationResult {
+        if (plugin.classes.activeClass(player.uniqueId) != ClassType.WARRIOR) return BerserkActivationResult.WRONG_CLASS
+        val rank = plugin.classes.signatureRank(player.uniqueId)
+        if (rank == 0) return BerserkActivationResult.LOCKED
+        val data = plugin.classes.data(player.uniqueId)
+        if (data.rageActiveUntil > System.currentTimeMillis()) return BerserkActivationResult.ALREADY_ACTIVE
+        if (data.rage < rageThreshold(rank)) return BerserkActivationResult.NOT_READY
+        startBerserk(player, data, rank)
+        return BerserkActivationResult.SUCCESS
+    }
+
+    private fun startBerserk(player: Player, data: PlayerClassData, rank: Int) {
+        val cfg = plugin.classesConfig
+        data.rage = 0.0
+        val durationTicks = cfg.getInt("warrior.berserk-base-ticks", 60) +
+            rank * cfg.getInt("warrior.berserk-ticks-per-rank", 20)
+        val now = System.currentTimeMillis()
+        data.berserkStartedAt = now
+        data.rageActiveUntil = now + durationTicks * 50L
+        refreshBerserkPotions(player, rank, durationTicks)
+        seismicSlam(player, rank)
+        plugin.classFeedback.rageTriggered(player)
+        player.sendActionBar(Component.text("§4§lBERSERK"))
+        plugin.refreshClassPlayer(player)
+    }
+
+    private fun refreshBerserkPotions(player: Player, rank: Int, ticks: Int) {
+        val cfg = plugin.classesConfig
+        val strAmp = if (rank >= cfg.getInt("warrior.berserk-strength-2-min-rank", 4)) 1 else 0
+        val spdAmp = if (rank >= cfg.getInt("warrior.berserk-speed-2-min-rank", 5)) 1 else 0
+        player.addPotionEffect(PotionEffect(PotionEffectType.STRENGTH, ticks, strAmp, true, false, true))
+        player.addPotionEffect(PotionEffect(PotionEffectType.SPEED, ticks, spdAmp, true, false, true))
+    }
+
+    /** Per-hit Berserk perks: lifesteal (rank-gated) and a hit-fuelled extension toward a cap (rank-gated). */
+    private fun applyBerserkOnHit(player: Player, dealt: Double, rank: Int) {
+        val cfg = plugin.classesConfig
+        if (dealt > 0.0 && rank >= cfg.getInt("warrior.berserk-lifesteal-min-rank", 2)) {
+            val frac = cfg.getDouble("warrior.berserk-lifesteal-fraction", 0.25).coerceIn(0.0, 1.0)
+            if (frac > 0.0) {
+                val maxHp = player.getAttribute(Attribute.MAX_HEALTH)?.value ?: 20.0
+                player.health = (player.health + dealt * frac).coerceIn(0.0, maxHp)
+            }
+        }
+        if (rank >= cfg.getInt("warrior.berserk-extend-min-rank", 4)) {
+            val data = plugin.classes.data(player.uniqueId)
+            val now = System.currentTimeMillis()
+            val extendMs = cfg.getInt("warrior.berserk-extend-ticks-per-hit", 8).coerceAtLeast(0) * 50L
+            // Hard cap measured from when this Berserk began: a great fight
+            // stretches it toward the ceiling, but it still ends on schedule.
+            val capMs = data.berserkStartedAt +
+                (cfg.getDouble("warrior.berserk-max-seconds", 10.0).coerceAtLeast(0.0) * 1000.0).toLong()
+            val newUntil = minOf(data.rageActiveUntil + extendMs, capMs)
+            if (newUntil > data.rageActiveUntil) {
+                data.rageActiveUntil = newUntil
+                refreshBerserkPotions(player, rank, ((newUntil - now) / 50L).toInt().coerceAtLeast(1))
+            }
+        }
+    }
+
+    /** Berserk's opening blow: an AoE stomp around the Warrior - damage, knockback, a brief stagger. */
+    private fun seismicSlam(player: Player, rank: Int) {
+        val cfg = plugin.classesConfig
+        val shockwave = rank >= cfg.getInt("warrior.berserk-shockwave-min-rank", 5)
+        val radius = cfg.getDouble("warrior.slam-radius", 4.0).coerceIn(1.0, 12.0) *
+            (if (shockwave) cfg.getDouble("warrior.slam-shockwave-radius-multiplier", 1.6) else 1.0)
+        val damage = cfg.getDouble("warrior.slam-damage", 8.0).coerceAtLeast(0.0)
+        val knockback = cfg.getDouble("warrior.slam-knockback", 0.9).coerceAtLeast(0.0)
+        val staggerTicks = cfg.getInt("warrior.slam-stagger-ticks", 40).coerceAtLeast(0)
+        val centre = player.location
+        centre.world?.getNearbyEntities(centre, radius, 3.0, radius)
+            ?.filterIsInstance<LivingEntity>()
+            ?.filter { it != player && it !is Player && (plugin.queries.isDungeonMob(it) || it is Mob) }
+            ?.forEach { mob ->
+                if (damage > 0.0) mob.damage(damage, player)
+                val push = mob.location.toVector().subtract(centre.toVector())
+                if (push.lengthSquared() > 1e-6) push.normalize() else push.zero()
+                mob.velocity = mob.velocity.add(push.multiply(knockback)).setY(0.35)
+                if (staggerTicks > 0) {
+                    mob.addPotionEffect(PotionEffect(PotionEffectType.SLOWNESS, staggerTicks, 2, true, false, true))
+                }
+            }
+        plugin.classFeedback.warriorSlam(player, shockwave)
+    }
+
+    private fun updateBerserkPresence(player: Player, data: PlayerClassData, now: Long) {
+        val id = player.uniqueId
+        if (data.rageActiveUntil > now) {
+            if (berserkActive.add(id)) berserkFadeWarned.remove(id)
+            player.world.spawnParticle(Particle.FLAME, player.location.clone().add(0.0, 1.0, 0.0), 10, 0.4, 0.6, 0.4, 0.01)
+            player.world.spawnParticle(Particle.SMALL_FLAME, player.location.clone().add(0.0, 0.4, 0.0), 6, 0.35, 0.25, 0.35, 0.0)
+            if ((data.rageActiveUntil - now) in 1..1600 && berserkFadeWarned.add(id)) {
+                player.sendActionBar(Component.text("§cRage fading..."))
+                player.playSound(player.location, Sound.BLOCK_FIRE_EXTINGUISH, 0.5f, 0.7f)
+            }
+        } else if (berserkActive.remove(id)) {
+            berserkFadeWarned.remove(id)
+            player.sendActionBar(Component.text("§7Your Rage subsides."))
+            player.playSound(player.location, Sound.ENTITY_BLAZE_DEATH, 0.4f, 0.9f)
         }
     }
 
@@ -431,6 +549,9 @@ class PassiveService(private val plugin: DungeonPlugin) {
 
     private fun decayRageOutOfCombat(data: PlayerClassData, rank: Int, now: Long) {
         if (rank == 0 || data.rage <= 0.0 || data.rageActiveUntil > now) return
+        // A full bar is a banked Berserk - it holds until the player unleashes
+        // it, like a charged Taunt. Only a partial bar bleeds out.
+        if (data.rage >= rageThreshold(rank)) return
         val idleMillis = now - data.lastRageCombatAt
         if (idleMillis < rageDecayDelayMillis()) return
         data.rage = (data.rage - rageDecayPerSecond()).coerceAtLeast(0.0)
@@ -530,3 +651,5 @@ enum class ArcaneCastResult { SUCCESS, MANA_LOCKED, WRONG_WEAPON, INSUFFICIENT_M
 enum class FocusShotResult { SUCCESS, LOCKED, WRONG_WEAPON, NOT_CHARGED }
 
 enum class TauntActivationResult { SUCCESS, LOCKED, NOT_READY, ALREADY_ACTIVE }
+
+enum class BerserkActivationResult { SUCCESS, WRONG_CLASS, LOCKED, NOT_READY, ALREADY_ACTIVE }

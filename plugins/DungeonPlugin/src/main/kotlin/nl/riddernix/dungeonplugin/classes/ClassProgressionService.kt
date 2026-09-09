@@ -437,6 +437,9 @@ class PlayerClassData {
     var rage: Double = 0.0
     var rageActiveUntil: Long = 0L
 
+    /** Wall-clock ms the current Berserk began - hit-fuelled extensions are capped relative to this. */
+    var berserkStartedAt: Long = 0L
+
     /** Runtime-only combat timestamp; Rage decays after time without combat. */
     var lastRageCombatAt: Long = System.currentTimeMillis()
     var focus: Int = 0
@@ -457,6 +460,7 @@ class PlayerClassData {
     fun clearCombatResources() {
         rage = 0.0
         rageActiveUntil = 0L
+        berserkStartedAt = 0L
         focus = 0
         judgment = 0.0
         mana = 0.0

@@ -4,6 +4,7 @@ import nl.riddernix.dungeonplugin.DungeonPlugin
 import org.bukkit.Bukkit
 import org.bukkit.Color
 import org.bukkit.Location
+import org.bukkit.Material
 import org.bukkit.Particle
 import org.bukkit.Sound
 import org.bukkit.attribute.Attribute
@@ -132,6 +133,20 @@ class FeedbackService(private val plugin: DungeonPlugin) {
         player.world.spawnParticle(Particle.SWEEP_ATTACK, at, if (berserk) 3 else 1, 0.4, 0.3, 0.4, 0.0)
         player.world.spawnParticle(Particle.CRIT, at, if (berserk) 24 else 14, 0.5, 0.4, 0.5, 0.25)
         player.playSound(player.location, Sound.ENTITY_PLAYER_ATTACK_CRIT, 0.9f, if (berserk) 0.85f else 1.1f)
+    }
+
+    /** Berserk's opening Seismic Slam: a ground-pound shockwave around the Warrior. */
+    fun warriorSlam(player: Player, shockwave: Boolean) {
+        val world = player.world
+        val at = player.location
+        world.spawnParticle(Particle.EXPLOSION, at, if (shockwave) 4 else 2, 1.0, 0.15, 1.0, 0.0)
+        world.spawnParticle(Particle.BLOCK, at.clone().add(0.0, 0.1, 0.0), 70, 1.5, 0.1, 1.5, 0.1,
+            Material.NETHERRACK.createBlockData())
+        val ember = Particle.DustOptions(Color.fromRGB(205, 45, 20), 1.7f)
+        world.spawnParticle(Particle.DUST, at.clone().add(0.0, 0.5, 0.0), 44, 1.7, 0.3, 1.7, 0.0, ember)
+        world.playSound(at, Sound.ENTITY_GENERIC_EXPLODE, 0.9f, 0.65f)
+        world.playSound(at, Sound.ENTITY_RAVAGER_ROAR, 0.85f, 0.8f)
+        world.playSound(at, Sound.BLOCK_ANVIL_LAND, if (shockwave) 0.9f else 0.6f, 0.6f)
     }
 
     /** Focus Shot leaving the bow: a heavy release and a thin cyan trail on the arrow. */
