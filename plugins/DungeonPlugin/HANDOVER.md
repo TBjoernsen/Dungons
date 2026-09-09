@@ -167,6 +167,28 @@ BossDefinition scenery accessors were kept).
   (heavy release + a cyan/crit trail task riding the arrow) and
   `focusShotImpact(location)` (crit + firework + sweep burst, sharp hit sound).
 
+## Archer Skyfall (2026-09-09)
+
+- **Combo:** loose a *drawn bow shot* (not the left-click Focus Shot) while
+  airborne from Wind Jump with a **full Focus bar** → that arrow detonates
+  on impact (ground or enemy) as an entity-only AoE and the bar is spent.
+- `AbilityService`: `windJumpUntil` map set in `archerDoubleJump` for
+  `abilities.archer.wind-jump-window-seconds` (4.0); `isWindJumping(player)`
+  = window live **and** `!isOnGround`. Wind Jump actionbar reads
+  "Skyfall armed" when `PassiveService.focusFull(player)`.
+- `PassiveService.handleBowShoot`: inside the existing full-Focus branch, if
+  `classAbilities.isWindJumping` → `ItemService.markSkyfallArrow(projectile)`,
+  `data.focus = 0`, feedback. `ItemService` gains `skyfallArrowKey` /
+  `markSkyfallArrow` / `isSkyfallArrow` (mirrors the focus-shot marker).
+- `CoreListener.onProjectileHit`: `isSkyfallArrow` →
+  `PassiveService.detonateSkyfall(projectile.location, shooter)` then
+  `projectile.remove()`, ahead of the focus-shot / miss handling.
+- `detonateSkyfall`: mobs within `archer.skyfall-radius` (4.0) take
+  `archerAttackBonus * archer.skyfall-damage-multiplier` (1.5) and a
+  `skyfall-knockup` (0.35) pop away from centre. No terrain damage.
+  `FeedbackService.skyfallArmed` (wind-charge loose + gust trail) /
+  `skyfallDetonate` (EXPLOSION_EMITTER + cloud/crit shockwave).
+
 ## Warrior Dash polish (2026-09-08)
 
 - `AbilityService.warriorDash` rewritten. Targeting was

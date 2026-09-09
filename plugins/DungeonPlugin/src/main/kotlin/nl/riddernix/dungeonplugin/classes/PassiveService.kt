@@ -139,7 +139,47 @@ class PassiveService(private val plugin: DungeonPlugin) {
             if (currentForce > 0.0) {
                 event.projectile.velocity = event.projectile.velocity.multiply(effectiveForce / currentForce)
             }
+            // Skyfall: loosed a drawn shot while airborne from Wind Jump with a
+            // full bar - spend the bar and make this arrow detonate on impact.
+            if (plugin.classAbilities.isWindJumping(player)) {
+                (event.projectile as? Projectile)?.let { arrow ->
+                    plugin.classItems.markSkyfallArrow(arrow)
+                    data.focus = 0
+                    plugin.classFeedback.skyfallArmed(player, arrow)
+                    player.sendActionBar(Component.text("§b§lSKYFALL §floosed"))
+                    plugin.refreshClassPlayer(player)
+                }
+            }
         }
+    }
+
+    /** True when an Archer's Focus bar is full (used to arm/telegraph Skyfall). */
+    fun focusFull(player: Player): Boolean {
+        if (plugin.classes.activeClass(player.uniqueId) != ClassType.ARCHER) return false
+        val rank = plugin.classes.signatureRank(player.uniqueId)
+        return rank > 0 && plugin.classes.data(player.uniqueId).focus >= focusThreshold(rank)
+    }
+
+    /**
+     * Detonates a Skyfall arrow where it landed - a non-terrain AoE burst that
+     * damages nearby dungeon mobs and knocks them up. `archerAttackBonus`
+     * scaled by `archer.skyfall-damage-multiplier`, within `archer.skyfall-radius`.
+     */
+    fun detonateSkyfall(where: Location, shooter: Player) {
+        val radius = plugin.classesConfig.getDouble("archer.skyfall-radius", 4.0).coerceIn(1.0, 16.0)
+        val damage = archerAttackBonus(shooter) *
+            plugin.classesConfig.getDouble("archer.skyfall-damage-multiplier", 1.5).coerceAtLeast(0.0)
+        val knockUp = plugin.classesConfig.getDouble("archer.skyfall-knockup", 0.35).coerceIn(0.0, 2.0)
+        val world = where.world ?: return
+        for (entity in world.getNearbyEntities(where, radius, radius, radius)) {
+            val mob = entity as? LivingEntity ?: continue
+            if (mob is Player || (!plugin.queries.isDungeonMob(mob) && mob !is Mob)) continue
+            mob.damage(damage, shooter)
+            val away = mob.location.toVector().subtract(where.toVector())
+            if (away.lengthSquared() > 0.0001) away.normalize() else away.zero()
+            mob.velocity = mob.velocity.add(away.multiply(0.35)).setY(knockUp)
+        }
+        plugin.classFeedback.skyfallDetonate(where)
     }
 
     fun handleProjectileDamage(event: EntityDamageByEntityEvent, shooter: Player) {

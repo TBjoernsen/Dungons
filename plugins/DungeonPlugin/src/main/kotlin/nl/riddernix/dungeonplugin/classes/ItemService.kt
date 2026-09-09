@@ -13,6 +13,7 @@ class ItemService(plugin: DungeonPlugin) {
 
     private val itemKindKey = NamespacedKey(plugin, "item_kind")
     private val focusShotKey = NamespacedKey(plugin, "focus_shot")
+    private val skyfallArrowKey = NamespacedKey(plugin, "skyfall_arrow")
 
     fun skillShard(): ItemStack = taggedItem(
         Material.PRISMARINE_CRYSTALS,
@@ -45,6 +46,14 @@ class ItemService(plugin: DungeonPlugin) {
 
     fun isFocusShot(projectile: Projectile): Boolean =
         projectile.persistentDataContainer.has(focusShotKey, PersistentDataType.BYTE)
+
+    /** A drawn bow shot fired while airborne from Wind Jump with a full Focus bar: detonates on impact. */
+    fun markSkyfallArrow(projectile: Projectile) {
+        projectile.persistentDataContainer.set(skyfallArrowKey, PersistentDataType.BYTE, 1)
+    }
+
+    fun isSkyfallArrow(projectile: Projectile): Boolean =
+        projectile.persistentDataContainer.has(skyfallArrowKey, PersistentDataType.BYTE)
 
     fun isAllowedWeapon(classType: ClassType, item: ItemStack?): Boolean {
         if (item == null || item.type.isAir) return false

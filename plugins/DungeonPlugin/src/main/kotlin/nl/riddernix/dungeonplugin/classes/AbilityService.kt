@@ -39,6 +39,9 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
     private val cooldownUntil = HashMap<UUID, Long>()
     private val mageHealCooldownUntil = HashMap<UUID, Long>()
     private val shieldExpiry = HashMap<UUID, Long>()
+
+    /** Per Archer: the wall-clock ms until which a Wind Jump still counts for a Skyfall shot. */
+    private val windJumpUntil = HashMap<UUID, Long>()
     private val hoveredHealTargets = HashMap<UUID, HoveredHealTarget>()
     private val originalGlowStates = HashMap<UUID, Boolean>()
     private val shieldCapacityKey = NamespacedKey(plugin, "paladin_active_shield_capacity")
@@ -61,9 +64,19 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         mageHealCooldownUntil.clear()
     }
 
+    /**
+     * True while an Archer is still inside the Wind Jump window and off the
+     * ground - the condition for a full-Focus bow shot to become a Skyfall
+     * AoE arrow.
+     */
+    @Suppress("DEPRECATION")
+    fun isWindJumping(player: Player): Boolean =
+        (windJumpUntil[player.uniqueId] ?: 0L) > System.currentTimeMillis() && !player.isOnGround
+
     fun remove(player: Player) {
         cooldownUntil.remove(player.uniqueId)
         mageHealCooldownUntil.remove(player.uniqueId)
+        windJumpUntil.remove(player.uniqueId)
         updateHoveredHealTarget(player, null)
     }
 
@@ -149,7 +162,11 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         player.world.spawnParticle(Particle.CLOUD, player.location.clone().add(0.0, 0.12, 0.0), 20, 0.28, 0.05, 0.28, 0.08)
         player.velocity = player.velocity.clone().setY(plugin.classesConfig.getDouble("abilities.archer.jump-velocity", 0.9))
         player.world.playSound(player.location, Sound.ENTITY_WIND_CHARGE_WIND_BURST, 1.0f, 1.1f)
-        player.sendActionBar(Component.text("Wind Jump!", NamedTextColor.GREEN))
+        val windowSeconds = plugin.classesConfig.getDouble("abilities.archer.wind-jump-window-seconds", 4.0).coerceAtLeast(0.0)
+        windJumpUntil[player.uniqueId] = System.currentTimeMillis() + (windowSeconds * 1000).toLong()
+        val focused = plugin.classPassives.focusFull(player)
+        player.sendActionBar(Component.text(
+            if (focused) "Wind Jump! §b§lSkyfall armed" else "Wind Jump!", NamedTextColor.GREEN))
         return true
     }
 

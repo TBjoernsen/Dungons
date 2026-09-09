@@ -108,6 +108,14 @@ archer:
   focus-shot-base-multiplier: 2.0
   focus-shot-multiplier-per-rank: 0.25
   focus-shot-pierce-from-rank: 4
+  # "Skyfall": loosing a drawn bow shot while airborne from Wind Jump with a
+  # full Focus bar spends the bar and makes that arrow detonate on impact
+  # (ground or enemy). Every dungeon mob within skyfall-radius takes
+  # archerAttackBonus * skyfall-damage-multiplier and is knocked up by
+  # skyfall-knockup. Purely an entity AoE - no terrain damage.
+  skyfall-radius: 4.0
+  skyfall-damage-multiplier: 1.5
+  skyfall-knockup: 0.35
 
 # Rage is retained while a Warrior remains in combat. After 15 seconds
 # without damage dealt or received, it drains at this rate each second.
@@ -200,6 +208,9 @@ abilities:
   archer:
     cooldown-seconds: 2.5
     jump-velocity: 0.9
+    # How long after a Wind Jump a full-Focus drawn bow shot still counts as
+    # a Skyfall strike (you also have to still be off the ground).
+    wind-jump-window-seconds: 4.0
   paladin:
     cooldown-seconds: 7.5
     shield-seconds: 4.0

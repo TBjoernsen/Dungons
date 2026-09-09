@@ -239,6 +239,15 @@ class CoreListener(private val plugin: DungeonPlugin) : Listener {
     @EventHandler
     fun onProjectileHit(event: ProjectileHitEvent) {
         val projectile = event.entity
+        if (plugin.classItems.isSkyfallArrow(projectile)) {
+            val shooter = projectile.shooter as? Player
+            if (shooter != null && plugin.queries.isInDungeon(shooter)) {
+                plugin.classPassives.detonateSkyfall(projectile.location, shooter)
+            }
+            projectile.remove()
+            plugin.server.scheduler.runTask(plugin, Runnable { permittedProjectiles.remove(projectile.uniqueId) })
+            return
+        }
         if (plugin.classItems.isFocusShot(projectile)) return
         if (projectile.uniqueId !in permittedProjectiles) return
         val player = projectile.shooter as? Player ?: return

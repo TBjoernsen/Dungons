@@ -161,6 +161,35 @@ class FeedbackService(private val plugin: DungeonPlugin) {
         world.playSound(where, Sound.ENTITY_GENERIC_EXPLODE, 0.35f, 1.6f)
     }
 
+    /** A Skyfall arrow leaving the bow: a wind-charged loose and a swirling trail on the arrow. */
+    fun skyfallArmed(player: Player, arrow: org.bukkit.entity.Projectile) {
+        player.playSound(player.location, Sound.ENTITY_WIND_CHARGE_THROW, 1.0f, 0.8f)
+        player.playSound(player.location, Sound.ENTITY_ARROW_SHOOT, 1.0f, 0.7f)
+        val gust = Particle.DustOptions(Color.fromRGB(200, 235, 255), 1.3f)
+        object : BukkitRunnable() {
+            private var ticks = 0
+            override fun run() {
+                if (ticks++ >= 80 || !arrow.isValid || arrow.isDead) {
+                    cancel(); return
+                }
+                val at = arrow.location
+                at.world?.spawnParticle(Particle.CLOUD, at, 3, 0.06, 0.06, 0.06, 0.0)
+                at.world?.spawnParticle(Particle.DUST, at, 3, 0.04, 0.04, 0.04, 0.0, gust)
+            }
+        }.runTaskTimer(plugin, 1L, 1L)
+    }
+
+    /** Skyfall arrow landing: a downward shockwave burst at the impact point. */
+    fun skyfallDetonate(where: Location) {
+        val world = where.world ?: return
+        world.spawnParticle(Particle.EXPLOSION_EMITTER, where, 1, 0.0, 0.0, 0.0, 0.0)
+        world.spawnParticle(Particle.EXPLOSION, where, 6, 1.1, 0.2, 1.1, 0.0)
+        world.spawnParticle(Particle.CLOUD, where, 40, 1.4, 0.15, 1.4, 0.08)
+        world.spawnParticle(Particle.CRIT, where, 40, 1.0, 0.3, 1.0, 0.4)
+        world.playSound(where, Sound.ENTITY_GENERIC_EXPLODE, 0.9f, 1.15f)
+        world.playSound(where, Sound.ENTITY_WIND_CHARGE_WIND_BURST, 1.0f, 0.7f)
+    }
+
     fun tauntTriggered(player: Player) {
         val center = player.location.clone().add(0.0, 0.85, 0.0)
         val gold = Particle.DustOptions(Color.fromRGB(255, 205, 55), 1.55f)
