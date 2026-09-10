@@ -269,22 +269,55 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
     }
 
     private fun mageBlink(player: Player): Boolean {
+        val cfg = plugin.classesConfig
         val data = plugin.classes.data(player.uniqueId)
-        val cost = plugin.classesConfig.getDouble("abilities.mage.blink-mana-cost", 35.0)
+        val rank = plugin.classes.signatureRank(player.uniqueId).coerceAtLeast(1)
+        val cost = cfg.getDouble("abilities.mage.blink-mana-cost", 35.0)
         if (data.mana < cost) {
             player.sendActionBar(Component.text("Not enough Mana (${cost.toInt()} required).", NamedTextColor.RED))
             return false
         }
-        val destination = safeBlinkDestination(player) ?: run {
-            player.sendActionBar(Component.text("No safe space to blink to.", NamedTextColor.RED))
+        val distance = cfg.getDouble("abilities.mage.blink-distance", 10.0) +
+            cfg.getDouble("abilities.mage.blink-distance-per-rank", 1.5) * (rank - 1)
+        val vertical = cfg.getBoolean("abilities.mage.blink-vertical", true)
+        val origin = player.location.clone()
+        val destination = safeBlinkDestination(player, distance, vertical)
+        if (destination == null || destination.distanceSquared(origin) < 0.75) {
+            // A blink blocked from the start costs nothing.
+            player.sendActionBar(Component.text("Blink fizzled - no room.", NamedTextColor.RED))
             return false
         }
+
         data.mana -= cost
         val momentum = player.velocity.clone()
         player.teleport(destination)
         // Teleports normally clear velocity. Reapply it next tick so Blink
         // repositions without killing a sprint, jump, or fall trajectory.
         plugin.server.scheduler.runTask(plugin, Runnable { if (player.isOnline) player.velocity = momentum })
+        val iframeTicks = (cfg.getDouble("abilities.mage.blink-invuln-seconds", 0.4).coerceAtLeast(0.0) * 20).toInt()
+        if (iframeTicks > 0) player.noDamageTicks = maxOf(player.noDamageTicks, iframeTicks)
+
+        // Departure blast (rank-gated): the space you left detonates.
+        if (rank >= cfg.getInt("abilities.mage.blink-blast-min-rank", 2)) {
+            val r = cfg.getDouble("abilities.mage.blink-blast-radius", 3.5).coerceIn(1.0, 10.0)
+            val dmg = cfg.getDouble("abilities.mage.blink-blast-damage", 4.0) +
+                cfg.getDouble("abilities.mage.blink-blast-damage-per-rank", 1.5) * (rank - 1)
+            var hits = 0
+            origin.world?.getNearbyEntities(origin, r, r, r)?.forEach { entity ->
+                val mob = entity as? LivingEntity ?: return@forEach
+                if (mob is Player || !plugin.queries.isDungeonMob(mob)) return@forEach
+                if (dmg > 0.0) mob.damage(dmg, player)
+                val push = mob.location.toVector().subtract(origin.toVector())
+                if (push.lengthSquared() > 1e-6) mob.velocity = mob.velocity.add(push.normalize().multiply(0.4))
+                hits++
+            }
+            if (hits > 0) {
+                plugin.classPassives.addArcaneChargeFromBlink(player, cfg.getDouble("abilities.mage.blink-blast-charge", 2.0))
+            }
+            plugin.classFeedback.mageBlinkBlast(origin, r)
+        }
+
+        plugin.classFeedback.mageBlink(origin, player.location)
         player.sendActionBar(Component.text("Blink! (-${cost.toInt()} Mana)", NamedTextColor.LIGHT_PURPLE))
         return true
     }
@@ -326,10 +359,9 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         plugin.refreshClassPlayer(caster)
     }
 
-    private fun safeBlinkDestination(player: Player): Location? {
+    private fun safeBlinkDestination(player: Player, maxDistance: Double, vertical: Boolean): Location? {
         val start = player.location
-        val direction = horizontalDirection(player)
-        val maxDistance = plugin.classesConfig.getDouble("abilities.mage.blink-distance", 10.0)
+        val direction = (if (vertical) start.direction else horizontalDirection(player)).clone().normalize()
         var result: Location? = null
         // Check every part of the route, rather than only checking the final
         // spot. Otherwise a valid space on the far side of a wall would let

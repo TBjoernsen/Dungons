@@ -459,6 +459,9 @@ class PlayerClassData {
 
     var mana: Double = 0.0
 
+    /** Mage: Arcane Charge - Arcane Bolt hits build it; at the threshold the next bolt is an Arcane Surge. */
+    var arcaneCharge: Double = 0.0
+
     /**
      * Testing override for the signature-passive rank, set with
      * `/skills passiverank`. `-1` means "read it from the skill tree" (the
@@ -480,6 +483,7 @@ class PlayerClassData {
         retributionUntil = 0L
         retributionPower = 0.0
         mana = 0.0
+        arcaneCharge = 0.0
         debugSignatureRank = -1
     }
 }

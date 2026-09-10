@@ -35,6 +35,8 @@ class ArcaneBoltFlight private constructor(
     private val plugin: DungeonPlugin,
     private val shooter: Player,
     private val directDamage: Double,
+    private val pierce: Int,
+    private val surge: Boolean,
     private val onImpact: (Location, java.util.UUID?) -> Unit
 ) : BukkitRunnable() {
 
@@ -52,6 +54,9 @@ class ArcaneBoltFlight private constructor(
     private var ticksLived = 0
     private val maxTicks = ceil(maxRange / speed).toInt() + 6
     private var spin = 0f
+    private val hitIds = HashSet<java.util.UUID>()
+    private val orbScale = (cfg.getDouble("mage.bolt.orb.scale", 0.35).coerceIn(0.05, 2.0) *
+        (if (surge) 1.9 else 1.0)).toFloat()
 
     private val orb: BlockDisplay = spawnOrb()
 
@@ -67,7 +72,8 @@ class ArcaneBoltFlight private constructor(
         val step = speed.coerceAtMost(maxRange - travelled)
         val hit = world.rayTrace(pos, direction, step, FluidCollisionMode.NEVER, true,
             cfg.getDouble("mage.bolt.ray-size", 0.3).coerceIn(0.05, 1.0)) { entity ->
-            canDamage && entity is LivingEntity && entity !is Player && entity.uniqueId != shooter.uniqueId
+            canDamage && entity is LivingEntity && entity !is Player &&
+                entity.uniqueId != shooter.uniqueId && entity.uniqueId !in hitIds
         }
 
         val advance = hit?.hitPosition?.toLocation(world)?.let { pos.distance(it) } ?: step
@@ -77,12 +83,21 @@ class ArcaneBoltFlight private constructor(
         moveOrb()
 
         if (hit != null) {
-            (hit.hitEntity as? LivingEntity)?.let { target ->
+            val target = hit.hitEntity as? LivingEntity
+            if (target != null) {
                 val keptVelocity = target.velocity.clone()
                 target.damage(directDamage, shooter)
                 if (!cfg.getBoolean("mage.bolt.direct-knockback", true)) target.velocity = keptVelocity
+                hitIds.add(target.uniqueId)
             }
-            onImpact(pos.clone(), hit.hitEntity?.uniqueId)
+            onImpact(pos.clone(), target?.uniqueId)
+            // Pierce: after an entity hit, if there is room to punch through
+            // another, nudge past this one and keep flying. A block hit always
+            // stops the bolt.
+            if (target != null && hitIds.size <= pierce && travelled < maxRange) {
+                pos.add(direction.clone().multiply(0.6))
+                return
+            }
             return finish(hit = true)
         }
     }
@@ -91,10 +106,12 @@ class ArcaneBoltFlight private constructor(
         cancel()
         orb.remove()
         if (hit) {
-            val burst = maxOf(0, cfg.getInt("mage.bolt.impact-particles", 12))
+            val mul = if (surge) 2.5 else 1.0
+            val burst = (maxOf(0, cfg.getInt("mage.bolt.impact-particles", 12)) * mul).toInt()
             pos.world?.spawnParticle(Particle.WITCH, pos, burst, 0.16, 0.16, 0.16, 0.1)
-            pos.world?.spawnParticle(Particle.DUST, pos, burst / 2, 0.18, 0.18, 0.18, 0.0, trailDust())
-            playSound("mage.bolt.impact-sound", "block_amethyst_block_hit", 0.9f, 1.1f)
+            pos.world?.spawnParticle(Particle.DUST, pos, burst / 2, 0.2, 0.2, 0.2, 0.0, trailDust())
+            if (surge) pos.world?.spawnParticle(Particle.FLASH, pos, 1, 0.0, 0.0, 0.0, 0.0)
+            playSound("mage.bolt.impact-sound", "block_amethyst_block_hit", if (surge) 1.0f else 0.9f, if (surge) 0.8f else 1.1f)
         }
     }
 
@@ -104,12 +121,11 @@ class ArcaneBoltFlight private constructor(
         val material = Material.matchMaterial(
             cfg.getString("mage.bolt.orb.block", "AMETHYST_BLOCK").uppercase(Locale.ROOT))
             ?.takeIf { it.isBlock } ?: Material.AMETHYST_BLOCK
-        val scale = cfg.getDouble("mage.bolt.orb.scale", 0.35).coerceIn(0.05, 2.0).toFloat()
         val glow = cfg.getBoolean("mage.bolt.orb.glow", true)
         return pos.world!!.spawn(pos, BlockDisplay::class.java) { d ->
             d.block = material.createBlockData()
             d.billboard = Display.Billboard.FIXED
-            d.transformation = orbTransform(scale)
+            d.transformation = orbTransform(orbScale)
             if (glow) d.brightness = Display.Brightness(15, 15)
             d.teleportDuration = 1
             d.interpolationDelay = 0
@@ -130,10 +146,9 @@ class ArcaneBoltFlight private constructor(
     private fun moveOrb() {
         spin += cfg.getDouble("mage.bolt.orb.spin-degrees-per-tick", 22.0).toFloat()
         orb.teleport(Location(pos.world, pos.x, pos.y, pos.z))
-        val scale = cfg.getDouble("mage.bolt.orb.scale", 0.35).coerceIn(0.05, 2.0).toFloat()
         orb.interpolationDelay = 0
         orb.interpolationDuration = 1
-        orb.transformation = orbTransform(scale)
+        orb.transformation = orbTransform(orbScale)
     }
 
     private fun drawTrail(from: Location, distance: Double) {
@@ -158,10 +173,11 @@ class ArcaneBoltFlight private constructor(
     }
 
     private fun trailDust(): Particle.DustOptions {
-        val hex = cfg.getString("mage.bolt.trail.color", "B45AFF").trim().removePrefix("#")
+        val key = if (surge) "mage.surge.trail-color" else "mage.bolt.trail.color"
+        val hex = cfg.getString(key, if (surge) "D8B4FF" else "B45AFF").trim().removePrefix("#")
         val rgb = runCatching { hex.toInt(16) }.getOrNull() ?: 0xB45AFF
-        return Particle.DustOptions(Color.fromRGB((rgb shr 16) and 0xFF, (rgb shr 8) and 0xFF, rgb and 0xFF),
-            cfg.getDouble("mage.bolt.trail.size", 0.6).coerceIn(0.1, 4.0).toFloat())
+        val size = cfg.getDouble("mage.bolt.trail.size", 0.6).coerceIn(0.1, 4.0) * (if (surge) 1.7 else 1.0)
+        return Particle.DustOptions(Color.fromRGB((rgb shr 16) and 0xFF, (rgb shr 8) and 0xFF, rgb and 0xFF), size.toFloat())
     }
 
     private fun accentParticle(): Particle? {
@@ -178,10 +194,16 @@ class ArcaneBoltFlight private constructor(
     }
 
     companion object {
-        /** Fires a bolt now. [onImpact] gets the impact point and the directly-hit entity id (or null). */
+        /**
+         * Fires a bolt now. [pierce] is how many extra entities it can punch
+         * through; [surge] swaps in the Arcane Surge look (bigger orb, brighter
+         * fatter trail, heavier impact). [onImpact] fires per direct entity hit
+         * with that entity's id, and once with `null` on a block hit.
+         */
         fun launch(plugin: DungeonPlugin, shooter: Player, directDamage: Double,
+                   pierce: Int = 0, surge: Boolean = false,
                    onImpact: (Location, java.util.UUID?) -> Unit) {
-            val flight = ArcaneBoltFlight(plugin, shooter, max(0.0, directDamage), onImpact)
+            val flight = ArcaneBoltFlight(plugin, shooter, max(0.0, directDamage), pierce.coerceAtLeast(0), surge, onImpact)
             flight.runTaskTimer(plugin, 0L, 1L)
         }
     }

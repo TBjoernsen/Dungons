@@ -72,6 +72,11 @@ class PassiveService(private val plugin: DungeonPlugin) {
                 // Mana and Arcane Bolt are baseline. Arcane Charge is the
                 // Difficulty-3 signature enhancement, not a gate on casting.
                 data.mana = (data.mana + manaRegenerationPerSecond()).coerceAtMost(maxMana(rank))
+                if (rank > 0 && data.arcaneCharge >= chargeThreshold() && plugin.queries.isInDungeon(player)) {
+                    val purple = Particle.DustOptions(org.bukkit.Color.fromRGB(205, 140, 255), 1.2f)
+                    player.world.spawnParticle(Particle.DUST,
+                        player.location.clone().add(0.0, 1.1, 0.0), 4, 0.3, 0.5, 0.3, 0.0, purple)
+                }
             } else {
                 data.mana = 0.0
             }
@@ -559,22 +564,93 @@ class PassiveService(private val plugin: DungeonPlugin) {
         val data = plugin.classes.data(player.uniqueId)
         if (plugin.classes.activeClass(player.uniqueId) != ClassType.MAGE) return ArcaneCastResult.MANA_LOCKED
         if (!plugin.classItems.isStaff(player.inventory.itemInMainHand)) return ArcaneCastResult.WRONG_WEAPON
-        val manaCost = arcaneBoltManaCost()
+        val cfg = plugin.classesConfig
+        val rank = plugin.classes.signatureRank(player.uniqueId)
+        val surge = rank > 0 && data.arcaneCharge >= chargeThreshold()
+        // The Surge bolt is free - it is the payoff for charging.
+        val manaCost = if (surge) 0.0 else arcaneBoltManaCost()
         if (data.mana < manaCost) return ArcaneCastResult.INSUFFICIENT_MANA
         if (player.hasCooldown(Material.BLAZE_ROD)) return ArcaneCastResult.COOLDOWN
 
         data.mana -= manaCost
-        val rank = plugin.classes.signatureRank(player.uniqueId)
-        // A raycast, not a thrown entity: fast, straight, no gravity. The orb
-        // and trail are drawn by the flight; the splash comes back here.
-        ArcaneBoltFlight.launch(plugin, player, arcaneBoltDamage(rank)) { impact, directTargetId ->
-            arcaneBoltSplash(player, impact, directTargetId)
+        val cooldownTicks = maxOf(1, cfg.getInt("mage.arcane-bolt-cooldown-ticks", 8))
+        if (surge) {
+            data.arcaneCharge = 0.0
+            val pierceFrom = cfg.getInt("mage.surge-pierce-from-rank", 3)
+            val pierce = if (rank >= pierceFrom) (rank - pierceFrom + 1).coerceAtMost(4) else 0
+            val surgeDamage = arcaneBoltDamage(rank) * cfg.getDouble("mage.surge-damage-multiplier", 2.2)
+            val splashMul = cfg.getDouble("mage.surge-splash-multiplier", 1.6)
+            var surgeExtraFired = false
+            ArcaneBoltFlight.launch(plugin, player, surgeDamage, pierce, surge = true) { impact, directTargetId ->
+                arcaneBoltSplash(player, impact, directTargetId, splashMul)
+                if (!surgeExtraFired) {
+                    surgeExtraFired = true
+                    onArcaneSurgeHit(player, impact, rank)
+                }
+            }
+            player.setCooldown(Material.BLAZE_ROD, cooldownTicks)
+            castBoltSound(player)
+            player.playSound(player.location, Sound.BLOCK_BEACON_POWER_SELECT, 0.7f, 0.8f)
+            player.sendActionBar(Component.text("§d§lARCANE SURGE!"))
+        } else {
+            ArcaneBoltFlight.launch(plugin, player, arcaneBoltDamage(rank)) { impact, directTargetId ->
+                arcaneBoltSplash(player, impact, directTargetId)
+                if (directTargetId != null) addArcaneCharge(player, cfg.getDouble("mage.charge-per-hit", 3.0))
+            }
+            addArcaneCharge(player, cfg.getDouble("mage.charge-per-cast", 1.0))
+            player.setCooldown(Material.BLAZE_ROD, cooldownTicks)
+            castBoltSound(player)
+            player.sendActionBar(Component.text("§dArcane Bolt §7(-${manaCost.toInt()} Mana)"))
         }
-        player.setCooldown(Material.BLAZE_ROD, maxOf(1, plugin.classesConfig.getInt("mage.arcane-bolt-cooldown-ticks", 8)))
-        castBoltSound(player)
-        player.sendActionBar(Component.text("§dArcane Bolt §7(-${manaCost.toInt()} Mana)"))
         plugin.refreshClassPlayer(player)
         return ArcaneCastResult.SUCCESS
+    }
+
+    private fun chargeThreshold(): Double =
+        plugin.classesConfig.getDouble("mage.charge-threshold", 8.0).coerceAtLeast(1.0)
+
+    /** True when the Mage's next Arcane Bolt will fire as an Arcane Surge. */
+    fun arcaneSurgeArmed(player: Player): Boolean {
+        if (plugin.classes.activeClass(player.uniqueId) != ClassType.MAGE) return false
+        if (plugin.classes.signatureRank(player.uniqueId) == 0) return false
+        return plugin.classes.data(player.uniqueId).arcaneCharge >= chargeThreshold()
+    }
+
+    private fun addArcaneCharge(player: Player, amount: Double) {
+        if (amount <= 0.0 || plugin.classes.signatureRank(player.uniqueId) == 0) return
+        val data = plugin.classes.data(player.uniqueId)
+        val threshold = chargeThreshold()
+        if (data.arcaneCharge >= threshold) return
+        data.arcaneCharge = (data.arcaneCharge + amount).coerceAtMost(threshold)
+        if (data.arcaneCharge >= threshold) {
+            player.sendActionBar(Component.text("§d§lARCANE SURGE §7- next bolt"))
+            player.playSound(player.location, Sound.BLOCK_BEACON_POWER_SELECT, 0.6f, 1.5f)
+        }
+        plugin.refreshClassPlayer(player)
+    }
+
+    /** Lets the Mage Blink's departure blast feed Arcane Charge. */
+    fun addArcaneChargeFromBlink(player: Player, amount: Double) = addArcaneCharge(player, amount)
+
+    /** Rank-gated Surge payloads, fired once even when the bolt pierces: mana refund (IV), Arcane Nova (V). */
+    private fun onArcaneSurgeHit(player: Player, impact: Location, rank: Int) {
+        val cfg = plugin.classesConfig
+        if (rank >= cfg.getInt("mage.surge-mana-refund-min-rank", 4)) {
+            val data = plugin.classes.data(player.uniqueId)
+            data.mana = (data.mana + cfg.getDouble("mage.surge-mana-refund", 40.0)).coerceAtMost(maxMana(rank))
+            plugin.refreshClassPlayer(player)
+        }
+        if (rank >= cfg.getInt("mage.surge-nova-min-rank", 5)) {
+            val world = impact.world ?: return
+            val radius = cfg.getDouble("mage.surge-nova-radius", 4.0).coerceIn(1.0, 12.0)
+            val novaDamage = arcaneBoltDamage(rank) * cfg.getDouble("mage.surge-nova-damage-multiplier", 1.0)
+            for (entity in world.getNearbyEntities(impact, radius, radius, radius)) {
+                val mob = entity as? LivingEntity ?: continue
+                if (mob is Player || !plugin.queries.isDungeonMob(mob)) continue
+                if (novaDamage > 0.0) mob.damage(novaDamage, player)
+            }
+            plugin.classFeedback.arcaneSurgeNova(impact, radius)
+        }
     }
 
     private fun castBoltSound(player: Player) {
@@ -589,11 +665,12 @@ class PassiveService(private val plugin: DungeonPlugin) {
      * reads as a follow-up. Dungeon mobs only, damage-only (movement kept), and
      * a no-op outside a dungeon.
      */
-    fun arcaneBoltSplash(shooter: Player, impact: Location, directTargetId: UUID?) {
+    fun arcaneBoltSplash(shooter: Player, impact: Location, directTargetId: UUID?, surgeMultiplier: Double = 1.0) {
         if (!plugin.queries.isInDungeon(shooter)) return
         if (plugin.classes.activeClass(shooter.uniqueId) != ClassType.MAGE) return
-        val radius = arcaneBoltSplashRadius()
-        val splashDamage = arcaneBoltDamage(plugin.classes.signatureRank(shooter.uniqueId)) * arcaneBoltSplashDamageMultiplier()
+        val radius = arcaneBoltSplashRadius() * (if (surgeMultiplier > 1.0) 1.5 else 1.0)
+        val splashDamage = arcaneBoltDamage(plugin.classes.signatureRank(shooter.uniqueId)) *
+            arcaneBoltSplashDamageMultiplier() * surgeMultiplier
         if (radius <= 0.0 || splashDamage <= 0.0) return
         val at = impact.clone()
         plugin.server.scheduler.runTask(plugin, Runnable {
@@ -643,10 +720,11 @@ class PassiveService(private val plugin: DungeonPlugin) {
                 else if (data.judgment >= tauntThreshold(rank)) "Taunt $rank: §6READY"
                 else "Taunt $rank: ${data.judgment.roundToInt()}/${tauntThreshold(rank).roundToInt()} damage"
             }
-            ClassType.MAGE -> if (rank == 0) {
-                "Mana: ${data.mana.roundToInt()}/${maxMana(rank).roundToInt()} | Unlock Arcane Charge Rank I"
-            } else {
-                "Mana: ${data.mana.roundToInt()}/${maxMana(rank).roundToInt()} | Arcane Charge $rank"
+            ClassType.MAGE -> {
+                val mana = "Mana: ${data.mana.roundToInt()}/${maxMana(rank).roundToInt()}"
+                if (rank == 0) "$mana | Unlock Arcane Charge Rank I"
+                else if (data.arcaneCharge >= chargeThreshold()) "$mana | §dSURGE armed"
+                else "$mana | Charge ${data.arcaneCharge.roundToInt()}/${chargeThreshold().roundToInt()}"
             }
             null -> "Choose a class with /class"
         }

@@ -253,6 +253,37 @@ build-and-spend loop, plus rank-scaled Shield and a Smite passive.
 - `ActiveTaunt` gains `rank`. `PlayerClassData` gains `zeal` +
   `lastJudgmentCombatAt` (cleared in `clearCombatResources`).
 
+## Mage: Arcane Charge + Blink pass (2026-09-10)
+
+Gives the Mage the build-and-spend loop + rank identity the other three
+have. `PlayerClassData.arcaneCharge` (cleared in `clearCombatResources`).
+
+- **Arcane Charge -> Surge.** `castArcaneBolt`: a normal bolt adds
+  `mage.charge-per-cast` (1) on cast and `mage.charge-per-hit` (3) in its
+  onImpact lambda when it hit a mob. At `mage.charge-threshold` (8) the
+  *next* cast is a **Surge**: `arcaneCharge = 0`, free (no mana),
+  `arcaneBoltDamage * surge-damage-multiplier` (2.2), pierces from
+  `surge-pierce-from-rank` (3), splash x`surge-splash-multiplier` (1.6),
+  fatter/brighter trail + bigger orb + FLASH (via new
+  `ArcaneBoltFlight.launch(..., pierce, surge, onImpact)` - it now tracks
+  `hitIds` and nudges past a hit to pierce). `addArcaneCharge` /
+  `arcaneSurgeArmed` / `chargeThreshold` / `onArcaneSurgeHit` in
+  `PassiveService`. Rank IV: `onArcaneSurgeHit` refunds
+  `surge-mana-refund` (40); rank V: also an Arcane Nova
+  (`surge-nova-radius`, `FeedbackService.arcaneSurgeNova`) at the impact,
+  fired once even through pierce (closure flag). Sidebar `Charge x/8` /
+  `SURGE armed`, purple aura in `tick()` when armed.
+- **Blink.** `AbilityService.mageBlink`: rank-scaled distance
+  (`blink-distance-per-rank`), full-look-vector travel unless
+  `blink-vertical: false`, `blink-invuln-seconds` i-frames via
+  `noDamageTicks`, and **no mana charged when a blink is blocked from the
+  start**. From `blink-blast-min-rank` (2) the departure point detonates
+  (`blink-blast-damage` + per-rank, a shove) and a connect feeds
+  `blink-blast-charge` into Arcane Charge (`addArcaneChargeFromBlink`).
+  `FeedbackService.mageBlink` / `mageBlinkBlast`. `safeBlinkDestination`
+  now takes `(player, maxDistance, vertical)`.
+- `classes.yml` `config-version` -> 2.
+
 ## Mage Heal targeting: commit the highlight (2026-09-09)
 
 Symptom: the heal-target glow reached far but the heal only landed

@@ -6,7 +6,7 @@
 # replaced with this bundled copy on the next load - the balance numbers
 # here move often and are meant to be tuned in the plugin, not held on the
 # server across updates. (Raised whenever the bundled defaults change.)
-config-version: 1
+config-version: 2
 
 classes:
   # Turning this off leaves a dungeons-only server: no classes, no kits, no
@@ -281,6 +281,29 @@ mage:
       # short-lived alternatives.
       accent: none
       accent-every: 4          # one accent per this many dust points
+  # --- Arcane Charge -> Arcane Surge --------------------------------
+  # Arcane Bolts that HIT a mob build Charge (charge-per-hit), plus a little
+  # per cast (charge-per-cast). At charge-threshold your next bolt fires as
+  # an Arcane Surge: surge-damage-multiplier damage, free (no mana), a
+  # fatter brighter trail, and it pierces from surge-pierce-from-rank
+  # (rank - that + 1 targets, cap 4). Its splash is surge-splash-multiplier
+  # stronger. From surge-mana-refund-min-rank a Surge that connects refunds
+  # surge-mana-refund mana; from surge-nova-min-rank it also detonates an
+  # Arcane Nova (surge-nova-radius, arcaneBoltDamage * surge-nova-damage
+  # -multiplier to mobs) at the impact point.
+  charge-threshold: 8.0
+  charge-per-hit: 3.0
+  charge-per-cast: 1.0
+  surge-damage-multiplier: 2.2
+  surge-splash-multiplier: 1.6
+  surge-pierce-from-rank: 3
+  surge-mana-refund-min-rank: 4
+  surge-mana-refund: 40.0
+  surge-nova-min-rank: 5
+  surge-nova-radius: 4.0
+  surge-nova-damage-multiplier: 1.0
+  surge:
+    trail-color: "D8B4FF"
 
 # F-key (Swap Hands) abilities per class. Right-clicking the tagged Mage
 # staff casts Healing Spell.
@@ -322,7 +345,20 @@ abilities:
   mage:
     cooldown-seconds: 5.0
     blink-distance: 10.0
+    blink-distance-per-rank: 1.5
     blink-mana-cost: 35.0
+    # Blink follows your full look vector (onto ledges / down gaps) unless
+    # this is false, then it stays horizontal. Brief i-frames on arrival.
+    blink-vertical: true
+    blink-invuln-seconds: 0.4
+    # Departure blast: from blink-blast-min-rank the spot you left detonates
+    # for blink-blast-damage (+ per-rank) arcane damage and a shove, and
+    # feeds blink-blast-charge into Arcane Charge on a connect.
+    blink-blast-min-rank: 2
+    blink-blast-radius: 3.5
+    blink-blast-damage: 4.0
+    blink-blast-damage-per-rank: 1.5
+    blink-blast-charge: 2.0
     heal-cooldown-seconds: 30.0
     heal-mana-cost: 50.0
     # How far the Healing Spell reaches to pick an ally. Targeting is

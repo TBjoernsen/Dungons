@@ -273,6 +273,39 @@ class FeedbackService(private val plugin: DungeonPlugin) {
         target.world.playSound(target.location, Sound.ITEM_ARMOR_EQUIP_GOLD, 0.7f, 1.2f)
     }
 
+    /** Arcane Surge's rank-V nova at the bolt's impact point. */
+    fun arcaneSurgeNova(centre: Location, radius: Double) {
+        val world = centre.world ?: return
+        val purple = Particle.DustOptions(Color.fromRGB(190, 120, 255), 1.6f)
+        world.spawnParticle(Particle.DUST, centre, 40, radius * 0.5, 0.4, radius * 0.5, 0.0, purple)
+        world.spawnParticle(Particle.WITCH, centre, 30, radius * 0.4, 0.3, radius * 0.4, 0.1)
+        world.spawnParticle(Particle.FLASH, centre, 1, 0.0, 0.0, 0.0, 0.0)
+        world.playSound(centre, Sound.ENTITY_ILLUSIONER_CAST_SPELL, 0.7f, 0.8f)
+        world.playSound(centre, Sound.BLOCK_AMETHYST_BLOCK_CHIME, 0.8f, 0.55f)
+    }
+
+    /** Mage Blink: a poof at both ends and a teleport chime. */
+    fun mageBlink(origin: Location, destination: Location) {
+        origin.world?.let { w ->
+            w.spawnParticle(Particle.WITCH, origin.clone().add(0.0, 1.0, 0.0), 28, 0.3, 0.6, 0.3, 0.05)
+            w.playSound(origin, Sound.ENTITY_ENDERMAN_TELEPORT, 0.5f, 1.6f)
+        }
+        destination.world?.let { w ->
+            w.spawnParticle(Particle.WITCH, destination.clone().add(0.0, 1.0, 0.0), 28, 0.3, 0.6, 0.3, 0.05)
+            w.spawnParticle(Particle.END_ROD, destination.clone().add(0.0, 1.0, 0.0), 12, 0.25, 0.5, 0.25, 0.03)
+            w.playSound(destination, Sound.BLOCK_AMETHYST_BLOCK_CHIME, 0.7f, 1.4f)
+        }
+    }
+
+    /** Mage Blink departure blast: the space you left detonates. */
+    fun mageBlinkBlast(centre: Location, radius: Double) {
+        val world = centre.world ?: return
+        val purple = Particle.DustOptions(Color.fromRGB(180, 110, 255), 1.5f)
+        world.spawnParticle(Particle.DUST, centre.clone().add(0.0, 0.6, 0.0), 30, radius * 0.4, 0.3, radius * 0.4, 0.0, purple)
+        world.spawnParticle(Particle.WITCH, centre.clone().add(0.0, 0.6, 0.0), 20, radius * 0.35, 0.3, radius * 0.35, 0.08)
+        world.playSound(centre, Sound.ENTITY_ILLUSIONER_MIRROR_MOVE, 0.7f, 0.9f)
+    }
+
     fun tauntTriggered(player: Player) {
         val center = player.location.clone().add(0.0, 0.85, 0.0)
         val gold = Particle.DustOptions(Color.fromRGB(255, 205, 55), 1.55f)
