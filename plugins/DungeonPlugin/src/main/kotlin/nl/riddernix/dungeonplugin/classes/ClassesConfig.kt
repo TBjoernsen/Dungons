@@ -10,11 +10,13 @@ import java.nio.charset.StandardCharsets
 /**
  * The class layer's own configuration file, `classes.yml`.
  *
- * Deliberately separate from config.yml: the dungeon config is replaced
- * wholesale on a version bump, while this file follows the class layer's
- * older philosophy of merging missing keys into an existing file so admin
- * tuning survives updates. Two files keep those two update models from
- * fighting each other.
+ * Normally this file merges: missing keys are filled from the bundled
+ * defaults, existing values are left alone so admin tuning survives updates.
+ * But it also carries a `config-version`, and when the bundled version is
+ * higher than the file's the whole file is replaced with the bundled copy -
+ * the balance numbers here change often and are meant to be tuned in the
+ * bundled resource, not hand-held on the server across updates. Bump
+ * `config-version` in the bundled `classes.yml` whenever those defaults move.
  */
 class ClassesConfig(private val plugin: DungeonPlugin) {
 
@@ -32,10 +34,18 @@ class ClassesConfig(private val plugin: DungeonPlugin) {
             plugin.saveResource(FILE_NAME, false)
         }
         yaml = YamlConfiguration.loadConfiguration(file)
-        // Missing keys are filled in from the bundled defaults without ever
-        // overwriting a value the admin changed.
         plugin.getResource(FILE_NAME)?.use { resource ->
             val defaults = YamlConfiguration.loadConfiguration(InputStreamReader(resource, StandardCharsets.UTF_8))
+            val bundledVersion = defaults.getInt("config-version", 0)
+            if (yaml.getInt("config-version", 0) < bundledVersion) {
+                plugin.logger.info(
+                    "$FILE_NAME: config-version ${yaml.getInt("config-version", 0)} -> $bundledVersion; " +
+                        "replacing with bundled defaults (tune classes.yml in the plugin, not on the server).")
+                file.delete()
+                plugin.saveResource(FILE_NAME, false)
+                yaml = YamlConfiguration.loadConfiguration(file)
+            }
+            // Fill any still-missing keys without overwriting the rest.
             yaml.setDefaults(defaults)
             yaml.options().copyDefaults(true)
         }

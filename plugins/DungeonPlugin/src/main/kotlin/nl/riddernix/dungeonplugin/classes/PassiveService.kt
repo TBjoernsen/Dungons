@@ -121,7 +121,9 @@ class PassiveService(private val plugin: DungeonPlugin) {
                 // Taunt end fires the Holy Nova and arms the next Smite.
                 val cut = plugin.classesConfig.getDouble("paladin.taunt-damage-reduction", 0.30).coerceIn(0.0, 0.9)
                 event.damage *= (1.0 - cut)
-                addZeal(player, event.finalDamage * plugin.classesConfig.getDouble("paladin.zeal-per-damage", 1.0))
+                // Charge off the incoming blow (event.damage), not finalDamage -
+                // otherwise absorption hearts eating the hit means no Zeal.
+                addZeal(player, event.damage * plugin.classesConfig.getDouble("paladin.zeal-per-damage", 1.0))
             }
             else -> Unit
         }

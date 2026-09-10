@@ -1,9 +1,12 @@
 # =====================================================================
 #  Class layer configuration
 # =====================================================================
-# This file follows the class layer's own update model: missing keys are
-# merged in from the bundled defaults without overwriting your changes -
-# unlike config.yml, which is replaced wholesale on a version bump.
+# Missing keys merge in from the bundled defaults. BUT when config-version
+# below is raised past the value in your server copy, the whole file is
+# replaced with this bundled copy on the next load - the balance numbers
+# here move often and are meant to be tuned in the plugin, not held on the
+# server across updates. (Raised whenever the bundled defaults change.)
+config-version: 1
 
 classes:
   # Turning this off leaves a dungeons-only server: no classes, no kits, no

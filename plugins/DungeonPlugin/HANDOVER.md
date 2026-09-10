@@ -94,7 +94,12 @@ BossDefinition scenery accessors were kept).
 - `classes.enabled: false` in classes.yml gives a dungeons-only server: no
   class listeners, no kits, no level gate, points from the granted ledger.
 - config.yml restarts its lineage at `config-version: 1` (content = DF v76).
-  classes.yml uses per-key default-merging instead of wholesale replacement.
+- **classes.yml** merges per-key, BUT also carries its own top-level
+  `config-version` (`ClassesConfig.reload`): when the bundled version is
+  higher than the server file's, the whole file is deleted and rewritten
+  from the bundled copy. Bump `config-version` in the bundled
+  `src/main/resources/classes.yml` whenever a default value there changes,
+  or the server keeps its stale value. (Currently `1`.)
 - `/skills reset` (player-facing, costs ceil(spent × bulk-reset-shard-rate)
   Skill Shards) replaces ClassSkills' shard-paid reset paths.
 
