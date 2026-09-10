@@ -1,6 +1,7 @@
 package nl.riddernix.dungeonplugin.classes
 
 import nl.riddernix.dungeonplugin.DungeonPlugin
+import org.bukkit.Material
 import org.bukkit.configuration.file.YamlConfiguration
 import java.io.File
 import java.io.IOException
@@ -65,6 +66,28 @@ class ClassesConfig(private val plugin: DungeonPlugin) {
     fun getDouble(path: String, default: Double): Double = yaml.getDouble(path, default)
     fun getString(path: String, default: String): String = yaml.getString(path, default) ?: default
     fun set(path: String, value: Any?) = yaml.set(path, value)
+
+    // ------------------------------------------------------------------
+    //  Mage wand presets
+    // ------------------------------------------------------------------
+    // The Mage staff's look (held item, projectile orb, trail, sounds) is a
+    // named preset under `mage.wand-presets`, chosen by `mage.wand-preset`.
+    // These resolve `mage.wand-presets.<active>.<leaf>`, falling back to the
+    // hard default when the key or the preset is missing.
+
+    private fun mageWandLeaf(leaf: String): Any? {
+        val preset = yaml.getString("mage.wand-preset").orEmpty()
+        if (preset.isBlank()) return null
+        return yaml.get("mage.wand-presets.$preset.$leaf")
+    }
+
+    fun mageWandString(leaf: String, default: String): String = (mageWandLeaf(leaf) as? String) ?: default
+    fun mageWandInt(leaf: String, default: Int): Int = (mageWandLeaf(leaf) as? Number)?.toInt() ?: default
+    fun mageWandDouble(leaf: String, default: Double): Double = (mageWandLeaf(leaf) as? Number)?.toDouble() ?: default
+    fun mageWandBoolean(leaf: String, default: Boolean): Boolean = (mageWandLeaf(leaf) as? Boolean) ?: default
+
+    fun mageWandMaterial(leaf: String, default: Material): Material =
+        Material.matchMaterial(mageWandString(leaf, default.name).uppercase()) ?: default
 
     companion object {
         private const val FILE_NAME = "classes.yml"

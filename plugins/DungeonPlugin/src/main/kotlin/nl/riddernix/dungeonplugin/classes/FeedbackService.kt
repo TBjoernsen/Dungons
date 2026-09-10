@@ -273,42 +273,55 @@ class FeedbackService(private val plugin: DungeonPlugin) {
         target.world.playSound(target.location, Sound.ITEM_ARMOR_EQUIP_GOLD, 0.7f, 1.2f)
     }
 
+    /** True when the active Mage wand preset is the fiery kind (Magma Wand). */
+    private fun mageFiery(): Boolean = plugin.classesConfig.mageWandBoolean("impact-lava", false)
+
     /** Arcane Surge's rank-V nova at the bolt's impact point. */
     fun arcaneSurgeNova(centre: Location, radius: Double) {
         val world = centre.world ?: return
-        val ember = Particle.DustOptions(Color.fromRGB(255, 150, 45), 1.6f)
-        world.spawnParticle(Particle.DUST, centre, 40, radius * 0.5, 0.4, radius * 0.5, 0.0, ember)
-        world.spawnParticle(Particle.FLAME, centre, 40, radius * 0.45, 0.35, radius * 0.45, 0.06)
-        world.spawnParticle(Particle.LAVA, centre, 10, radius * 0.3, 0.25, radius * 0.3, 0.0)
-        world.spawnParticle(Particle.EXPLOSION_EMITTER, centre, 1, 0.0, 0.0, 0.0, 0.0)
         world.spawnParticle(Particle.FLASH, centre, 1, 0.0, 0.0, 0.0, 0.0)
-        world.playSound(centre, Sound.ENTITY_GENERIC_EXPLODE, 0.9f, 0.7f)
-        world.playSound(centre, Sound.ENTITY_BLAZE_SHOOT, 0.7f, 0.6f)
+        if (mageFiery()) {
+            world.spawnParticle(Particle.DUST, centre, 40, radius * 0.5, 0.4, radius * 0.5, 0.0,
+                Particle.DustOptions(Color.fromRGB(255, 150, 45), 1.6f))
+            world.spawnParticle(Particle.FLAME, centre, 40, radius * 0.45, 0.35, radius * 0.45, 0.06)
+            world.spawnParticle(Particle.LAVA, centre, 10, radius * 0.3, 0.25, radius * 0.3, 0.0)
+            world.spawnParticle(Particle.EXPLOSION_EMITTER, centre, 1, 0.0, 0.0, 0.0, 0.0)
+            world.playSound(centre, Sound.ENTITY_GENERIC_EXPLODE, 0.9f, 0.7f)
+            world.playSound(centre, Sound.ENTITY_BLAZE_SHOOT, 0.7f, 0.6f)
+        } else {
+            world.spawnParticle(Particle.DUST, centre, 40, radius * 0.5, 0.4, radius * 0.5, 0.0,
+                Particle.DustOptions(Color.fromRGB(190, 120, 255), 1.6f))
+            world.spawnParticle(Particle.WITCH, centre, 30, radius * 0.4, 0.3, radius * 0.4, 0.1)
+            world.playSound(centre, Sound.ENTITY_ILLUSIONER_CAST_SPELL, 0.7f, 0.8f)
+            world.playSound(centre, Sound.BLOCK_AMETHYST_BLOCK_CHIME, 0.8f, 0.55f)
+        }
     }
 
-    /** Mage Blink: a flame poof at both ends and a fwoosh. */
+    /** Mage Blink: a poof at both ends and a fwoosh, tinted to the wand preset. */
     fun mageBlink(origin: Location, destination: Location) {
+        val fiery = mageFiery()
+        val puff = if (fiery) Particle.FLAME else Particle.WITCH
         origin.world?.let { w ->
-            w.spawnParticle(Particle.FLAME, origin.clone().add(0.0, 1.0, 0.0), 26, 0.3, 0.6, 0.3, 0.06)
-            w.spawnParticle(Particle.LARGE_SMOKE, origin.clone().add(0.0, 0.8, 0.0), 8, 0.25, 0.4, 0.25, 0.02)
-            w.playSound(origin, Sound.ITEM_FIRECHARGE_USE, 0.6f, 0.9f)
+            w.spawnParticle(puff, origin.clone().add(0.0, 1.0, 0.0), 26, 0.3, 0.6, 0.3, 0.05)
+            w.playSound(origin, if (fiery) Sound.ITEM_FIRECHARGE_USE else Sound.ENTITY_ENDERMAN_TELEPORT, 0.55f, if (fiery) 0.9f else 1.6f)
         }
         destination.world?.let { w ->
-            w.spawnParticle(Particle.FLAME, destination.clone().add(0.0, 1.0, 0.0), 26, 0.3, 0.6, 0.3, 0.06)
-            w.spawnParticle(Particle.LAVA, destination.clone().add(0.0, 1.0, 0.0), 6, 0.25, 0.5, 0.25, 0.0)
-            w.playSound(destination, Sound.ENTITY_BLAZE_SHOOT, 0.6f, 1.2f)
+            w.spawnParticle(puff, destination.clone().add(0.0, 1.0, 0.0), 26, 0.3, 0.6, 0.3, 0.05)
+            w.spawnParticle(if (fiery) Particle.LAVA else Particle.END_ROD, destination.clone().add(0.0, 1.0, 0.0), if (fiery) 6 else 12, 0.25, 0.5, 0.25, 0.03)
+            w.playSound(destination, if (fiery) Sound.ENTITY_BLAZE_SHOOT else Sound.BLOCK_AMETHYST_BLOCK_CHIME, 0.6f, if (fiery) 1.2f else 1.4f)
         }
     }
 
     /** Mage Blink departure blast: the space you left detonates. */
     fun mageBlinkBlast(centre: Location, radius: Double) {
         val world = centre.world ?: return
-        val ember = Particle.DustOptions(Color.fromRGB(255, 130, 40), 1.5f)
-        world.spawnParticle(Particle.DUST, centre.clone().add(0.0, 0.6, 0.0), 28, radius * 0.4, 0.3, radius * 0.4, 0.0, ember)
-        world.spawnParticle(Particle.FLAME, centre.clone().add(0.0, 0.6, 0.0), 24, radius * 0.35, 0.3, radius * 0.35, 0.06)
+        val fiery = mageFiery()
+        val tint = if (fiery) Color.fromRGB(255, 130, 40) else Color.fromRGB(180, 110, 255)
+        world.spawnParticle(Particle.DUST, centre.clone().add(0.0, 0.6, 0.0), 28, radius * 0.4, 0.3, radius * 0.4, 0.0, Particle.DustOptions(tint, 1.5f))
+        world.spawnParticle(if (fiery) Particle.FLAME else Particle.WITCH, centre.clone().add(0.0, 0.6, 0.0), 22, radius * 0.35, 0.3, radius * 0.35, 0.06)
         world.spawnParticle(Particle.EXPLOSION, centre.clone().add(0.0, 0.5, 0.0), 2, 0.2, 0.1, 0.2, 0.0)
-        world.playSound(centre, Sound.ENTITY_GENERIC_EXPLODE, 0.55f, 1.1f)
-        world.playSound(centre, Sound.BLOCK_LAVA_POP, 0.8f, 0.8f)
+        world.playSound(centre, Sound.ENTITY_GENERIC_EXPLODE, 0.55f, if (fiery) 1.1f else 1.4f)
+        world.playSound(centre, if (fiery) Sound.BLOCK_LAVA_POP else Sound.ENTITY_ILLUSIONER_MIRROR_MOVE, 0.7f, 0.9f)
     }
 
     fun tauntTriggered(player: Player) {

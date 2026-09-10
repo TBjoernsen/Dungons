@@ -107,26 +107,28 @@ class ArcaneBoltFlight private constructor(
         orb.remove()
         if (hit) {
             val mul = if (surge) 2.5 else 1.0
-            val burst = (maxOf(0, cfg.getInt("mage.bolt.impact-particles", 20)) * mul).toInt()
+            val burst = (maxOf(0, cfg.mageWandInt("impact-particles", 12)) * mul).toInt()
             val world = pos.world
-            world?.spawnParticle(Particle.FLAME, pos, burst, 0.18, 0.18, 0.18, 0.05)
-            world?.spawnParticle(Particle.LAVA, pos, maxOf(1, burst / 4), 0.14, 0.14, 0.14, 0.0)
+            val fiery = cfg.mageWandBoolean("impact-lava", false)
+            val main = runCatching { Particle.valueOf(cfg.mageWandString("impact-particle", "WITCH").uppercase(Locale.ROOT)) }
+                .getOrDefault(Particle.WITCH)
+            world?.spawnParticle(main, pos, burst, 0.18, 0.18, 0.18, if (fiery) 0.05 else 0.1)
             world?.spawnParticle(Particle.DUST, pos, burst / 2, 0.2, 0.2, 0.2, 0.0, trailDust())
+            if (fiery) world?.spawnParticle(Particle.LAVA, pos, maxOf(1, burst / 4), 0.14, 0.14, 0.14, 0.0)
             if (surge) {
                 world?.spawnParticle(Particle.FLASH, pos, 1, 0.0, 0.0, 0.0, 0.0)
-                world?.spawnParticle(Particle.EXPLOSION, pos, 2, 0.2, 0.2, 0.2, 0.0)
+                if (fiery) world?.spawnParticle(Particle.EXPLOSION, pos, 2, 0.2, 0.2, 0.2, 0.0)
             }
-            playSound("mage.bolt.impact-sound", "entity_generic_explode",
-                if (surge) 0.9f else 0.45f, if (surge) 0.7f else 1.2f)
+            playSound(cfg.mageWandString("impact-sound", "block_amethyst_block_hit"),
+                if (surge) 0.9f else if (fiery) 0.45f else 0.9f, if (surge) 0.7f else 1.1f)
         }
     }
 
     // ------------------------------------------------------------------
 
     private fun spawnOrb(): BlockDisplay {
-        val material = Material.matchMaterial(
-            cfg.getString("mage.bolt.orb.block", "AMETHYST_BLOCK").uppercase(Locale.ROOT))
-            ?.takeIf { it.isBlock } ?: Material.AMETHYST_BLOCK
+        val material = cfg.mageWandMaterial("orb-block", Material.AMETHYST_BLOCK)
+            .takeIf { it.isBlock } ?: Material.AMETHYST_BLOCK
         val glow = cfg.getBoolean("mage.bolt.orb.glow", true)
         return pos.world!!.spawn(pos, BlockDisplay::class.java) { d ->
             d.block = material.createBlockData()
@@ -160,8 +162,8 @@ class ArcaneBoltFlight private constructor(
     private fun drawTrail(from: Location, distance: Double) {
         val world = from.world ?: return
         val dust = trailDust()
-        val spacing = cfg.getDouble("mage.bolt.trail.spacing", 0.7).coerceIn(0.1, 1.5)
-        val accentEvery = maxOf(1, cfg.getInt("mage.bolt.trail.accent-every", 4))
+        val spacing = cfg.mageWandDouble("trail-spacing", 0.55).coerceIn(0.1, 1.5)
+        val accentEvery = maxOf(1, cfg.mageWandInt("trail-accent-every", 4))
         val accent = accentParticle()
         var d = 0.0
         var index = 0
@@ -179,23 +181,22 @@ class ArcaneBoltFlight private constructor(
     }
 
     private fun trailDust(): Particle.DustOptions {
-        val key = if (surge) "mage.surge.trail-color" else "mage.bolt.trail.color"
-        val hex = cfg.getString(key, if (surge) "D8B4FF" else "B45AFF").trim().removePrefix("#")
+        val leaf = if (surge) "surge-trail-color" else "trail-color"
+        val hex = cfg.mageWandString(leaf, if (surge) "D8B4FF" else "B45AFF").trim().removePrefix("#")
         val rgb = runCatching { hex.toInt(16) }.getOrNull() ?: 0xB45AFF
-        val size = cfg.getDouble("mage.bolt.trail.size", 0.6).coerceIn(0.1, 4.0) * (if (surge) 1.7 else 1.0)
+        val size = cfg.mageWandDouble("trail-size", 0.9).coerceIn(0.1, 4.0) * (if (surge) 1.7 else 1.0)
         return Particle.DustOptions(Color.fromRGB((rgb shr 16) and 0xFF, (rgb shr 8) and 0xFF, rgb and 0xFF), size.toFloat())
     }
 
     private fun accentParticle(): Particle? {
-        val raw = cfg.getString("mage.bolt.trail.accent", "END_ROD").trim()
+        val raw = cfg.mageWandString("trail-accent", "none").trim()
         if (raw.isEmpty() || raw.equals("none", true)) return null
         return runCatching { Particle.valueOf(raw.uppercase(Locale.ROOT)) }.getOrNull()
     }
 
-    private fun playSound(path: String, fallback: String, volume: Float, pitch: Float) {
-        val raw = cfg.getString(path, fallback)
-        val sound = if (raw.isBlank()) null
-        else Registry.SOUNDS.get(NamespacedKey.minecraft(raw.lowercase(Locale.ROOT).replace('_', '.')))
+    private fun playSound(name: String, volume: Float, pitch: Float) {
+        if (name.isBlank()) return
+        val sound = Registry.SOUNDS.get(NamespacedKey.minecraft(name.lowercase(Locale.ROOT).replace('_', '.')))
         if (sound != null) pos.world?.playSound(pos, sound, volume, pitch)
     }
 

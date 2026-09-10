@@ -282,12 +282,22 @@ have. `PlayerClassData.arcaneCharge` (cleared in `clearCombatResources`).
   `blink-blast-charge` into Arcane Charge (`addArcaneChargeFromBlink`).
   `FeedbackService.mageBlink` / `mageBlinkBlast`. `safeBlinkDestination`
   now takes `(player, maxDistance, vertical)`.
-- **Fire aesthetic (2026-09-10):** the whole Arcane Bolt/Surge/Blink kit is
-  fire-themed - `mage.bolt.orb.block` MAGMA_BLOCK, `cast-sound`
-  item_firecharge_use, `impact-sound` entity_generic_explode, denser
-  `trail` (spacing 0.45, `accent: flame`), FLAME/LAVA impact + splash,
-  blaze/ghast/lava sounds on Surge/armed/blast/nova.
-- `classes.yml` `config-version` -> 3.
+- **Wand presets (2026-09-10):** the Mage staff's look is now a named
+  preset under `mage.wand-presets`, chosen by `mage.wand-preset` (default
+  `arcane-rod`). Each bundles `staff-item` (held Material), `orb-block`,
+  `cast-sound`, `impact-sound`, `impact-particle`, `impact-lava` (bool -
+  also flips Blink / nova / Surge cues to a fiery set), `impact-particles`,
+  `trail-color/-size/-spacing/-accent/-accent-every`, `surge-trail-color`,
+  `name`. Two shipped: **arcane-rod** ("The Arcane Rod", BREEZE_ROD +
+  amethyst/purple, the original look) and **magma-wand** ("The Magma
+  Wand", BLAZE_ROD + magma/fire). Resolved via new
+  `ClassesConfig.mageWandString/Int/Double/Boolean/Material(leaf, default)`
+  (`mage.wand-presets.<active>.<leaf>` -> default). `ArcaneBoltFlight`,
+  `PassiveService.castBoltSound` / surge+armed sounds / aura,
+  `ItemService.mageStaff`, `FeedbackService.mageFiery()` all read it. The
+  Arcane Bolt cooldown is keyed to the held staff's Material now (varies
+  by preset), not a hardcoded BLAZE_ROD.
+- `classes.yml` `config-version` -> 4.
 
 ## Mage Heal targeting: commit the highlight (2026-09-09)
 

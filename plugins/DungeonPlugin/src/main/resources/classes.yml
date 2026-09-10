@@ -6,7 +6,7 @@
 # replaced with this bundled copy on the next load - the balance numbers
 # here move often and are meant to be tuned in the plugin, not held on the
 # server across updates. (Raised whenever the bundled defaults change.)
-config-version: 3
+config-version: 4
 
 classes:
   # Turning this off leaves a dungeons-only server: no classes, no kits, no
@@ -248,7 +248,9 @@ mage:
   arcane-bolt-splash-radius: 2
   arcane-bolt-splash-damage-percent: 35.0
   # The bolt is a raycast, not a thrown entity: fast and straight, no gravity,
-  # with a glowing BlockDisplay orb and a dust trail riding the ray.
+  # with a glowing BlockDisplay orb and a dust trail. The numbers here are
+  # the mechanics every wand shares; the LOOK (held item, orb, trail,
+  # sounds) is the chosen wand-preset below.
   bolt:
     speed: 3.0                 # blocks per tick (~60 blocks/s)
     max-range: 40.0
@@ -257,25 +259,53 @@ mage:
     # Spawn the bolt this far in front of the caster's eyes so the trail
     # does not fill the screen when you fire standing still.
     muzzle-offset: 1.4
-    cast-sound: item_firecharge_use
-    impact-sound: entity_generic_explode
-    impact-particles: 20        # burst when the bolt strikes
-    splash-particles: 18        # burst at the delayed area splash
+    splash-particles: 16       # burst at the delayed area splash
     orb:
-      block: MAGMA_BLOCK
       scale: 0.35
       glow: true               # full emissive, visible in the dark
       spin-degrees-per-tick: 22.0
       view-range: 2.0
     trail:
-      color: "FF6D00"          # hex, ember orange
-      size: 0.6
-      spacing: 0.45            # blocks between dust points (lower = denser)
       start-gap: 1.0           # blocks of trail skipped past the muzzle
-      # A short-lived spark riding the trail. "flame" / "small_flame" read
-      # as fire and clear fast; "none" for a pure dust tail.
-      accent: flame
-      accent-every: 3          # one accent per this many dust points
+  # ---------------------------------------------------------------------
+  #  Mage wand presets
+  # ---------------------------------------------------------------------
+  # wand-preset picks one named look for the staff. Each preset bundles the
+  # held item, the projectile orb block, the trail, the cast/impact sounds,
+  # and whether the impact reads as fire (impact-lava also swaps Blink /
+  # nova / Surge cues to a fiery set). Copy a block to add your own.
+  wand-preset: arcane-rod
+  wand-presets:
+    arcane-rod:
+      name: "The Arcane Rod"
+      staff-item: BREEZE_ROD
+      orb-block: AMETHYST_BLOCK
+      cast-sound: block_amethyst_block_chime
+      impact-sound: block_amethyst_block_hit
+      impact-particle: WITCH
+      impact-lava: false
+      impact-particles: 12
+      trail-color: "B45AFF"       # mage purple
+      trail-size: 0.9
+      trail-spacing: 0.55
+      trail-accent: none          # crit / electric_spark are short-lived
+      trail-accent-every: 4
+      surge-trail-color: "D8B4FF"
+    magma-wand:
+      name: "The Magma Wand"
+      staff-item: BLAZE_ROD
+      orb-block: MAGMA_BLOCK
+      cast-sound: item_firecharge_use
+      impact-sound: entity_generic_explode
+      impact-particle: FLAME
+      impact-lava: true
+      impact-particles: 20
+      trail-color: "FF6D00"       # ember orange
+      trail-size: 0.6
+      trail-spacing: 0.45         # lower = denser
+      trail-accent: flame
+      trail-accent-every: 3
+      surge-trail-color: "FFC24D"
   # --- Arcane Charge -> Arcane Surge --------------------------------
   # Arcane Bolts that HIT a mob build Charge (charge-per-hit), plus a little
   # per cast (charge-per-cast). At charge-threshold your next bolt fires as
@@ -297,8 +327,6 @@ mage:
   surge-nova-min-rank: 5
   surge-nova-radius: 4.0
   surge-nova-damage-multiplier: 1.0
-  surge:
-    trail-color: "FFC24D"     # hot ember - the Surge bolt runs hotter
 
 # F-key (Swap Hands) abilities per class. Right-clicking the tagged Mage
 # staff casts Healing Spell.

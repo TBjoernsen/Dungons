@@ -10,7 +10,7 @@ import org.bukkit.inventory.ItemStack
 import org.bukkit.persistence.PersistentDataType
 
 /** The class layer's tagged items: shards, the Mage staff, and projectile marks. */
-class ItemService(plugin: DungeonPlugin) {
+class ItemService(private val plugin: DungeonPlugin) {
 
     private val itemKindKey = NamespacedKey(plugin, "item_kind")
     private val focusShotKey = NamespacedKey(plugin, "focus_shot")
@@ -31,8 +31,8 @@ class ItemService(plugin: DungeonPlugin) {
     )
 
     fun mageStaff(): ItemStack = taggedItem(
-        Material.BLAZE_ROD,
-        "§5Apprentice Staff",
+        plugin.classesConfig.mageWandMaterial("staff-item", Material.BLAZE_ROD),
+        "§5" + plugin.classesConfig.mageWandString("name", "Apprentice Staff"),
         listOf("§7A Mage's class weapon.", "§dLeft-click: Arcane Bolt", "§aRight-click: Healing Spell"),
         STAFF_KIND
     )
