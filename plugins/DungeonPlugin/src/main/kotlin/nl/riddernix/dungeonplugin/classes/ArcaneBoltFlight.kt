@@ -46,8 +46,9 @@ class ArcaneBoltFlight private constructor(
     private val maxRange = cfg.getDouble("mage.bolt.max-range", 40.0).coerceIn(4.0, 128.0)
     // Start the bolt out in front of the caster's face so the trail does not
     // erupt across the screen when you fire standing still.
-    private val muzzleOffset = cfg.getDouble("mage.bolt.muzzle-offset", 1.4).coerceIn(0.0, 4.0)
-    private val trailStartGap = cfg.getDouble("mage.bolt.trail.start-gap", 1.0).coerceIn(0.0, 8.0)
+    private val muzzleOffset = cfg.getDouble("mage.bolt.muzzle-offset", 2.0).coerceIn(0.0, 5.0)
+    private val trailStartGap = cfg.getDouble("mage.bolt.trail.start-gap", 1.5).coerceIn(0.0, 8.0)
+    private val fiery = cfg.mageWandBoolean("impact-lava", false)
     private var pos: Location = shooter.eyeLocation.clone()
         .add(direction.clone().multiply(muzzleOffset)).apply { y -= 0.15 }
     private var travelled = 0.0
@@ -109,12 +110,15 @@ class ArcaneBoltFlight private constructor(
             val mul = if (surge) 2.5 else 1.0
             val burst = (maxOf(0, cfg.mageWandInt("impact-particles", 12)) * mul).toInt()
             val world = pos.world
-            val fiery = cfg.mageWandBoolean("impact-lava", false)
             val main = runCatching { Particle.valueOf(cfg.mageWandString("impact-particle", "WITCH").uppercase(Locale.ROOT)) }
                 .getOrDefault(Particle.WITCH)
             world?.spawnParticle(main, pos, burst, 0.18, 0.18, 0.18, if (fiery) 0.05 else 0.1)
             world?.spawnParticle(Particle.DUST, pos, burst / 2, 0.2, 0.2, 0.2, 0.0, trailDust())
-            if (fiery) world?.spawnParticle(Particle.LAVA, pos, maxOf(1, burst / 4), 0.14, 0.14, 0.14, 0.0)
+            if (fiery) {
+                world?.spawnParticle(Particle.LAVA, pos, maxOf(1, burst / 4), 0.14, 0.14, 0.14, 0.0)
+            } else {
+                world?.spawnParticle(Particle.ENCHANT, pos, burst, 0.3, 0.3, 0.3, 0.4)
+            }
             if (surge) {
                 world?.spawnParticle(Particle.FLASH, pos, 1, 0.0, 0.0, 0.0, 0.0)
                 if (fiery) world?.spawnParticle(Particle.EXPLOSION, pos, 2, 0.2, 0.2, 0.2, 0.0)
@@ -165,6 +169,7 @@ class ArcaneBoltFlight private constructor(
         val spacing = cfg.mageWandDouble("trail-spacing", 0.55).coerceIn(0.1, 1.5)
         val accentEvery = maxOf(1, cfg.mageWandInt("trail-accent-every", 4))
         val accent = accentParticle()
+        val accent2 = accentParticle2()
         var d = 0.0
         var index = 0
         while (d < distance) {
@@ -174,6 +179,9 @@ class ArcaneBoltFlight private constructor(
             world.spawnParticle(Particle.DUST, at, 1, 0.02, 0.02, 0.02, 0.0, dust)
             if (accent != null && index % accentEvery == 0) {
                 world.spawnParticle(accent, at, 1, 0.03, 0.03, 0.03, 0.0)
+            }
+            if (accent2 != null && index % (accentEvery * 2) == 1) {
+                world.spawnParticle(accent2, at, 1, 0.04, 0.04, 0.04, 0.0)
             }
             d += spacing
             index++
@@ -188,10 +196,16 @@ class ArcaneBoltFlight private constructor(
         return Particle.DustOptions(Color.fromRGB((rgb shr 16) and 0xFF, (rgb shr 8) and 0xFF, rgb and 0xFF), size.toFloat())
     }
 
-    private fun accentParticle(): Particle? {
-        val raw = cfg.mageWandString("trail-accent", "none").trim()
-        if (raw.isEmpty() || raw.equals("none", true)) return null
-        return runCatching { Particle.valueOf(raw.uppercase(Locale.ROOT)) }.getOrNull()
+    private fun accentParticle(): Particle? = namedParticle(cfg.mageWandString("trail-accent", "none"))
+
+    /** A sparser second trail spark (config `trail-accent-2`, or ENCHANT for the arcane preset). */
+    private fun accentParticle2(): Particle? =
+        namedParticle(cfg.mageWandString("trail-accent-2", if (fiery) "none" else "enchant"))
+
+    private fun namedParticle(raw: String): Particle? {
+        val name = raw.trim()
+        if (name.isEmpty() || name.equals("none", true)) return null
+        return runCatching { Particle.valueOf(name.uppercase(Locale.ROOT)) }.getOrNull()
     }
 
     private fun playSound(name: String, volume: Float, pitch: Float) {

@@ -6,7 +6,7 @@
 # replaced with this bundled copy on the next load - the balance numbers
 # here move often and are meant to be tuned in the plugin, not held on the
 # server across updates. (Raised whenever the bundled defaults change.)
-config-version: 4
+config-version: 5
 
 classes:
   # Turning this off leaves a dungeons-only server: no classes, no kits, no
@@ -258,7 +258,7 @@ mage:
     direct-knockback: true     # false = damage-only on the direct hit too
     # Spawn the bolt this far in front of the caster's eyes so the trail
     # does not fill the screen when you fire standing still.
-    muzzle-offset: 1.4
+    muzzle-offset: 2.0
     splash-particles: 16       # burst at the delayed area splash
     orb:
       scale: 0.35
@@ -266,7 +266,7 @@ mage:
       spin-degrees-per-tick: 22.0
       view-range: 2.0
     trail:
-      start-gap: 1.0           # blocks of trail skipped past the muzzle
+      start-gap: 1.5           # blocks of trail skipped past the muzzle
   # ---------------------------------------------------------------------
   #  Mage wand presets
   # ---------------------------------------------------------------------
@@ -282,14 +282,17 @@ mage:
       orb-block: AMETHYST_BLOCK
       cast-sound: block_amethyst_block_chime
       impact-sound: block_amethyst_block_hit
-      impact-particle: WITCH
-      impact-lava: false
-      impact-particles: 12
-      trail-color: "B45AFF"       # mage purple
+      impact-particle: WITCH       # the main impact burst
+      impact-lava: false           # false = the arcane FX branch (WITCH + ENCHANT + purple)
+      impact-particles: 14
+      trail-color: "B45AFF"        # mage purple
       trail-size: 0.9
-      trail-spacing: 0.55
-      trail-accent: none          # crit / electric_spark are short-lived
+      trail-spacing: 0.5           # lower = denser
+      # The trail rides three particle types: DUST always, plus trail-accent
+      # every trail-accent-every points and trail-accent-2 half as often.
+      trail-accent: end_rod
       trail-accent-every: 4
+      trail-accent-2: enchant
       surge-trail-color: "D8B4FF"
     magma-wand:
       name: "The Magma Wand"
@@ -305,6 +308,7 @@ mage:
       trail-spacing: 0.45         # lower = denser
       trail-accent: flame
       trail-accent-every: 3
+      trail-accent-2: small_flame
       surge-trail-color: "FFC24D"
   # --- Arcane Charge -> Arcane Surge --------------------------------
   # Arcane Bolts that HIT a mob build Charge (charge-per-hit), plus a little

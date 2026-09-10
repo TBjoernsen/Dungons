@@ -297,7 +297,13 @@ have. `PlayerClassData.arcaneCharge` (cleared in `clearCombatResources`).
   `ItemService.mageStaff`, `FeedbackService.mageFiery()` all read it. The
   Arcane Bolt cooldown is keyed to the held staff's Material now (varies
   by preset), not a hardcoded BLAZE_ROD.
-- `classes.yml` `config-version` -> 4.
+- The trail rides up to three particle types: `DUST` always, plus
+  `trail-accent` every `trail-accent-every` points and a sparser
+  `trail-accent-2` (arcane-rod: END_ROD + ENCHANT; magma-wand: FLAME +
+  SMALL_FLAME). Non-fiery impact adds ENCHANT alongside WITCH + DUST.
+- Bigger face gap: `mage.bolt.muzzle-offset` 1.4 -> 2.0,
+  `mage.bolt.trail.start-gap` 1.0 -> 1.5.
+- `classes.yml` `config-version` -> 5.
 
 ## Mage Heal targeting: commit the highlight (2026-09-09)
 
