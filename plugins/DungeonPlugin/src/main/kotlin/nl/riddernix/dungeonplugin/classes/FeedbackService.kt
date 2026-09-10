@@ -276,34 +276,39 @@ class FeedbackService(private val plugin: DungeonPlugin) {
     /** Arcane Surge's rank-V nova at the bolt's impact point. */
     fun arcaneSurgeNova(centre: Location, radius: Double) {
         val world = centre.world ?: return
-        val purple = Particle.DustOptions(Color.fromRGB(190, 120, 255), 1.6f)
-        world.spawnParticle(Particle.DUST, centre, 40, radius * 0.5, 0.4, radius * 0.5, 0.0, purple)
-        world.spawnParticle(Particle.WITCH, centre, 30, radius * 0.4, 0.3, radius * 0.4, 0.1)
+        val ember = Particle.DustOptions(Color.fromRGB(255, 150, 45), 1.6f)
+        world.spawnParticle(Particle.DUST, centre, 40, radius * 0.5, 0.4, radius * 0.5, 0.0, ember)
+        world.spawnParticle(Particle.FLAME, centre, 40, radius * 0.45, 0.35, radius * 0.45, 0.06)
+        world.spawnParticle(Particle.LAVA, centre, 10, radius * 0.3, 0.25, radius * 0.3, 0.0)
+        world.spawnParticle(Particle.EXPLOSION_EMITTER, centre, 1, 0.0, 0.0, 0.0, 0.0)
         world.spawnParticle(Particle.FLASH, centre, 1, 0.0, 0.0, 0.0, 0.0)
-        world.playSound(centre, Sound.ENTITY_ILLUSIONER_CAST_SPELL, 0.7f, 0.8f)
-        world.playSound(centre, Sound.BLOCK_AMETHYST_BLOCK_CHIME, 0.8f, 0.55f)
+        world.playSound(centre, Sound.ENTITY_GENERIC_EXPLODE, 0.9f, 0.7f)
+        world.playSound(centre, Sound.ENTITY_BLAZE_SHOOT, 0.7f, 0.6f)
     }
 
-    /** Mage Blink: a poof at both ends and a teleport chime. */
+    /** Mage Blink: a flame poof at both ends and a fwoosh. */
     fun mageBlink(origin: Location, destination: Location) {
         origin.world?.let { w ->
-            w.spawnParticle(Particle.WITCH, origin.clone().add(0.0, 1.0, 0.0), 28, 0.3, 0.6, 0.3, 0.05)
-            w.playSound(origin, Sound.ENTITY_ENDERMAN_TELEPORT, 0.5f, 1.6f)
+            w.spawnParticle(Particle.FLAME, origin.clone().add(0.0, 1.0, 0.0), 26, 0.3, 0.6, 0.3, 0.06)
+            w.spawnParticle(Particle.LARGE_SMOKE, origin.clone().add(0.0, 0.8, 0.0), 8, 0.25, 0.4, 0.25, 0.02)
+            w.playSound(origin, Sound.ITEM_FIRECHARGE_USE, 0.6f, 0.9f)
         }
         destination.world?.let { w ->
-            w.spawnParticle(Particle.WITCH, destination.clone().add(0.0, 1.0, 0.0), 28, 0.3, 0.6, 0.3, 0.05)
-            w.spawnParticle(Particle.END_ROD, destination.clone().add(0.0, 1.0, 0.0), 12, 0.25, 0.5, 0.25, 0.03)
-            w.playSound(destination, Sound.BLOCK_AMETHYST_BLOCK_CHIME, 0.7f, 1.4f)
+            w.spawnParticle(Particle.FLAME, destination.clone().add(0.0, 1.0, 0.0), 26, 0.3, 0.6, 0.3, 0.06)
+            w.spawnParticle(Particle.LAVA, destination.clone().add(0.0, 1.0, 0.0), 6, 0.25, 0.5, 0.25, 0.0)
+            w.playSound(destination, Sound.ENTITY_BLAZE_SHOOT, 0.6f, 1.2f)
         }
     }
 
     /** Mage Blink departure blast: the space you left detonates. */
     fun mageBlinkBlast(centre: Location, radius: Double) {
         val world = centre.world ?: return
-        val purple = Particle.DustOptions(Color.fromRGB(180, 110, 255), 1.5f)
-        world.spawnParticle(Particle.DUST, centre.clone().add(0.0, 0.6, 0.0), 30, radius * 0.4, 0.3, radius * 0.4, 0.0, purple)
-        world.spawnParticle(Particle.WITCH, centre.clone().add(0.0, 0.6, 0.0), 20, radius * 0.35, 0.3, radius * 0.35, 0.08)
-        world.playSound(centre, Sound.ENTITY_ILLUSIONER_MIRROR_MOVE, 0.7f, 0.9f)
+        val ember = Particle.DustOptions(Color.fromRGB(255, 130, 40), 1.5f)
+        world.spawnParticle(Particle.DUST, centre.clone().add(0.0, 0.6, 0.0), 28, radius * 0.4, 0.3, radius * 0.4, 0.0, ember)
+        world.spawnParticle(Particle.FLAME, centre.clone().add(0.0, 0.6, 0.0), 24, radius * 0.35, 0.3, radius * 0.35, 0.06)
+        world.spawnParticle(Particle.EXPLOSION, centre.clone().add(0.0, 0.5, 0.0), 2, 0.2, 0.1, 0.2, 0.0)
+        world.playSound(centre, Sound.ENTITY_GENERIC_EXPLODE, 0.55f, 1.1f)
+        world.playSound(centre, Sound.BLOCK_LAVA_POP, 0.8f, 0.8f)
     }
 
     fun tauntTriggered(player: Player) {

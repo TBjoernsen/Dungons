@@ -282,7 +282,12 @@ have. `PlayerClassData.arcaneCharge` (cleared in `clearCombatResources`).
   `blink-blast-charge` into Arcane Charge (`addArcaneChargeFromBlink`).
   `FeedbackService.mageBlink` / `mageBlinkBlast`. `safeBlinkDestination`
   now takes `(player, maxDistance, vertical)`.
-- `classes.yml` `config-version` -> 2.
+- **Fire aesthetic (2026-09-10):** the whole Arcane Bolt/Surge/Blink kit is
+  fire-themed - `mage.bolt.orb.block` MAGMA_BLOCK, `cast-sound`
+  item_firecharge_use, `impact-sound` entity_generic_explode, denser
+  `trail` (spacing 0.45, `accent: flame`), FLAME/LAVA impact + splash,
+  blaze/ghast/lava sounds on Surge/armed/blast/nova.
+- `classes.yml` `config-version` -> 3.
 
 ## Mage Heal targeting: commit the highlight (2026-09-09)
 

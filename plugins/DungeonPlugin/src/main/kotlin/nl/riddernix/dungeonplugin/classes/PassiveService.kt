@@ -73,9 +73,10 @@ class PassiveService(private val plugin: DungeonPlugin) {
                 // Difficulty-3 signature enhancement, not a gate on casting.
                 data.mana = (data.mana + manaRegenerationPerSecond()).coerceAtMost(maxMana(rank))
                 if (rank > 0 && data.arcaneCharge >= chargeThreshold() && plugin.queries.isInDungeon(player)) {
-                    val purple = Particle.DustOptions(org.bukkit.Color.fromRGB(205, 140, 255), 1.2f)
-                    player.world.spawnParticle(Particle.DUST,
-                        player.location.clone().add(0.0, 1.1, 0.0), 4, 0.3, 0.5, 0.3, 0.0, purple)
+                    val ember = Particle.DustOptions(org.bukkit.Color.fromRGB(255, 140, 40), 1.2f)
+                    val at = player.location.clone().add(0.0, 1.1, 0.0)
+                    player.world.spawnParticle(Particle.DUST, at, 4, 0.3, 0.5, 0.3, 0.0, ember)
+                    player.world.spawnParticle(Particle.SMALL_FLAME, at, 3, 0.28, 0.45, 0.28, 0.0)
                 }
             } else {
                 data.mana = 0.0
@@ -590,8 +591,9 @@ class PassiveService(private val plugin: DungeonPlugin) {
             }
             player.setCooldown(Material.BLAZE_ROD, cooldownTicks)
             castBoltSound(player)
-            player.playSound(player.location, Sound.BLOCK_BEACON_POWER_SELECT, 0.7f, 0.8f)
-            player.sendActionBar(Component.text("§d§lARCANE SURGE!"))
+            player.playSound(player.location, Sound.ENTITY_BLAZE_SHOOT, 1.0f, 0.6f)
+            player.playSound(player.location, Sound.ENTITY_GHAST_SHOOT, 0.7f, 1.2f)
+            player.sendActionBar(Component.text("§6§lARCANE SURGE!"))
         } else {
             ArcaneBoltFlight.launch(plugin, player, arcaneBoltDamage(rank)) { impact, directTargetId ->
                 arcaneBoltSplash(player, impact, directTargetId)
@@ -623,8 +625,9 @@ class PassiveService(private val plugin: DungeonPlugin) {
         if (data.arcaneCharge >= threshold) return
         data.arcaneCharge = (data.arcaneCharge + amount).coerceAtMost(threshold)
         if (data.arcaneCharge >= threshold) {
-            player.sendActionBar(Component.text("§d§lARCANE SURGE §7- next bolt"))
-            player.playSound(player.location, Sound.BLOCK_BEACON_POWER_SELECT, 0.6f, 1.5f)
+            player.sendActionBar(Component.text("§6§lARCANE SURGE §7- next bolt"))
+            player.playSound(player.location, Sound.BLOCK_FURNACE_FIRE_CRACKLE, 1.0f, 1.4f)
+            player.playSound(player.location, Sound.ITEM_FIRECHARGE_USE, 0.4f, 1.6f)
         }
         plugin.refreshClassPlayer(player)
     }
@@ -654,10 +657,10 @@ class PassiveService(private val plugin: DungeonPlugin) {
     }
 
     private fun castBoltSound(player: Player) {
-        val raw = plugin.classesConfig.getString("mage.bolt.cast-sound", "block_amethyst_block_chime")
+        val raw = plugin.classesConfig.getString("mage.bolt.cast-sound", "item_firecharge_use")
         val sound = if (raw.isBlank()) null
         else org.bukkit.Registry.SOUNDS.get(org.bukkit.NamespacedKey.minecraft(raw.lowercase().replace('_', '.')))
-        if (sound != null) player.world.playSound(player.location, sound, 0.7f, 1.2f)
+        if (sound != null) player.world.playSound(player.location, sound, 0.7f, 1.0f)
     }
 
     /**
