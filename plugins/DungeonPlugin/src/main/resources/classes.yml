@@ -6,7 +6,7 @@
 # replaced with this bundled copy on the next load - the balance numbers
 # here move often and are meant to be tuned in the plugin, not held on the
 # server across updates. (Raised whenever the bundled defaults change.)
-config-version: 6
+config-version: 7
 
 classes:
   # Turning this off leaves a dungeons-only server: no classes, no kits, no
@@ -285,11 +285,13 @@ mage:
       impact-particle: WITCH       # the main impact burst
       impact-lava: false           # false = the arcane FX branch (WITCH + purple)
       impact-particles: 12
+      # This is the original, denser trail: big DUST plus an END_ROD spark
+      # riding every 3rd point - two particle types, reads full and bright.
       trail-color: "B45AFF"        # mage purple
-      trail-size: 0.6
-      trail-spacing: 0.7           # lower = denser
-      trail-accent: none           # end_rod lingers for several seconds if you want it back
-      trail-accent-every: 4
+      trail-size: 1.1
+      trail-spacing: 0.35          # lower = denser
+      trail-accent: end_rod
+      trail-accent-every: 3
       trail-accent-2: none
       surge-trail-color: "D8B4FF"
     magma-wand:

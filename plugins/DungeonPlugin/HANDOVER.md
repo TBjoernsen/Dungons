@@ -327,6 +327,17 @@ NOT reverted - those were the user's own later, deliberate tuning in
 
 `classes.yml` `config-version` -> 6.
 
+**Correction (2026-09-11):** `82c7d87` turned out to be the commit that
+*thinned* the trail, not the "beautiful" one the user remembered - it was
+literally titled "thinner, faster-fading dust trail". The look they meant
+is the original, `c0031cb` (the bolt's first version): `trail-size: 1.1`,
+`trail-spacing: 0.35` (dense), `trail-accent: end_rod` every 3rd point -
+two particle types (DUST + END_ROD), reading full and bright. Restored
+those three values on `arcane-rod` (kept the later `muzzle-offset`
+1.4 / `start-gap` 1.0 fix, since the dense trail's old problem - erupting
+in the caster's face - is exactly what that fixed, and the user separately
+asked to keep that gap). `config-version` -> 7.
+
 ## Mage Heal targeting: commit the highlight (2026-09-09)
 
 Symptom: the heal-target glow reached far but the heal only landed
