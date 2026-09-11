@@ -287,6 +287,8 @@ mage:
       impact-particles: 12
       # This is the original, denser trail: big DUST plus an END_ROD spark
       # riding every 3rd point - two particle types, reads full and bright.
+      # LOCKED (2026-09-11): trail-size/-spacing/-accent/-accent-every are
+      # confirmed correct - do not retune these four unless explicitly asked.
       trail-color: "B45AFF"        # mage purple
       trail-size: 1.1
       trail-spacing: 0.35          # lower = denser
