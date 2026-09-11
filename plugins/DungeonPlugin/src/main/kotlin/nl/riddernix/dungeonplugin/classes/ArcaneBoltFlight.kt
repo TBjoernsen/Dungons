@@ -20,7 +20,9 @@ import org.joml.Quaternionf
 import org.joml.Vector3f
 import java.util.Locale
 import kotlin.math.ceil
+import kotlin.math.cos
 import kotlin.math.max
+import kotlin.math.sin
 
 /**
  * The Mage's Arcane Bolt: a raycast, not a thrown entity.
@@ -56,6 +58,13 @@ class ArcaneBoltFlight private constructor(
     private val maxTicks = ceil(maxRange / speed).toInt() + 6
     private var spin = 0f
     private val hitIds = HashSet<java.util.UUID>()
+
+    // A perpendicular basis for the Surge's orbiting spiral trail - falls
+    // back to a fixed right vector if the caster is looking near-straight up
+    // or down, where direction x world-up degenerates.
+    private val spiralRight: Vector = direction.clone().crossProduct(Vector(0.0, 1.0, 0.0))
+        .let { if (it.lengthSquared() > 1e-6) it.normalize() else Vector(1.0, 0.0, 0.0) }
+    private val spiralUp: Vector = spiralRight.clone().crossProduct(direction).normalize()
     private val orbScale = (cfg.getDouble("mage.bolt.orb.scale", 0.35).coerceIn(0.05, 2.0) *
         (if (surge) 1.9 else 1.0)).toFloat()
 
@@ -119,10 +128,18 @@ class ArcaneBoltFlight private constructor(
             }
             if (surge) {
                 world?.spawnParticle(Particle.FLASH, pos, 1, 0.0, 0.0, 0.0, 0.0)
-                if (fiery) world?.spawnParticle(Particle.EXPLOSION, pos, 2, 0.2, 0.2, 0.2, 0.0)
+                if (fiery) {
+                    world?.spawnParticle(Particle.EXPLOSION, pos, 2, 0.2, 0.2, 0.2, 0.0)
+                } else {
+                    // A bright expanding ring - the Surge's signature "this was
+                    // not a normal bolt" beat, distinct from any normal impact.
+                    world?.spawnParticle(Particle.END_ROD, pos, 20, 0.3, 0.3, 0.3, 0.1)
+                    world?.spawnParticle(Particle.ENCHANT, pos, burst, 0.4, 0.4, 0.4, 0.5)
+                }
             }
             playSound(cfg.mageWandString("impact-sound", "block_amethyst_block_hit"),
                 if (surge) 0.9f else if (fiery) 0.45f else 0.9f, if (surge) 0.7f else 1.1f)
+            if (surge) playSound(if (fiery) "entity_blaze_shoot" else "block_beacon_activate", 0.6f, if (fiery) 0.7f else 1.5f)
         }
     }
 
@@ -181,6 +198,17 @@ class ArcaneBoltFlight private constructor(
             if (accent2 != null && index % (accentEvery * 2) == 1) {
                 world.spawnParticle(accent2, at, 1, 0.04, 0.04, 0.04, 0.0)
             }
+            // Arcane Surge rides a two-strand spiral around the straight
+            // line - a silhouette no normal bolt has, so it reads as a
+            // clearly bigger spell even at a glance.
+            if (surge) {
+                val angle = Math.toRadians(((travelled + d) * 130.0) % 360.0)
+                val offset = spiralRight.clone().multiply(cos(angle) * SPIRAL_RADIUS)
+                    .add(spiralUp.clone().multiply(sin(angle) * SPIRAL_RADIUS))
+                val spark = if (fiery) Particle.FLAME else Particle.END_ROD
+                world.spawnParticle(spark, at.clone().add(offset), 1, 0.0, 0.0, 0.0, 0.0)
+                world.spawnParticle(spark, at.clone().subtract(offset), 1, 0.0, 0.0, 0.0, 0.0)
+            }
             d += spacing
             index++
         }
@@ -213,6 +241,8 @@ class ArcaneBoltFlight private constructor(
     }
 
     companion object {
+        private const val SPIRAL_RADIUS = 0.28
+
         /**
          * Fires a bolt now. [pierce] is how many extra entities it can punch
          * through; [surge] swaps in the Arcane Surge look (bigger orb, brighter

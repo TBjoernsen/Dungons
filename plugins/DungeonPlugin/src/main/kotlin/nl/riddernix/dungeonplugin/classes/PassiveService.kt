@@ -595,6 +595,7 @@ class PassiveService(private val plugin: DungeonPlugin) {
             }
             player.setCooldown(staffMaterial, cooldownTicks)
             castBoltSound(player)
+            plugin.classFeedback.arcaneSurgeCast(player)
             if (cfg.mageWandBoolean("impact-lava", false)) {
                 player.playSound(player.location, Sound.ENTITY_BLAZE_SHOOT, 1.0f, 0.6f)
                 player.playSound(player.location, Sound.ENTITY_GHAST_SHOOT, 0.7f, 1.2f)
@@ -604,11 +605,18 @@ class PassiveService(private val plugin: DungeonPlugin) {
             }
             player.sendActionBar(Component.text("§6§lARCANE SURGE!"))
         } else {
+            // Exactly one Charge credit per cast: charge-per-hit when the bolt
+            // connects with a mob, charge-per-cast when it only hits a wall (or
+            // nothing at all). Never both - that was granting two increments
+            // for a single enemy hit.
             ArcaneBoltFlight.launch(plugin, player, arcaneBoltDamage(rank)) { impact, directTargetId ->
                 arcaneBoltSplash(player, impact, directTargetId)
-                if (directTargetId != null) addArcaneCharge(player, cfg.getDouble("mage.charge-per-hit", 3.0))
+                if (directTargetId != null) {
+                    addArcaneCharge(player, cfg.getDouble("mage.charge-per-hit", 3.0))
+                } else {
+                    addArcaneCharge(player, cfg.getDouble("mage.charge-per-cast", 1.0))
+                }
             }
-            addArcaneCharge(player, cfg.getDouble("mage.charge-per-cast", 1.0))
             player.setCooldown(staffMaterial, cooldownTicks)
             castBoltSound(player)
             player.sendActionBar(Component.text("§dArcane Bolt §7(-${manaCost.toInt()} Mana)"))

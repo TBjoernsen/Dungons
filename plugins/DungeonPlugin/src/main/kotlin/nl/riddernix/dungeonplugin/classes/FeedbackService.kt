@@ -276,6 +276,20 @@ class FeedbackService(private val plugin: DungeonPlugin) {
     /** True when the active Mage wand preset is the fiery kind (Magma Wand). */
     private fun mageFiery(): Boolean = plugin.classesConfig.mageWandBoolean("impact-lava", false)
 
+    /**
+     * Arcane Surge's ignition - a bright starburst at the muzzle the instant
+     * it fires, telegraphing "this one is not a normal bolt" before the
+     * projectile even leaves.
+     */
+    fun arcaneSurgeCast(player: Player) {
+        val at = player.eyeLocation.clone().add(player.eyeLocation.direction.multiply(0.6))
+        val fiery = mageFiery()
+        val tint = if (fiery) Color.fromRGB(255, 170, 60) else Color.fromRGB(216, 180, 255)
+        at.world?.spawnParticle(Particle.DUST, at, 28, 0.3, 0.3, 0.3, 0.0, Particle.DustOptions(tint, 1.7f))
+        at.world?.spawnParticle(if (fiery) Particle.FLAME else Particle.END_ROD, at, 20, 0.32, 0.32, 0.32, 0.06)
+        at.world?.spawnParticle(Particle.FLASH, at, 1, 0.0, 0.0, 0.0, 0.0)
+    }
+
     /** Arcane Surge's rank-V nova at the bolt's impact point. */
     fun arcaneSurgeNova(centre: Location, radius: Double) {
         val world = centre.world ?: return

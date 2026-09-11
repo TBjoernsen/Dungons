@@ -338,6 +338,32 @@ those three values on `arcane-rod` (kept the later `muzzle-offset`
 in the caster's face - is exactly what that fixed, and the user separately
 asked to keep that gap). `config-version` -> 7.
 
+## Arcane Surge: standout VFX + a Charge double-count fix (2026-09-11)
+
+- **Bug:** a normal (non-Surge) Arcane Bolt hitting a mob was granting
+  Charge TWICE for one hit - `mage.charge-per-hit` in the `onImpact`
+  lambda AND an unconditional `mage.charge-per-cast` right after
+  `ArcaneBoltFlight.launch(...)`, which ran synchronously regardless of
+  whether the bolt (still in flight) would go on to hit anything. Fixed:
+  both calls now live inside the single `onImpact` callback, mutually
+  exclusive - `charge-per-hit` on an entity hit, `charge-per-cast` only
+  when it hits a wall (or nothing) instead. Exactly one Charge credit per
+  cast, ever.
+- **Surge VFX**, so it reads as clearly bigger than a normal bolt at a
+  glance, not just "the same thing scaled up":
+  - `FeedbackService.arcaneSurgeCast` - a starburst at the muzzle the
+    instant it fires (DUST + END_ROD/FLAME + FLASH), before the
+    projectile even leaves.
+  - `ArcaneBoltFlight.drawTrail`: a two-strand spiral (END_ROD / FLAME)
+    orbiting the straight dust line when `surge` - a genuinely different
+    silhouette, not just a bigger version of the same line. New
+    `spiralRight`/`spiralUp` perpendicular basis (falls back to a fixed
+    right vector near-vertical aim) and `SPIRAL_RADIUS` (0.28).
+  - `finish()`: the arcane (non-fiery) Surge impact now also gets an
+    END_ROD ring (20) + ENCHANT burst, plus a layered
+    `block_beacon_activate` / `entity_blaze_shoot` sound on top of the
+    existing impact sound.
+
 ## Mage Heal targeting: commit the highlight (2026-09-09)
 
 Symptom: the heal-target glow reached far but the heal only landed
