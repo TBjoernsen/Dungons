@@ -46,8 +46,8 @@ class ArcaneBoltFlight private constructor(
     private val maxRange = cfg.getDouble("mage.bolt.max-range", 40.0).coerceIn(4.0, 128.0)
     // Start the bolt out in front of the caster's face so the trail does not
     // erupt across the screen when you fire standing still.
-    private val muzzleOffset = cfg.getDouble("mage.bolt.muzzle-offset", 2.0).coerceIn(0.0, 5.0)
-    private val trailStartGap = cfg.getDouble("mage.bolt.trail.start-gap", 1.5).coerceIn(0.0, 8.0)
+    private val muzzleOffset = cfg.getDouble("mage.bolt.muzzle-offset", 1.4).coerceIn(0.0, 4.0)
+    private val trailStartGap = cfg.getDouble("mage.bolt.trail.start-gap", 1.0).coerceIn(0.0, 8.0)
     private val fiery = cfg.mageWandBoolean("impact-lava", false)
     private var pos: Location = shooter.eyeLocation.clone()
         .add(direction.clone().multiply(muzzleOffset)).apply { y -= 0.15 }
@@ -112,12 +112,10 @@ class ArcaneBoltFlight private constructor(
             val world = pos.world
             val main = runCatching { Particle.valueOf(cfg.mageWandString("impact-particle", "WITCH").uppercase(Locale.ROOT)) }
                 .getOrDefault(Particle.WITCH)
-            world?.spawnParticle(main, pos, burst, 0.18, 0.18, 0.18, if (fiery) 0.05 else 0.1)
-            world?.spawnParticle(Particle.DUST, pos, burst / 2, 0.2, 0.2, 0.2, 0.0, trailDust())
+            world?.spawnParticle(main, pos, burst, 0.16, 0.16, 0.16, if (fiery) 0.05 else 0.1)
+            world?.spawnParticle(Particle.DUST, pos, burst / 2, 0.18, 0.18, 0.18, 0.0, trailDust())
             if (fiery) {
                 world?.spawnParticle(Particle.LAVA, pos, maxOf(1, burst / 4), 0.14, 0.14, 0.14, 0.0)
-            } else {
-                world?.spawnParticle(Particle.ENCHANT, pos, burst, 0.3, 0.3, 0.3, 0.4)
             }
             if (surge) {
                 world?.spawnParticle(Particle.FLASH, pos, 1, 0.0, 0.0, 0.0, 0.0)

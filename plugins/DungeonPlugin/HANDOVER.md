@@ -305,6 +305,28 @@ have. `PlayerClassData.arcaneCharge` (cleared in `clearCombatResources`).
   `mage.bolt.trail.start-gap` 1.0 -> 1.5.
 - `classes.yml` `config-version` -> 5.
 
+## Arcane Bolt: reverted to commit 82c7d87 (2026-09-11)
+
+At the user's request, the default `arcane-rod` look and the shared bolt
+mechanics were reverted to byte-for-byte match commit `82c7d87` (the
+"thinner, faster-fading dust trail" tuning, pre-dating wand presets and
+Arcane Charge): `muzzle-offset` 1.4, `trail.start-gap` 1.0, `arcane-rod`
+`impact-particles` 12 / `trail-size` 0.6 / `trail-spacing` 0.7 /
+`trail-accent` + `trail-accent-2` both `none`, `castBoltSound` pitch back
+to 1.2, `finish()` impact offsets back to 0.16/0.18 and the ENCHANT-on
+-non-fiery-impact addition removed.
+
+Deliberately KEPT (not part of the "look" the user was describing, and
+requested/kept separately): the Arcane Charge -> Surge mechanic
+(`pierce`/`surge` params, pierce continuation, Surge's own bigger-orb /
+brighter-trail / FLASH scaling), the wand-preset system, and the
+`magma-wand` preset + `BREEZE_ROD` staff item for `arcane-rod`. Balance
+numbers (`arcane-bolt-splash-radius`/`-damage-percent`, mana costs) were
+NOT reverted - those were the user's own later, deliberate tuning in
+`87fdd35`, unrelated to this ask.
+
+`classes.yml` `config-version` -> 6.
+
 ## Mage Heal targeting: commit the highlight (2026-09-09)
 
 Symptom: the heal-target glow reached far but the heal only landed

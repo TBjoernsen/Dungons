@@ -674,7 +674,7 @@ class PassiveService(private val plugin: DungeonPlugin) {
         val raw = plugin.classesConfig.mageWandString("cast-sound", "block_amethyst_block_chime")
         val sound = if (raw.isBlank()) null
         else org.bukkit.Registry.SOUNDS.get(org.bukkit.NamespacedKey.minecraft(raw.lowercase().replace('_', '.')))
-        if (sound != null) player.world.playSound(player.location, sound, 0.7f, 1.1f)
+        if (sound != null) player.world.playSound(player.location, sound, 0.7f, 1.2f)
     }
 
     /**
