@@ -421,6 +421,12 @@ mobs:
       max-party-size: 8
       # A solo run is the baseline at x1.0. There is no solo discount: the
       # numbers in mobs.difficulties are the solo numbers, so tune those.
+  # The boss.schem prefab's LIGHT_BLUE_WOOL boss-spawn marker is not centred
+  # in the arena, so honouring it puts the boss off to one side. Disabled so
+  # the boss always uses the geometric centre instead (see automaticBossCentre
+  # in DungeonMobManager). Flip back to true if the marker is ever
+  # repositioned deliberately (e.g. a themed arena with an off-centre dais).
+  boss-spawn-marker-enabled: false
   boss-bars:
     # Appears when the first player enters the boss arena, then remains visible
     # to every player still inside that dungeon world.
@@ -480,7 +486,11 @@ mobs:
   boss-summoning:
     # The sequence begins when a player enters the boss room. It always
     # completes, even if the arena becomes empty, so minions cannot remain
-    # pending forever. The boss is invulnerable during it by default.
+    # pending forever. The boss is damageable throughout by default (see
+    # invulnerable below) and, being a boss, never takes knockback
+    # (KNOCKBACK_RESISTANCE is forced to 1.0 for every boss in
+    # DungeonMobManager.prepareDungeonMob), so hits during the entrance
+    # cannot shove it off its scripted path.
     duration-ticks: 60
     hold-ticks: 15
     pulse-interval-ticks: 5
@@ -492,7 +502,7 @@ mobs:
     peak-sound: ENTITY_WITHER_SPAWN
     sound-volume: 2.0
     sound-pitch: 1.0
-    invulnerable: true
+    invulnerable: false
     # Scripted entrance replacing the default particle pulse. Known values:
     # rift_tear, none. A theme may override this in its own summoning block.
     animation: none
@@ -512,8 +522,11 @@ mobs:
         # Grows the ring and the burial depth with the boss's SCALE attribute,
         # so a scaled-up boss does not dwarf its own entrance.
         scale-with-boss: true
-        # Raising the boss out of the floor. Ignored unless the summoning
-        # sequence is invulnerable, because a buried boss must not be hurt.
+        # Raising the boss out of the floor. With invulnerable now false by
+        # default the boss can be hit while still buried; it cannot be
+        # knocked out of alignment (permanent knockback resistance) but a
+        # hit lands its flash/sound while clipped into the floor, which may
+        # read oddly - watch this in-game and reconsider if it looks wrong.
         rise: true
         rise-depth: 3.5
         particle: REVERSE_PORTAL

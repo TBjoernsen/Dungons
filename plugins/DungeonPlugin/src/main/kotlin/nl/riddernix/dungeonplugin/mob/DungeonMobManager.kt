@@ -436,7 +436,8 @@ class DungeonMobManager(private val plugin: DungeonPlugin) : Listener {
     }
 
     private fun bossCentre(dungeon: DungeonInstance, room: DungeonRoom, type: EntityType, stats: MobStats): Location? {
-        val marker = dungeon.bossSpawnLocation()
+        val marker = if (plugin.config.getBoolean("mobs.boss-spawn-marker-enabled", true))
+            dungeon.bossSpawnLocation() else null
         val base = Clearance.read(plugin.config, type)
         val scaled = Clearance(ceil(base.width * stats.scale).toInt(), ceil(base.height * stats.scale).toInt())
         if (marker == null) {
@@ -532,6 +533,9 @@ class DungeonMobManager(private val plugin: DungeonPlugin) : Listener {
         if (entity is CopperGolem) configureCopperGolem(entity, stats.damage, stats.attackReach)
         if (entity is IronGolem && boss) configureIronGolem(entity, stats.damage, stats.attackReach)
         applyStats(entity, stats)
+        // A boss is never launched by a hit, in combat or mid-entrance alike -
+        // overrides whatever mobs.difficulties configured for this category.
+        if (boss) setAttribute(entity, Attribute.KNOCKBACK_RESISTANCE, 1.0)
         applyWeapon(entity, stats.weapon)
         setDisplayName(entity, settings, role, displayName, displayNameVisible)
         clearArmor(entity)
