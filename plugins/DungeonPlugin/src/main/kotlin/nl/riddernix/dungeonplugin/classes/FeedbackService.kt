@@ -348,8 +348,16 @@ class FeedbackService(private val plugin: DungeonPlugin) {
 
     private fun updateTabName(player: Player) {
         val classType = plugin.classes.activeClass(player.uniqueId)
+        val prefix = classType?.let { type -> subclassTabPrefix(player, type) ?: type.tabPrefix } ?: ""
         @Suppress("DEPRECATION")
-        player.setPlayerListName((classType?.tabPrefix ?: "") + player.name)
+        player.setPlayerListName(prefix + player.name)
+    }
+
+    /** Once a mastery is chosen the bracketed title reads the subclass, not the base class - same colour. */
+    private fun subclassTabPrefix(player: Player, classType: ClassType): String? {
+        val subclassId = plugin.classes.subclass(player.uniqueId) ?: return null
+        val name = plugin.classesConfig.subclassOption(classType.id, subclassId)?.name ?: return null
+        return "${classType.tabPrefix.take(2)}[$name] §r"
     }
 
     private fun number(value: Double): String = String.format(Locale.US, "%.1f", value)
