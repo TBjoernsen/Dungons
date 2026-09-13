@@ -35,12 +35,12 @@ class MasterySelectionUI(private val plugin: DungeonPlugin) : Listener {
     private val actionKey = NamespacedKey(plugin, "mastery-hologram-action")
     private val sessionKey = NamespacedKey(plugin, "mastery-hologram-session")
 
-    fun open(player: Player, classType: ClassType, options: List<SubclassOption>) {
+    fun open(player: Player, classType: ClassType, options: List<SubclassOption>, forced: Boolean = false) {
         if (options.isEmpty()) return
         close(player)
         val origin = origin(player)
         val direction = player.location.direction.clone()
-        val session = lock(player, origin, direction, player.location.yaw)
+        val session = lock(player, origin, direction, player.location.yaw, forced)
         sessions[player.uniqueId] = session
         val spacing = 3.6
         val start = -spacing * (options.size - 1) / 2.0
@@ -56,8 +56,9 @@ class MasterySelectionUI(private val plugin: DungeonPlugin) : Listener {
         }
         session.entities += text(player, origin.clone().add(0.0, 2.25, 0.0),
             Component.text("CHOOSE YOUR MASTERY", NamedTextColor.GOLD))
-        session.entities += text(player, origin.clone().add(0.0, 1.85, 0.0),
-            Component.text("${classType.displayName} - this cannot be undone for free", NamedTextColor.GRAY))
+        val subtitle = if (forced) "${classType.displayName} - [admin] free, repeatable testing pick"
+            else "${classType.displayName} - this cannot be undone for free"
+        session.entities += text(player, origin.clone().add(0.0, 1.85, 0.0), Component.text(subtitle, NamedTextColor.GRAY))
         val close = place(origin, direction, 0.0, -0.75)
         session.entities += text(player, close, Component.text("[ CLOSE MENU ]", NamedTextColor.RED))
         session.entities += hitbox(player, close, "close", 2.1f, .65f)
@@ -106,7 +107,10 @@ class MasterySelectionUI(private val plugin: DungeonPlugin) : Listener {
     }
 
     private fun select(player: Player, subclassId: String) {
-        when (plugin.classes.chooseSubclass(player, subclassId)) {
+        val forced = sessions[player.uniqueId]?.forced == true
+        val result = if (forced) plugin.classes.forceSubclass(player, subclassId)
+            else plugin.classes.chooseSubclass(player, subclassId)
+        when (result) {
             SubclassResult.SUCCESS -> {
                 val classType = plugin.classes.activeClass(player.uniqueId)
                 val name = classType?.let { plugin.classesConfig.subclassOption(it.id, subclassId)?.name } ?: subclassId
@@ -162,9 +166,9 @@ class MasterySelectionUI(private val plugin: DungeonPlugin) : Listener {
         plugin.server.onlinePlayers.filter { it != player }.forEach { it.hideEntity(plugin, entity) }
     }
 
-    private fun lock(player: Player, origin: Location, direction: Vector, yaw: Float): Session {
+    private fun lock(player: Player, origin: Location, direction: Vector, yaw: Float, forced: Boolean): Session {
         restoreIfStuck(player)
-        val session = Session(player.uniqueId, player.walkSpeed, player.flySpeed, origin, direction, yaw)
+        val session = Session(player.uniqueId, player.walkSpeed, player.flySpeed, origin, direction, yaw, forced)
         player.walkSpeed = 0f
         player.flySpeed = 0f
         player.velocity = Vector()
@@ -193,6 +197,7 @@ class MasterySelectionUI(private val plugin: DungeonPlugin) : Listener {
         val origin: Location,
         val direction: Vector,
         val yaw: Float,
+        val forced: Boolean,
         val entities: MutableList<Entity> = mutableListOf()
     )
 }

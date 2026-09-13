@@ -212,19 +212,16 @@ class ClassCommands(private val plugin: DungeonPlugin) : CommandExecutor, TabCom
         player.sendMessage("§a${target.name} has unlocked Difficulty $difficulty.")
     }
 
-    /** The mastery/subclass step: `/skills mastery` to choose, `/skills mastery reset <branch> confirm` to switch. */
+    /**
+     * The mastery/subclass step: `/skills mastery` to choose,
+     * `/skills mastery reset <branch> confirm` to switch. An admin always
+     * gets the picker - no level, proximity or already-chosen gate, and the
+     * pick is free - so the flow can be replayed while it is being tested.
+     */
     private fun handleMastery(player: Player, args: Array<out String>) {
         val classType = plugin.classes.activeClass(player.uniqueId) ?: return
         if (args.size >= 2 && args[1].equals("reset", ignoreCase = true)) {
             handleMasteryReset(player, classType, args)
-            return
-        }
-        val current = plugin.classes.subclass(player.uniqueId)
-        if (current != null) {
-            val name = plugin.classesConfig.subclassOption(classType.id, current)?.name ?: current
-            val cost = plugin.classesConfig.subclassResetSoulShardCost(classType.id)
-            player.sendMessage("§dYour mastery: §f$name")
-            player.sendMessage("§7/skills mastery reset <branch> confirm §7switches for §b$cost Soul Shard(s)§7.")
             return
         }
         val options = plugin.classes.subclassOptions(classType)
@@ -232,15 +229,28 @@ class ClassCommands(private val plugin: DungeonPlugin) : CommandExecutor, TabCom
             player.sendMessage("§7${classType.displayName} has no mastery branches yet.")
             return
         }
-        if (!plugin.classes.isMasteryEligible(player)) {
-            player.sendMessage("§7Reach Level ${plugin.classesConfig.subclassUnlockLevel(classType.id)} to choose a mastery.")
-            return
+        val admin = player.hasPermission("dungeonplugin.admin")
+        if (!admin) {
+            val current = plugin.classes.subclass(player.uniqueId)
+            if (current != null) {
+                val name = plugin.classesConfig.subclassOption(classType.id, current)?.name ?: current
+                val cost = plugin.classesConfig.subclassResetSoulShardCost(classType.id)
+                player.sendMessage("§dYour mastery: §f$name")
+                player.sendMessage("§7/skills mastery reset <branch> confirm §7switches for §b$cost Soul Shard(s)§7.")
+                return
+            }
+            if (!plugin.classes.isMasteryEligible(player)) {
+                player.sendMessage("§7Reach Level ${plugin.classesConfig.subclassUnlockLevel(classType.id)} to choose a mastery.")
+                return
+            }
+            if (!nearOwnSkillPanel(player)) {
+                player.sendMessage("§7Stand near your skill tree to choose your mastery.")
+                return
+            }
+        } else {
+            player.sendMessage("§8[admin] Level, proximity and already-chosen checks skipped.")
         }
-        if (!nearOwnSkillPanel(player)) {
-            player.sendMessage("§7Stand near your skill tree to choose your mastery.")
-            return
-        }
-        plugin.masterySelection.open(player, classType, options)
+        plugin.masterySelection.open(player, classType, options, forced = admin)
     }
 
     private fun handleMasteryReset(player: Player, classType: ClassType, args: Array<out String>) {

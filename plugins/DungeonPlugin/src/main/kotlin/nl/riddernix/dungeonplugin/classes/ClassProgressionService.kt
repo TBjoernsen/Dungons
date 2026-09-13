@@ -297,6 +297,21 @@ class ClassProgressionService(private val plugin: DungeonPlugin) {
         return SubclassResult.SUCCESS
     }
 
+    /**
+     * Testing override for `/skills mastery` as an admin: sets the choice
+     * directly, ignoring level, proximity and any existing choice, free of
+     * cost. Mirrors [setDebugSignatureRank]'s spirit - a bypass for admins
+     * to see the flow repeatedly without grinding back to eligibility.
+     */
+    fun forceSubclass(player: Player, subclassId: String): SubclassResult {
+        val classType = activeClass(player.uniqueId) ?: return SubclassResult.NO_CLASS
+        val option = plugin.classesConfig.subclassOption(classType.id, subclassId) ?: return SubclassResult.UNKNOWN_SUBCLASS
+        data(player.uniqueId).subclassId = option.id
+        save()
+        plugin.refreshClassPlayer(player)
+        return SubclassResult.SUCCESS
+    }
+
     /** Swaps between the mastery options already unlocked, for Soul Shards - see `<class>.subclasses.reset-soul-shard-cost`. */
     fun resetSubclass(player: Player, subclassId: String): SubclassResult {
         val classType = activeClass(player.uniqueId) ?: return SubclassResult.NO_CLASS
