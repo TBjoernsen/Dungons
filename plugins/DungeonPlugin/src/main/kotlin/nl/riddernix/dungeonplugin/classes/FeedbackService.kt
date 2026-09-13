@@ -38,7 +38,11 @@ class FeedbackService(private val plugin: DungeonPlugin) {
         board.entries.forEach(board::resetScores)
 
         val data = plugin.classes.data(player.uniqueId)
-        val className = plugin.classes.activeClass(player.uniqueId)?.displayName ?: "Unchosen"
+        val activeClass = plugin.classes.activeClass(player.uniqueId)
+        val subclassName = activeClass?.let { type ->
+            plugin.classes.subclass(player.uniqueId)?.let { plugin.classesConfig.subclassOption(type.id, it)?.name }
+        }
+        val className = (activeClass?.displayName ?: "Unchosen") + (subclassName?.let { " ($it)" } ?: "")
         val maxHealth = player.getAttribute(Attribute.MAX_HEALTH)?.value ?: 20.0
         val attack = player.getAttribute(Attribute.ATTACK_DAMAGE)?.value ?: 1.0
         val armor = player.getAttribute(Attribute.ARMOR)?.value ?: 0.0
