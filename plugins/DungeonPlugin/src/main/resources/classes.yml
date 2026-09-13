@@ -87,6 +87,12 @@ shared-drop-table:
 # scale with a build's investment.
 bulk-reset-shard-rate: 0.60
 
+# Shared across every class's mastery/subclass step (see e.g. mage.subclasses
+# below). How close a player must stand to one of their own class's skill
+# tree panels to open /skills mastery.
+mastery:
+  select-radius: 6.0
+
 # Archer Focus: applied only at full Focus. This is the effective reduction
 # in the draw time needed to reach a given bow force; 25 means 25% faster
 # effective draw.
@@ -333,6 +339,21 @@ mage:
   surge-nova-min-rank: 5
   surge-nova-radius: 4.0
   surge-nova-damage-multiplier: 1.0
+  # --- Mastery subclass ------------------------------------------------
+  # At unlock-level, within range of the skill tree (mastery.select-radius
+  # below), a Mage picks one branch. Ability/VFX identity per branch is not
+  # built yet - this is the choice-and-storage layer only. Swapping branches
+  # later costs reset-soul-shard-cost Soul Shards (see /skills mastery).
+  subclasses:
+    unlock-level: 100
+    reset-soul-shard-cost: 20
+    options:
+      attack:
+        name: "Battlemage"
+        description: "Arcane Surge hits harder and reaches further."
+      support:
+        name: "Enchanter"
+        description: "Arcane Surge mends allies instead of striking foes."
 
 # F-key (Swap Hands) abilities per class. Right-clicking the tagged Mage
 # staff casts Healing Spell.

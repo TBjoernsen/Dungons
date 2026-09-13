@@ -246,11 +246,14 @@ class ClassProgressionService(private val plugin: DungeonPlugin) {
         // old cross-plugin flow read the new balance into the old profile,
         // which the merge makes structurally impossible: profiles carry no
         // point balance at all.
-        current?.let { data.classProfiles[it.id] = ClassProgress(data.level, data.experience, data.unlockedDifficulty) }
-        val restored = data.classProfiles.remove(requested.id) ?: ClassProgress(1, 0, 1)
+        current?.let {
+            data.classProfiles[it.id] = ClassProgress(data.level, data.experience, data.unlockedDifficulty, data.subclassId)
+        }
+        val restored = data.classProfiles.remove(requested.id) ?: ClassProgress(1, 0, 1, null)
         data.level = restored.level
         data.experience = restored.experience
         data.unlockedDifficulty = restored.unlockedDifficulty
+        data.subclassId = restored.subclassId
         data.clearCombatResources()
         val write = plugin.skillProgress.setActiveClass(player, requested.id)
         if (!write.isSuccess && write.status != SkillWriteStatus.UNCHANGED) {
@@ -265,6 +268,53 @@ class ClassProgressionService(private val plugin: DungeonPlugin) {
     }
 
     // ------------------------------------------------------------------
+    //  Mastery subclasses
+    // ------------------------------------------------------------------
+
+    fun subclass(playerId: UUID): String? = data(playerId).subclassId
+
+    fun subclassOptions(classType: ClassType): List<SubclassOption> = plugin.classesConfig.subclassOptions(classType.id)
+
+    /** Level reached, options configured, tree reachable, and no choice made yet. */
+    fun isMasteryEligible(player: Player): Boolean {
+        val classType = activeClass(player.uniqueId) ?: return false
+        val data = data(player.uniqueId)
+        if (data.subclassId != null) return false
+        val options = subclassOptions(classType)
+        if (options.isEmpty()) return false
+        return data.level >= plugin.classesConfig.subclassUnlockLevel(classType.id)
+    }
+
+    fun chooseSubclass(player: Player, subclassId: String): SubclassResult {
+        val classType = activeClass(player.uniqueId) ?: return SubclassResult.NO_CLASS
+        val data = data(player.uniqueId)
+        if (data.subclassId != null) return SubclassResult.ALREADY_CHOSEN
+        if (data.level < plugin.classesConfig.subclassUnlockLevel(classType.id)) return SubclassResult.TOO_LOW_LEVEL
+        val option = plugin.classesConfig.subclassOption(classType.id, subclassId) ?: return SubclassResult.UNKNOWN_SUBCLASS
+        data.subclassId = option.id
+        save()
+        plugin.refreshClassPlayer(player)
+        return SubclassResult.SUCCESS
+    }
+
+    /** Swaps between the mastery options already unlocked, for Soul Shards - see `<class>.subclasses.reset-soul-shard-cost`. */
+    fun resetSubclass(player: Player, subclassId: String): SubclassResult {
+        val classType = activeClass(player.uniqueId) ?: return SubclassResult.NO_CLASS
+        val data = data(player.uniqueId)
+        if (data.subclassId == null) return SubclassResult.NOT_CHOSEN_YET
+        val option = plugin.classesConfig.subclassOption(classType.id, subclassId) ?: return SubclassResult.UNKNOWN_SUBCLASS
+        if (option.id == data.subclassId) return SubclassResult.ALREADY_CHOSEN
+        val cost = plugin.classesConfig.subclassResetSoulShardCost(classType.id)
+        if (cost > 0 && !plugin.classItems.consume(player, cost, plugin.classItems::isSoulShard)) {
+            return SubclassResult.NEEDS_SOUL_SHARDS
+        }
+        data.subclassId = option.id
+        save()
+        plugin.refreshClassPlayer(player)
+        return SubclassResult.SUCCESS
+    }
+
+    // ------------------------------------------------------------------
     //  Admin utilities
     // ------------------------------------------------------------------
 
@@ -274,6 +324,7 @@ class ClassProgressionService(private val plugin: DungeonPlugin) {
         data.level = 1
         data.experience = 0
         data.unlockedDifficulty = 1
+        data.subclassId = null
         data.clearCombatResources()
         save()
         plugin.refreshClassPlayer(player)
@@ -385,13 +436,15 @@ class ClassProgressionService(private val plugin: DungeonPlugin) {
             data.focus = maxOf(0, yaml.getInt("$path.focus", 0))
             data.judgment = maxOf(0.0, yaml.getDouble("$path.judgment", 0.0))
             data.mana = maxOf(0.0, yaml.getDouble("$path.mana", 0.0))
+            data.subclassId = yaml.getString("$path.subclass")
             yaml.getConfigurationSection("$path.class-profiles")?.let { profiles ->
                 for (classKey in profiles.getKeys(false)) {
                     val profile = "$path.class-profiles.$classKey"
                     data.classProfiles[classKey.lowercase()] = ClassProgress(
                         yaml.getInt("$profile.level", 1).coerceIn(1, 100),
                         maxOf(0, yaml.getInt("$profile.experience", 0)),
-                        yaml.getInt("$profile.unlocked-difficulty", 1).coerceIn(1, 9))
+                        yaml.getInt("$profile.unlocked-difficulty", 1).coerceIn(1, 9),
+                        yaml.getString("$profile.subclass"))
                 }
             }
             byPlayer[playerId] = data
@@ -409,11 +462,13 @@ class ClassProgressionService(private val plugin: DungeonPlugin) {
             yaml.set("$path.focus", data.focus)
             yaml.set("$path.judgment", data.judgment)
             yaml.set("$path.mana", data.mana)
+            yaml.set("$path.subclass", data.subclassId)
             for ((classId, progress) in data.classProfiles) {
                 val profile = "$path.class-profiles.$classId"
                 yaml.set("$profile.level", progress.level)
                 yaml.set("$profile.experience", progress.experience)
                 yaml.set("$profile.unlocked-difficulty", progress.unlockedDifficulty)
+                yaml.set("$profile.subclass", progress.subclassId)
             }
         }
         try {
@@ -470,6 +525,14 @@ class PlayerClassData {
      */
     var debugSignatureRank: Int = -1
 
+    /**
+     * The chosen mastery branch's id (e.g. "attack", "support"), or `null`
+     * before Level [ClassesConfig.subclassUnlockLevel] / before a choice is
+     * made. Persistent, not a combat resource - untouched by
+     * [clearCombatResources].
+     */
+    var subclassId: String? = null
+
     /** Inactive class profiles. The active class stays in the top-level fields. */
     val classProfiles = LinkedHashMap<String, ClassProgress>()
 
@@ -488,8 +551,12 @@ class PlayerClassData {
     }
 }
 
-data class ClassProgress(val level: Int, val experience: Int, val unlockedDifficulty: Int)
+data class ClassProgress(val level: Int, val experience: Int, val unlockedDifficulty: Int, val subclassId: String? = null)
 
 data class DungeonDropResult(val skillShards: Int = 0, val soulShards: Int = 0)
 
 enum class SelectionResult { SUCCESS, ALREADY_SELECTED, LOCKED, NEEDS_SOUL_SHARD }
+
+enum class SubclassResult {
+    SUCCESS, NO_CLASS, TOO_LOW_LEVEL, ALREADY_CHOSEN, NOT_CHOSEN_YET, UNKNOWN_SUBCLASS, NEEDS_SOUL_SHARDS
+}

@@ -89,7 +89,34 @@ class ClassesConfig(private val plugin: DungeonPlugin) {
     fun mageWandMaterial(leaf: String, default: Material): Material =
         Material.matchMaterial(mageWandString(leaf, default.name).uppercase()) ?: default
 
+    // ------------------------------------------------------------------
+    //  Mastery subclasses
+    // ------------------------------------------------------------------
+    // A class may define a `subclasses` block once its base tree is done -
+    // an unlock level, a Soul Shard cost to switch between the options
+    // already chosen from, and the options themselves. A class with no
+    // options configured simply has no mastery step yet.
+
+    fun subclassUnlockLevel(classId: String): Int = maxOf(1, getInt("$classId.subclasses.unlock-level", 100))
+
+    fun subclassResetSoulShardCost(classId: String): Int =
+        maxOf(0, getInt("$classId.subclasses.reset-soul-shard-cost", 20))
+
+    fun subclassOptions(classId: String): List<SubclassOption> {
+        val section = yaml.getConfigurationSection("$classId.subclasses.options") ?: return emptyList()
+        return section.getKeys(false).map { key ->
+            val path = "$classId.subclasses.options.$key."
+            SubclassOption(key.lowercase(), getString(path + "name", key), getString(path + "description", ""))
+        }
+    }
+
+    fun subclassOption(classId: String, subclassId: String): SubclassOption? =
+        subclassOptions(classId).firstOrNull { it.id.equals(subclassId, ignoreCase = true) }
+
     companion object {
         private const val FILE_NAME = "classes.yml"
     }
 }
+
+/** One mastery branch a class's subclass step offers, read from `<class>.subclasses.options.<id>`. */
+data class SubclassOption(val id: String, val name: String, val description: String)

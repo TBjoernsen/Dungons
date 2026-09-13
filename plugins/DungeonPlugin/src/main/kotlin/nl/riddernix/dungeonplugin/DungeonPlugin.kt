@@ -11,6 +11,7 @@ import nl.riddernix.dungeonplugin.classes.DungeonKitService
 import nl.riddernix.dungeonplugin.classes.FeedbackService
 import nl.riddernix.dungeonplugin.classes.HolographicClassSelection
 import nl.riddernix.dungeonplugin.classes.ItemService
+import nl.riddernix.dungeonplugin.classes.MasterySelectionUI
 import nl.riddernix.dungeonplugin.classes.PassiveService
 import nl.riddernix.dungeonplugin.command.DungeonCommand
 import nl.riddernix.dungeonplugin.completion.DungeonCompletionManager
@@ -185,6 +186,8 @@ class DungeonPlugin : JavaPlugin() {
         private set
     lateinit var classPicker: HolographicClassSelection
         private set
+    lateinit var masterySelection: MasterySelectionUI
+        private set
 
     private var coreListener: CoreListener? = null
     private var roomScanTask: BukkitTask? = null
@@ -255,6 +258,7 @@ class DungeonPlugin : JavaPlugin() {
         classAbilities = AbilityService(this)
         classFeedback = FeedbackService(this)
         classPicker = HolographicClassSelection(this)
+        masterySelection = MasterySelectionUI(this)
 
         skillPanels = SkillPanelManager(this)
         skillPanels.load()
@@ -323,6 +327,7 @@ class DungeonPlugin : JavaPlugin() {
             server.pluginManager.registerEvents(core, this)
             server.pluginManager.registerEvents(classAbilities, this)
             server.pluginManager.registerEvents(classPicker, this)
+            server.pluginManager.registerEvents(masterySelection, this)
             server.pluginManager.registerEvents(ClassDungeonListener(this), this)
             val classCommands = ClassCommands(this)
             for (name in listOf("class", "skills", "skillshard", "soulshard")) {
@@ -413,6 +418,9 @@ class DungeonPlugin : JavaPlugin() {
         }
         if (this::classPicker.isInitialized) {
             classPicker.shutdown()
+        }
+        if (this::masterySelection.isInitialized) {
+            masterySelection.shutdown()
         }
         if (this::classes.isInitialized) {
             classes.save()
