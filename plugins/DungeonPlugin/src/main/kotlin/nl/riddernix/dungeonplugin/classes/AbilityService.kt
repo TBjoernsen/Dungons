@@ -134,9 +134,18 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         castMageHeal(event.player)
     }
 
+    /**
+     * A right-click resolves to THIS event, not [onMageHealAirClick], the
+     * instant any entity - a mob included - is within vanilla's short
+     * interact reach along the crosshair. Heal and the mastery ability both
+     * pick their own target independently (a player-only cone search, or a
+     * dedicated raycast) and never read [PlayerInteractEntityEvent.getRightClicked],
+     * so gating on "clicked a Player" was silently eating every cast made
+     * anywhere near a mob - a zombie horde in melee range being the worst of it.
+     */
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     fun onMageHealPlayerClick(event: PlayerInteractEntityEvent) {
-        if (event.hand != EquipmentSlot.HAND || event.rightClicked !is Player) return
+        if (event.hand != EquipmentSlot.HAND) return
         if (event.player.isSneaking) castMasteryAbility(event.player) else castMageHeal(event.player)
     }
 
@@ -465,10 +474,8 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
             return
         }
         val range = cfg.getDouble("abilities.mage.meteor-max-range", 20.0).coerceAtLeast(1.0)
-        val eye = caster.eyeLocation
-        val hit = caster.world.rayTraceBlocks(eye, eye.direction, range, FluidCollisionMode.NEVER, true)
-        val impact = hit?.hitPosition?.toLocation(caster.world) ?: run {
-            caster.sendActionBar(Component.text("No clear ground in range.", NamedTextColor.GRAY))
+        val impact = meteorImpactPoint(caster, range) ?: run {
+            caster.sendActionBar(Component.text("No clear target in range.", NamedTextColor.GRAY))
             return
         }
         data.mana -= cost
@@ -477,6 +484,28 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         MeteorSequence.launch(plugin, caster, impact)
         caster.sendActionBar(Component.text("Meteor! (-${cost.toInt()} Mana)", NamedTextColor.GOLD))
         plugin.refreshClassPlayer(caster)
+    }
+
+    /**
+     * Where Meteor lands: a raycast for solid ground, same as before, but
+     * now also a raycast for the nearest dungeon mob along the same line -
+     * whichever the crosshair reaches first wins. Aiming level at a crowd of
+     * mobs (their hitboxes, not the floor past them) used to sail clean over
+     * everything and miss; a mob hit lands the meteor at its feet instead.
+     */
+    private fun meteorImpactPoint(caster: Player, range: Double): Location? {
+        val eye = caster.eyeLocation
+        val direction = eye.direction
+        val blockHit = caster.world.rayTraceBlocks(eye, direction, range, FluidCollisionMode.NEVER, true)
+        val entityHit = caster.world.rayTraceEntities(eye, direction, range, 0.6) { candidate ->
+            candidate is LivingEntity && candidate != caster && plugin.queries.isDungeonMob(candidate)
+        }
+        val blockDistance = blockHit?.hitPosition?.distance(eye.toVector())
+        val entityDistance = entityHit?.hitPosition?.distance(eye.toVector())
+        if (entityDistance != null && (blockDistance == null || entityDistance <= blockDistance)) {
+            return entityHit!!.hitEntity?.location ?: entityHit.hitPosition.toLocation(caster.world)
+        }
+        return blockHit?.hitPosition?.toLocation(caster.world)
     }
 
     private fun safeBlinkDestination(player: Player, maxDistance: Double, vertical: Boolean): Location? {
