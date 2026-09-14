@@ -73,7 +73,7 @@ class PassiveService(private val plugin: DungeonPlugin) {
                 // Difficulty-3 signature enhancement, not a gate on casting.
                 data.mana = (data.mana + manaRegenerationPerSecond()).coerceAtMost(maxMana(rank))
                 if (rank > 0 && data.arcaneCharge >= chargeThreshold() && plugin.queries.isInDungeon(player)) {
-                    val fiery = plugin.classesConfig.mageWandBoolean("impact-lava", false)
+                    val fiery = plugin.classesConfig.mageWandBoolean("impact-lava", false, plugin.classes.subclass(player.uniqueId))
                     val tint = if (fiery) org.bukkit.Color.fromRGB(255, 140, 40) else org.bukkit.Color.fromRGB(205, 140, 255)
                     val at = player.location.clone().add(0.0, 1.1, 0.0)
                     player.world.spawnParticle(Particle.DUST, at, 4, 0.3, 0.5, 0.3, 0.0, Particle.DustOptions(tint, 1.2f))
@@ -596,7 +596,7 @@ class PassiveService(private val plugin: DungeonPlugin) {
             player.setCooldown(staffMaterial, cooldownTicks)
             castBoltSound(player)
             plugin.classFeedback.arcaneSurgeCast(player)
-            if (cfg.mageWandBoolean("impact-lava", false)) {
+            if (cfg.mageWandBoolean("impact-lava", false, plugin.classes.subclass(player.uniqueId))) {
                 player.playSound(player.location, Sound.ENTITY_BLAZE_SHOOT, 1.0f, 0.6f)
                 player.playSound(player.location, Sound.ENTITY_GHAST_SHOOT, 0.7f, 1.2f)
             } else {
@@ -643,7 +643,7 @@ class PassiveService(private val plugin: DungeonPlugin) {
         data.arcaneCharge = (data.arcaneCharge + amount).coerceAtMost(threshold)
         if (data.arcaneCharge >= threshold) {
             player.sendActionBar(Component.text("§6§lARCANE SURGE §7- next bolt"))
-            if (plugin.classesConfig.mageWandBoolean("impact-lava", false)) {
+            if (plugin.classesConfig.mageWandBoolean("impact-lava", false, plugin.classes.subclass(player.uniqueId))) {
                 player.playSound(player.location, Sound.BLOCK_FURNACE_FIRE_CRACKLE, 1.0f, 1.4f)
                 player.playSound(player.location, Sound.ITEM_FIRECHARGE_USE, 0.4f, 1.6f)
             } else {
@@ -674,12 +674,12 @@ class PassiveService(private val plugin: DungeonPlugin) {
                 if (mob is Player || !plugin.queries.isDungeonMob(mob)) continue
                 if (novaDamage > 0.0) mob.damage(novaDamage, player)
             }
-            plugin.classFeedback.arcaneSurgeNova(impact, radius)
+            plugin.classFeedback.arcaneSurgeNova(impact, radius, plugin.classes.subclass(player.uniqueId))
         }
     }
 
     private fun castBoltSound(player: Player) {
-        val raw = plugin.classesConfig.mageWandString("cast-sound", "block_amethyst_block_chime")
+        val raw = plugin.classesConfig.mageWandString("cast-sound", "block_amethyst_block_chime", plugin.classes.subclass(player.uniqueId))
         val sound = if (raw.isBlank()) null
         else org.bukkit.Registry.SOUNDS.get(org.bukkit.NamespacedKey.minecraft(raw.lowercase().replace('_', '.')))
         if (sound != null) player.world.playSound(player.location, sound, 0.7f, 1.2f)

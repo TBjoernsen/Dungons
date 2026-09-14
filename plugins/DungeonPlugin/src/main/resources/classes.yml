@@ -281,6 +281,10 @@ mage:
   # and whether the impact reads as fire (impact-lava also swaps Blink /
   # nova / Surge cues to a fiery set). Copy a block to add your own.
   wand-preset: arcane-rod
+  # A subclass in here overrides wand-preset above for that player only -
+  # this is what actually hands Battlemage the Magma Wand on mastery.
+  subclass-wand-presets:
+    attack: magma-wand
   wand-presets:
     arcane-rod:
       name: "The Arcane Rod"
@@ -312,8 +316,11 @@ mage:
       impact-lava: true
       impact-particles: 20
       trail-color: "FF6D00"       # ember orange
-      trail-size: 0.6
-      trail-spacing: 0.45         # lower = denser
+      # Same density as arcane-rod's locked trail (Battlemage's ask: "exact
+      # same particles, just fiery colors") - only the colour/particle
+      # flavour differs, not the rhythm.
+      trail-size: 1.1
+      trail-spacing: 0.35         # lower = denser
       trail-accent: flame
       trail-accent-every: 3
       trail-accent-2: small_flame

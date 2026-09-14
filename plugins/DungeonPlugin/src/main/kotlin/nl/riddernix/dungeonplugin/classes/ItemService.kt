@@ -30,9 +30,9 @@ class ItemService(private val plugin: DungeonPlugin) {
         SOUL_SHARD_KIND
     )
 
-    fun mageStaff(): ItemStack = taggedItem(
-        plugin.classesConfig.mageWandMaterial("staff-item", Material.BLAZE_ROD),
-        "§5" + plugin.classesConfig.mageWandString("name", "Apprentice Staff"),
+    fun mageStaff(subclassId: String?): ItemStack = taggedItem(
+        plugin.classesConfig.mageWandMaterial("staff-item", Material.BLAZE_ROD, subclassId),
+        "§5" + plugin.classesConfig.mageWandString("name", "Apprentice Staff", subclassId),
         listOf("§7A Mage's class weapon.", "§dLeft-click: Arcane Bolt", "§aRight-click: Healing Spell"),
         STAFF_KIND
     )

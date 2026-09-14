@@ -260,7 +260,7 @@ class ClassProgressionService(private val plugin: DungeonPlugin) {
             return SelectionResult.LOCKED
         }
         if (requested == ClassType.MAGE && player.inventory.contents.none { plugin.classItems.isStaff(it) }) {
-            plugin.classItems.give(player, plugin.classItems.mageStaff())
+            plugin.classItems.give(player, plugin.classItems.mageStaff(data.subclassId))
         }
         save()
         plugin.refreshClassPlayer(player)

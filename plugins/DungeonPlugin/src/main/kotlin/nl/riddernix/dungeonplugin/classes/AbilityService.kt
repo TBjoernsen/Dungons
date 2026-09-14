@@ -314,10 +314,10 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
             if (hits > 0) {
                 plugin.classPassives.addArcaneChargeFromBlink(player, cfg.getDouble("abilities.mage.blink-blast-charge", 2.0))
             }
-            plugin.classFeedback.mageBlinkBlast(origin, r)
+            plugin.classFeedback.mageBlinkBlast(origin, r, plugin.classes.subclass(player.uniqueId))
         }
 
-        plugin.classFeedback.mageBlink(origin, player.location)
+        plugin.classFeedback.mageBlink(origin, player.location, plugin.classes.subclass(player.uniqueId))
         player.sendActionBar(Component.text("Blink! (-${cost.toInt()} Mana)", NamedTextColor.LIGHT_PURPLE))
         return true
     }

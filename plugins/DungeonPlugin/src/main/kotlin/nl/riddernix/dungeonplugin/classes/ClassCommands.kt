@@ -97,7 +97,7 @@ class ClassCommands(private val plugin: DungeonPlugin) : CommandExecutor, TabCom
                 val target = args.getOrNull(1)?.let(plugin.server::getPlayerExact) ?: player
                 if (target != player && !player.hasPermission("dungeonplugin.admin")) return noPermission(player)
                 if (target != player || plugin.classes.activeClass(target.uniqueId) == ClassType.MAGE) {
-                    plugin.classItems.give(target, plugin.classItems.mageStaff())
+                    plugin.classItems.give(target, plugin.classItems.mageStaff(plugin.classes.subclass(target.uniqueId)))
                     player.sendMessage("§aMage staff given to ${target.name}.")
                 } else player.sendMessage("§cOnly Mages may claim a staff.")
             }

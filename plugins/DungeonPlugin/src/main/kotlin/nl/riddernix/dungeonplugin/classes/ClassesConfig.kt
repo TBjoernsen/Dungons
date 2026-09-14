@@ -71,23 +71,37 @@ class ClassesConfig(private val plugin: DungeonPlugin) {
     //  Mage wand presets
     // ------------------------------------------------------------------
     // The Mage staff's look (held item, projectile orb, trail, sounds) is a
-    // named preset under `mage.wand-presets`, chosen by `mage.wand-preset`.
-    // These resolve `mage.wand-presets.<active>.<leaf>`, falling back to the
-    // hard default when the key or the preset is missing.
+    // named preset under `mage.wand-presets`. Which preset applies is
+    // per-player: a subclass named in `mage.subclass-wand-presets.<id>` wins
+    // (e.g. Battlemage -> magma-wand), otherwise it falls back to the
+    // server-wide `mage.wand-preset` default. These resolve
+    // `mage.wand-presets.<active>.<leaf>`, falling back to the hard default
+    // when the key or the preset is missing. subclassId is the caster's
+    // chosen mastery branch (ClassProgressionService.subclass), or null.
 
-    private fun mageWandLeaf(leaf: String): Any? {
-        val preset = yaml.getString("mage.wand-preset").orEmpty()
+    fun mageWandPreset(subclassId: String?): String {
+        val override = subclassId?.let { yaml.getString("mage.subclass-wand-presets.$it") }
+        if (!override.isNullOrBlank()) return override
+        return yaml.getString("mage.wand-preset").orEmpty()
+    }
+
+    private fun mageWandLeaf(leaf: String, subclassId: String?): Any? {
+        val preset = mageWandPreset(subclassId)
         if (preset.isBlank()) return null
         return yaml.get("mage.wand-presets.$preset.$leaf")
     }
 
-    fun mageWandString(leaf: String, default: String): String = (mageWandLeaf(leaf) as? String) ?: default
-    fun mageWandInt(leaf: String, default: Int): Int = (mageWandLeaf(leaf) as? Number)?.toInt() ?: default
-    fun mageWandDouble(leaf: String, default: Double): Double = (mageWandLeaf(leaf) as? Number)?.toDouble() ?: default
-    fun mageWandBoolean(leaf: String, default: Boolean): Boolean = (mageWandLeaf(leaf) as? Boolean) ?: default
+    fun mageWandString(leaf: String, default: String, subclassId: String?): String =
+        (mageWandLeaf(leaf, subclassId) as? String) ?: default
+    fun mageWandInt(leaf: String, default: Int, subclassId: String?): Int =
+        (mageWandLeaf(leaf, subclassId) as? Number)?.toInt() ?: default
+    fun mageWandDouble(leaf: String, default: Double, subclassId: String?): Double =
+        (mageWandLeaf(leaf, subclassId) as? Number)?.toDouble() ?: default
+    fun mageWandBoolean(leaf: String, default: Boolean, subclassId: String?): Boolean =
+        (mageWandLeaf(leaf, subclassId) as? Boolean) ?: default
 
-    fun mageWandMaterial(leaf: String, default: Material): Material =
-        Material.matchMaterial(mageWandString(leaf, default.name).uppercase()) ?: default
+    fun mageWandMaterial(leaf: String, default: Material, subclassId: String?): Material =
+        Material.matchMaterial(mageWandString(leaf, default.name, subclassId).uppercase()) ?: default
 
     // ------------------------------------------------------------------
     //  Mastery subclasses

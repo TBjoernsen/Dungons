@@ -52,7 +52,7 @@ class DungeonKitService(private val plugin: DungeonPlugin) {
                 player.inventory.setItem(8, ItemStack(Material.ARROW))
             }
             ClassType.PALADIN -> player.inventory.setItem(0, unbreakable(ItemStack(Material.NETHERITE_AXE)))
-            ClassType.MAGE -> player.inventory.setItem(0, plugin.classItems.mageStaff())
+            ClassType.MAGE -> player.inventory.setItem(0, plugin.classItems.mageStaff(plugin.classes.subclass(player.uniqueId)))
         }
         player.updateInventory()
         player.sendMessage("§6Dungeon kit equipped. §7Your inventory will return when the dungeon ends.")

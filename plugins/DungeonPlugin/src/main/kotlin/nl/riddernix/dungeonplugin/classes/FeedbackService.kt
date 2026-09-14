@@ -277,8 +277,8 @@ class FeedbackService(private val plugin: DungeonPlugin) {
         target.world.playSound(target.location, Sound.ITEM_ARMOR_EQUIP_GOLD, 0.7f, 1.2f)
     }
 
-    /** True when the active Mage wand preset is the fiery kind (Magma Wand). */
-    private fun mageFiery(): Boolean = plugin.classesConfig.mageWandBoolean("impact-lava", false)
+    /** True when the caster's Mage wand preset is the fiery kind (Magma Wand). */
+    private fun mageFiery(subclassId: String?): Boolean = plugin.classesConfig.mageWandBoolean("impact-lava", false, subclassId)
 
     /**
      * Arcane Surge's ignition - a bright starburst at the muzzle the instant
@@ -287,7 +287,7 @@ class FeedbackService(private val plugin: DungeonPlugin) {
      */
     fun arcaneSurgeCast(player: Player) {
         val at = player.eyeLocation.clone().add(player.eyeLocation.direction.multiply(0.6))
-        val fiery = mageFiery()
+        val fiery = mageFiery(plugin.classes.subclass(player.uniqueId))
         val tint = if (fiery) Color.fromRGB(255, 170, 60) else Color.fromRGB(216, 180, 255)
         at.world?.spawnParticle(Particle.DUST, at, 28, 0.3, 0.3, 0.3, 0.0, Particle.DustOptions(tint, 1.7f))
         at.world?.spawnParticle(if (fiery) Particle.FLAME else Particle.END_ROD, at, 20, 0.32, 0.32, 0.32, 0.06)
@@ -295,10 +295,10 @@ class FeedbackService(private val plugin: DungeonPlugin) {
     }
 
     /** Arcane Surge's rank-V nova at the bolt's impact point. */
-    fun arcaneSurgeNova(centre: Location, radius: Double) {
+    fun arcaneSurgeNova(centre: Location, radius: Double, subclassId: String?) {
         val world = centre.world ?: return
         world.spawnParticle(Particle.FLASH, centre, 1, 0.0, 0.0, 0.0, 0.0)
-        if (mageFiery()) {
+        if (mageFiery(subclassId)) {
             world.spawnParticle(Particle.DUST, centre, 40, radius * 0.5, 0.4, radius * 0.5, 0.0,
                 Particle.DustOptions(Color.fromRGB(255, 150, 45), 1.6f))
             world.spawnParticle(Particle.FLAME, centre, 40, radius * 0.45, 0.35, radius * 0.45, 0.06)
@@ -316,8 +316,8 @@ class FeedbackService(private val plugin: DungeonPlugin) {
     }
 
     /** Mage Blink: a poof at both ends and a fwoosh, tinted to the wand preset. */
-    fun mageBlink(origin: Location, destination: Location) {
-        val fiery = mageFiery()
+    fun mageBlink(origin: Location, destination: Location, subclassId: String?) {
+        val fiery = mageFiery(subclassId)
         val puff = if (fiery) Particle.FLAME else Particle.WITCH
         origin.world?.let { w ->
             w.spawnParticle(puff, origin.clone().add(0.0, 1.0, 0.0), 26, 0.3, 0.6, 0.3, 0.05)
@@ -331,9 +331,9 @@ class FeedbackService(private val plugin: DungeonPlugin) {
     }
 
     /** Mage Blink departure blast: the space you left detonates. */
-    fun mageBlinkBlast(centre: Location, radius: Double) {
+    fun mageBlinkBlast(centre: Location, radius: Double, subclassId: String?) {
         val world = centre.world ?: return
-        val fiery = mageFiery()
+        val fiery = mageFiery(subclassId)
         val tint = if (fiery) Color.fromRGB(255, 130, 40) else Color.fromRGB(180, 110, 255)
         world.spawnParticle(Particle.DUST, centre.clone().add(0.0, 0.6, 0.0), 28, radius * 0.4, 0.3, radius * 0.4, 0.0, Particle.DustOptions(tint, 1.5f))
         world.spawnParticle(if (fiery) Particle.FLAME else Particle.WITCH, centre.clone().add(0.0, 0.6, 0.0), 22, radius * 0.35, 0.3, radius * 0.35, 0.06)

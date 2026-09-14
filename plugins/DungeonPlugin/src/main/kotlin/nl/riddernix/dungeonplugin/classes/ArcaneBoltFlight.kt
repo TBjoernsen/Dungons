@@ -43,6 +43,7 @@ class ArcaneBoltFlight private constructor(
 ) : BukkitRunnable() {
 
     private val cfg get() = plugin.classesConfig
+    private val subclassId = plugin.classes.subclass(shooter.uniqueId)
     private val direction: Vector = shooter.eyeLocation.direction.normalize()
     private val speed = cfg.getDouble("mage.bolt.speed", 3.0).coerceIn(0.5, 12.0)
     private val maxRange = cfg.getDouble("mage.bolt.max-range", 40.0).coerceIn(4.0, 128.0)
@@ -50,7 +51,7 @@ class ArcaneBoltFlight private constructor(
     // erupt across the screen when you fire standing still.
     private val muzzleOffset = cfg.getDouble("mage.bolt.muzzle-offset", 1.4).coerceIn(0.0, 4.0)
     private val trailStartGap = cfg.getDouble("mage.bolt.trail.start-gap", 1.0).coerceIn(0.0, 8.0)
-    private val fiery = cfg.mageWandBoolean("impact-lava", false)
+    private val fiery = cfg.mageWandBoolean("impact-lava", false, subclassId)
     private var pos: Location = shooter.eyeLocation.clone()
         .add(direction.clone().multiply(muzzleOffset)).apply { y -= 0.15 }
     private var travelled = 0.0
@@ -117,9 +118,9 @@ class ArcaneBoltFlight private constructor(
         orb.remove()
         if (hit) {
             val mul = if (surge) 2.5 else 1.0
-            val burst = (maxOf(0, cfg.mageWandInt("impact-particles", 12)) * mul).toInt()
+            val burst = (maxOf(0, cfg.mageWandInt("impact-particles", 12, subclassId)) * mul).toInt()
             val world = pos.world
-            val main = runCatching { Particle.valueOf(cfg.mageWandString("impact-particle", "WITCH").uppercase(Locale.ROOT)) }
+            val main = runCatching { Particle.valueOf(cfg.mageWandString("impact-particle", "WITCH", subclassId).uppercase(Locale.ROOT)) }
                 .getOrDefault(Particle.WITCH)
             world?.spawnParticle(main, pos, burst, 0.16, 0.16, 0.16, if (fiery) 0.05 else 0.1)
             world?.spawnParticle(Particle.DUST, pos, burst / 2, 0.18, 0.18, 0.18, 0.0, trailDust())
@@ -137,7 +138,7 @@ class ArcaneBoltFlight private constructor(
                     world?.spawnParticle(Particle.ENCHANT, pos, burst, 0.4, 0.4, 0.4, 0.5)
                 }
             }
-            playSound(cfg.mageWandString("impact-sound", "block_amethyst_block_hit"),
+            playSound(cfg.mageWandString("impact-sound", "block_amethyst_block_hit", subclassId),
                 if (surge) 0.9f else if (fiery) 0.45f else 0.9f, if (surge) 0.7f else 1.1f)
             if (surge) playSound(if (fiery) "entity_blaze_shoot" else "block_beacon_activate", 0.6f, if (fiery) 0.7f else 1.5f)
         }
@@ -146,7 +147,7 @@ class ArcaneBoltFlight private constructor(
     // ------------------------------------------------------------------
 
     private fun spawnOrb(): BlockDisplay {
-        val material = cfg.mageWandMaterial("orb-block", Material.AMETHYST_BLOCK)
+        val material = cfg.mageWandMaterial("orb-block", Material.AMETHYST_BLOCK, subclassId)
             .takeIf { it.isBlock } ?: Material.AMETHYST_BLOCK
         val glow = cfg.getBoolean("mage.bolt.orb.glow", true)
         return pos.world!!.spawn(pos, BlockDisplay::class.java) { d ->
@@ -181,8 +182,8 @@ class ArcaneBoltFlight private constructor(
     private fun drawTrail(from: Location, distance: Double) {
         val world = from.world ?: return
         val dust = trailDust()
-        val spacing = cfg.mageWandDouble("trail-spacing", 0.55).coerceIn(0.1, 1.5)
-        val accentEvery = maxOf(1, cfg.mageWandInt("trail-accent-every", 4))
+        val spacing = cfg.mageWandDouble("trail-spacing", 0.55, subclassId).coerceIn(0.1, 1.5)
+        val accentEvery = maxOf(1, cfg.mageWandInt("trail-accent-every", 4, subclassId))
         val accent = accentParticle()
         val accent2 = accentParticle2()
         var d = 0.0
@@ -216,17 +217,17 @@ class ArcaneBoltFlight private constructor(
 
     private fun trailDust(): Particle.DustOptions {
         val leaf = if (surge) "surge-trail-color" else "trail-color"
-        val hex = cfg.mageWandString(leaf, if (surge) "D8B4FF" else "B45AFF").trim().removePrefix("#")
+        val hex = cfg.mageWandString(leaf, if (surge) "D8B4FF" else "B45AFF", subclassId).trim().removePrefix("#")
         val rgb = runCatching { hex.toInt(16) }.getOrNull() ?: 0xB45AFF
-        val size = cfg.mageWandDouble("trail-size", 0.9).coerceIn(0.1, 4.0) * (if (surge) 1.7 else 1.0)
+        val size = cfg.mageWandDouble("trail-size", 0.9, subclassId).coerceIn(0.1, 4.0) * (if (surge) 1.7 else 1.0)
         return Particle.DustOptions(Color.fromRGB((rgb shr 16) and 0xFF, (rgb shr 8) and 0xFF, rgb and 0xFF), size.toFloat())
     }
 
-    private fun accentParticle(): Particle? = namedParticle(cfg.mageWandString("trail-accent", "none"))
+    private fun accentParticle(): Particle? = namedParticle(cfg.mageWandString("trail-accent", "none", subclassId))
 
     /** A sparser second trail spark (config `trail-accent-2`, or ENCHANT for the arcane preset). */
     private fun accentParticle2(): Particle? =
-        namedParticle(cfg.mageWandString("trail-accent-2", if (fiery) "none" else "enchant"))
+        namedParticle(cfg.mageWandString("trail-accent-2", if (fiery) "none" else "enchant", subclassId))
 
     private fun namedParticle(raw: String): Particle? {
         val name = raw.trim()
