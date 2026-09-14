@@ -105,6 +105,14 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
     fun isWindJumping(player: Player): Boolean =
         (windJumpUntil[player.uniqueId] ?: 0L) > System.currentTimeMillis() && !player.isOnGround
 
+    /**
+     * TEMPORARY: traces every Heal/Blessing/Meteor decision to the console so
+     * "it does nothing" reports have an actual cause instead of another guess.
+     * Remove once the underlying issue is confirmed fixed.
+     */
+    private fun debug(player: Player, message: String) =
+        plugin.logger.info("[mage-cast] ${player.name}: $message")
+
     fun remove(player: Player) {
         cooldownUntil.remove(player.uniqueId)
         mageHealCooldownUntil.remove(player.uniqueId)
@@ -117,6 +125,7 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     fun onMageHealAirClick(event: PlayerInteractEvent) {
+        debug(event.player, "onMageHealAirClick action=${event.action} hand=${event.hand} sneaking=${event.player.isSneaking} clickedBlock=${event.clickedBlock?.type}")
         if (event.hand != EquipmentSlot.HAND || !event.action.isRightClick) return
         // Shift is the caster deliberately overriding "interact with the
         // block" (the same vanilla convention that lets a sneaking player
@@ -130,7 +139,10 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         // still cast the heal; only blocks with a real menu/use retain their
         // normal interaction.
         val clicked = event.clickedBlock?.type
-        if (event.action == Action.RIGHT_CLICK_BLOCK && clicked != null && hasRealInteraction(clicked)) return
+        if (event.action == Action.RIGHT_CLICK_BLOCK && clicked != null && hasRealInteraction(clicked)) {
+            debug(event.player, "onMageHealAirClick blocked by hasRealInteraction($clicked)")
+            return
+        }
         castMageHeal(event.player)
     }
 
@@ -145,6 +157,7 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
      */
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     fun onMageHealPlayerClick(event: PlayerInteractEntityEvent) {
+        debug(event.player, "onMageHealPlayerClick hand=${event.hand} sneaking=${event.player.isSneaking} rightClicked=${event.rightClicked.type}")
         if (event.hand != EquipmentSlot.HAND) return
         if (event.player.isSneaking) castMasteryAbility(event.player) else castMageHeal(event.player)
     }
@@ -370,13 +383,23 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
     }
 
     private fun castMageHeal(caster: Player) {
-        if (!plugin.queries.isInDungeon(caster)) return
-        if (plugin.classes.activeClass(caster.uniqueId) != ClassType.MAGE) return
-        if (!plugin.classItems.isStaff(caster.inventory.itemInMainHand)) return
+        if (!plugin.queries.isInDungeon(caster)) {
+            debug(caster, "castMageHeal: not in a dungeon")
+            return
+        }
+        if (plugin.classes.activeClass(caster.uniqueId) != ClassType.MAGE) {
+            debug(caster, "castMageHeal: active class is ${plugin.classes.activeClass(caster.uniqueId)}, not MAGE")
+            return
+        }
+        if (!plugin.classItems.isStaff(caster.inventory.itemInMainHand)) {
+            debug(caster, "castMageHeal: main hand ${caster.inventory.itemInMainHand.type} is not the staff")
+            return
+        }
 
         val now = System.currentTimeMillis()
         val remaining = (mageHealCooldownUntil[caster.uniqueId] ?: 0L) - now
         if (remaining > 0) {
+            debug(caster, "castMageHeal: on cooldown for ${remaining}ms")
             caster.sendActionBar(Component.text("Healing spell ready in ${ceil(remaining / 1000.0).toInt()}s.", NamedTextColor.GRAY))
             return
         }
@@ -384,9 +407,11 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         val data = plugin.classes.data(caster.uniqueId)
         val cost = plugin.classesConfig.getDouble("abilities.mage.heal-mana-cost", 50.0).coerceAtLeast(0.0)
         if (data.mana < cost) {
+            debug(caster, "castMageHeal: not enough mana (${data.mana} < $cost)")
             caster.sendActionBar(Component.text("Not enough Mana (${cost.toInt()} required).", NamedTextColor.RED))
             return
         }
+        debug(caster, "castMageHeal: casting")
 
         val target = currentHealTarget(caster) ?: caster
         data.mana -= cost
@@ -408,10 +433,21 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
 
     /** Shift + Right-click with the staff: the mastery-specific ability, gated on having chosen one. */
     private fun castMasteryAbility(caster: Player) {
-        if (!plugin.queries.isInDungeon(caster)) return
-        if (plugin.classes.activeClass(caster.uniqueId) != ClassType.MAGE) return
-        if (!plugin.classItems.isStaff(caster.inventory.itemInMainHand)) return
-        when (plugin.classes.subclass(caster.uniqueId)) {
+        if (!plugin.queries.isInDungeon(caster)) {
+            debug(caster, "castMasteryAbility: not in a dungeon")
+            return
+        }
+        if (plugin.classes.activeClass(caster.uniqueId) != ClassType.MAGE) {
+            debug(caster, "castMasteryAbility: active class is ${plugin.classes.activeClass(caster.uniqueId)}, not MAGE")
+            return
+        }
+        if (!plugin.classItems.isStaff(caster.inventory.itemInMainHand)) {
+            debug(caster, "castMasteryAbility: main hand ${caster.inventory.itemInMainHand.type} is not the staff")
+            return
+        }
+        val subclass = plugin.classes.subclass(caster.uniqueId)
+        debug(caster, "castMasteryAbility: subclass=$subclass")
+        when (subclass) {
             "support" -> castBlessing(caster)
             "attack" -> castMeteor(caster)
             else -> caster.sendActionBar(Component.text("Requires a mastery - visit your skill tree at Level 100.", NamedTextColor.GRAY))
@@ -429,16 +465,19 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         val now = System.currentTimeMillis()
         val remaining = (blessingCooldownUntil[caster.uniqueId] ?: 0L) - now
         if (remaining > 0) {
+            debug(caster, "castBlessing: on cooldown for ${remaining}ms")
             caster.sendActionBar(Component.text("Blessing ready in ${ceil(remaining / 1000.0).toInt()}s.", NamedTextColor.GRAY))
             return
         }
         val data = plugin.classes.data(caster.uniqueId)
         val cost = cfg.getDouble("abilities.mage.blessing-mana-cost", 40.0).coerceAtLeast(0.0)
         if (data.mana < cost) {
+            debug(caster, "castBlessing: not enough mana (${data.mana} < $cost)")
             caster.sendActionBar(Component.text("Not enough Mana (${cost.toInt()} required).", NamedTextColor.RED))
             return
         }
         val target = currentHealTarget(caster) ?: caster
+        debug(caster, "castBlessing: casting on ${target.name}")
         val duration = (cfg.getDouble("abilities.mage.blessing-duration-seconds", 20.0).coerceAtLeast(0.0) * 20).toInt()
         val amplifier = cfg.getInt("abilities.mage.blessing-amplifier", 0).coerceAtLeast(0)
         val count = cfg.getInt("abilities.mage.blessing-effect-count", 1).coerceIn(1, blessingPool.size)
@@ -464,12 +503,14 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         val now = System.currentTimeMillis()
         val remaining = (meteorCooldownUntil[caster.uniqueId] ?: 0L) - now
         if (remaining > 0) {
+            debug(caster, "castMeteor: on cooldown for ${remaining}ms")
             caster.sendActionBar(Component.text("Meteor ready in ${ceil(remaining / 1000.0).toInt()}s.", NamedTextColor.GRAY))
             return
         }
         val data = plugin.classes.data(caster.uniqueId)
         val cost = cfg.getDouble("abilities.mage.meteor-mana-cost", 80.0).coerceAtLeast(0.0)
         if (data.mana < cost) {
+            debug(caster, "castMeteor: not enough mana (${data.mana} < $cost)")
             caster.sendActionBar(Component.text("Not enough Mana (${cost.toInt()} required).", NamedTextColor.RED))
             return
         }
@@ -477,9 +518,11 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         val eye = caster.eyeLocation
         val hit = caster.world.rayTraceBlocks(eye, eye.direction, range, FluidCollisionMode.NEVER, true)
         val impact = hit?.hitPosition?.toLocation(caster.world) ?: run {
+            debug(caster, "castMeteor: rayTraceBlocks found nothing within $range blocks (eye=$eye dir=${eye.direction})")
             caster.sendActionBar(Component.text("No clear ground in range.", NamedTextColor.GRAY))
             return
         }
+        debug(caster, "castMeteor: impact at $impact")
         data.mana -= cost
         val cooldownMillis = (cfg.getDouble("abilities.mage.meteor-cooldown-seconds", 14.0).coerceAtLeast(0.0) * 1000).toLong()
         meteorCooldownUntil[caster.uniqueId] = now + cooldownMillis
