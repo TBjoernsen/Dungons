@@ -473,9 +473,11 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
             caster.sendActionBar(Component.text("Not enough Mana (${cost.toInt()} required).", NamedTextColor.RED))
             return
         }
-        val range = cfg.getDouble("abilities.mage.meteor-max-range", 20.0).coerceAtLeast(1.0)
-        val impact = meteorImpactPoint(caster, range) ?: run {
-            caster.sendActionBar(Component.text("No clear target in range.", NamedTextColor.GRAY))
+        val range = cfg.getDouble("abilities.mage.meteor-max-range", 256.0).coerceAtLeast(1.0)
+        val eye = caster.eyeLocation
+        val hit = caster.world.rayTraceBlocks(eye, eye.direction, range, FluidCollisionMode.NEVER, true)
+        val impact = hit?.hitPosition?.toLocation(caster.world) ?: run {
+            caster.sendActionBar(Component.text("No clear ground in range.", NamedTextColor.GRAY))
             return
         }
         data.mana -= cost
@@ -484,28 +486,6 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         MeteorSequence.launch(plugin, caster, impact)
         caster.sendActionBar(Component.text("Meteor! (-${cost.toInt()} Mana)", NamedTextColor.GOLD))
         plugin.refreshClassPlayer(caster)
-    }
-
-    /**
-     * Where Meteor lands: a raycast for solid ground, same as before, but
-     * now also a raycast for the nearest dungeon mob along the same line -
-     * whichever the crosshair reaches first wins. Aiming level at a crowd of
-     * mobs (their hitboxes, not the floor past them) used to sail clean over
-     * everything and miss; a mob hit lands the meteor at its feet instead.
-     */
-    private fun meteorImpactPoint(caster: Player, range: Double): Location? {
-        val eye = caster.eyeLocation
-        val direction = eye.direction
-        val blockHit = caster.world.rayTraceBlocks(eye, direction, range, FluidCollisionMode.NEVER, true)
-        val entityHit = caster.world.rayTraceEntities(eye, direction, range, 0.6) { candidate ->
-            candidate is LivingEntity && candidate != caster && plugin.queries.isDungeonMob(candidate)
-        }
-        val blockDistance = blockHit?.hitPosition?.distance(eye.toVector())
-        val entityDistance = entityHit?.hitPosition?.distance(eye.toVector())
-        if (entityDistance != null && (blockDistance == null || entityDistance <= blockDistance)) {
-            return entityHit!!.hitEntity?.location ?: entityHit.hitPosition.toLocation(caster.world)
-        }
-        return blockHit?.hitPosition?.toLocation(caster.world)
     }
 
     private fun safeBlinkDestination(player: Player, maxDistance: Double, vertical: Boolean): Location? {
@@ -529,21 +509,17 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
 
     /**
      * Who a Heal cast actually lands on: commit the ally currently under the
-     * highlight ([tickHealHover] validated range + cone + line of sight for it
-     * a few ticks ago), as long as they are still online, alive, in the same
-     * world and within `heal-range`. Only if there is no live highlight does
-     * it fall back to a fresh cone check for this exact instant. Returns null
-     * -> [castMageHeal] heals the caster.
-     *
-     * This is the fix for "highlight reaches far, heal only lands point-blank":
-     * the click no longer re-runs a tight angular cone against a target that
-     * is a pixel wide at range - it just confirms what is already glowing.
+     * highlight ([tickHealHover] validated cone + line of sight for it a few
+     * ticks ago), as long as they are still online, alive and in the same
+     * world - no distance check against the caster here, deliberately: once
+     * a target is locked, casting heals them no matter how far apart you and
+     * they now are. Only if there is no live highlight does it fall back to
+     * a fresh cone check (still range-limited - that is target *selection*,
+     * not this commit step). Returns null -> [castMageHeal] heals the caster.
      */
     private fun currentHealTarget(caster: Player): Player? {
-        val range = plugin.classesConfig.getDouble("abilities.mage.heal-range", 50.0).coerceAtLeast(0.0)
         val hovered = hoveredHealTargets[caster.uniqueId]?.let { plugin.server.getPlayer(it.playerId) }
-        if (hovered != null && hovered.isOnline && !hovered.isDead && hovered.world == caster.world &&
-            hovered.location.distanceSquared(caster.location) <= range * range) {
+        if (hovered != null && hovered.isOnline && !hovered.isDead && hovered.world == caster.world) {
             return hovered
         }
         return raycastHealTarget(caster)

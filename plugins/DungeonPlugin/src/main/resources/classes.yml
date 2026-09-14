@@ -438,14 +438,17 @@ abilities:
     blessing-duration-seconds: 20.0
     blessing-amplifier: 0
     blessing-effect-count: 1
-    # Battlemage's Meteor. Aim at a spot (raycast, not melee reach) - a
-    # telegraph ring shows where it will land, then it falls and explodes:
-    # full damage to mobs, meteor-ally-damage-fraction of it to players
-    # (self included), knockback to everyone, no block damage regardless of
-    # any gamerule (radius damage only, no vanilla explosion).
+    # Battlemage's Meteor. Aim anywhere - a pure block raycast along the look
+    # vector, no entity targeting and no melee-reach dependency - a telegraph
+    # ring shows where it will land, then it falls and explodes: full damage
+    # to mobs, meteor-ally-damage-fraction of it to players (self included),
+    # knockback to everyone, no block damage regardless of any gamerule
+    # (radius damage only, no vanilla explosion).
     meteor-cooldown-seconds: 14.0
     meteor-mana-cost: 80.0
-    meteor-max-range: 20.0
+    # Generous, effectively unbounded for any real dungeon room - it only
+    # exists so the raycast has *some* finite distance to give up at.
+    meteor-max-range: 256.0
     meteor-telegraph-ticks: 24
     meteor-fall-height: 14.0
     meteor-fall-ticks: 10
