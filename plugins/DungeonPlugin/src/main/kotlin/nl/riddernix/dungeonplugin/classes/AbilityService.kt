@@ -6,6 +6,7 @@ import nl.riddernix.dungeonplugin.DungeonPlugin
 import org.bukkit.ChatColor
 import org.bukkit.FluidCollisionMode
 import org.bukkit.Location
+import org.bukkit.Material
 import org.bukkit.NamespacedKey
 import org.bukkit.Particle
 import org.bukkit.Sound
@@ -29,6 +30,29 @@ import java.util.Locale
 import java.util.UUID
 import kotlin.math.ceil
 import kotlin.math.cos
+
+/**
+ * Blocks with a real menu or vanilla use worth preserving under a Heal cast.
+ * Deliberately narrower than the deprecated [Material.isInteractable], which
+ * also flags plain decoration (stairs, slabs, walls, fences) common
+ * throughout this plugin's dungeon architecture - that false-positive rate
+ * was silently swallowing casts near completely ordinary terrain.
+ */
+private val BLOCKS_WITH_REAL_INTERACTION = setOf(
+    Material.CHEST, Material.TRAPPED_CHEST, Material.BARREL, Material.ENDER_CHEST,
+    Material.CRAFTING_TABLE, Material.FURNACE, Material.BLAST_FURNACE, Material.SMOKER,
+    Material.ANVIL, Material.CHIPPED_ANVIL, Material.DAMAGED_ANVIL, Material.ENCHANTING_TABLE,
+    Material.BREWING_STAND, Material.GRINDSTONE, Material.SMITHING_TABLE, Material.STONECUTTER,
+    Material.LOOM, Material.CARTOGRAPHY_TABLE, Material.BEACON, Material.LEVER,
+    Material.LECTERN, Material.JUKEBOX, Material.NOTE_BLOCK, Material.COMPOSTER,
+    Material.CAULDRON, Material.RESPAWN_ANCHOR, Material.DRAGON_EGG, Material.COMPARATOR,
+    Material.REPEATER, Material.BELL
+)
+
+private fun hasRealInteraction(type: Material): Boolean =
+    type in BLOCKS_WITH_REAL_INTERACTION ||
+        type.name.endsWith("_DOOR") || type.name.endsWith("_TRAPDOOR") || type.name.endsWith("_FENCE_GATE") ||
+        type.name.endsWith("_BUTTON") || type.name.endsWith("_BED") || type.name.endsWith("SHULKER_BOX")
 
 /**
  * Vanilla-client ability keybind. Minecraft's Swap Hands key defaults to F
@@ -94,13 +118,20 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     fun onMageHealAirClick(event: PlayerInteractEvent) {
         if (event.hand != EquipmentSlot.HAND || !event.action.isRightClick) return
-        // Right-clicking a normal dungeon wall or floor should still cast the
-        // heal, while buttons, containers, and similar usable blocks retain
-        // their normal interaction. Material.isInteractable is deprecated for
-        // being approximate, but approximate is exactly what this filter is.
-        @Suppress("DEPRECATION")
-        if (event.action == Action.RIGHT_CLICK_BLOCK && event.clickedBlock?.type?.isInteractable == true) return
-        if (event.player.isSneaking) castMasteryAbility(event.player) else castMageHeal(event.player)
+        // Shift is the caster deliberately overriding "interact with the
+        // block" (the same vanilla convention that lets a sneaking player
+        // place a block against a chest instead of opening it) - the mastery
+        // ability always fires, regardless of what is underfoot or in reach.
+        if (event.player.isSneaking) {
+            castMasteryAbility(event.player)
+            return
+        }
+        // Right-clicking a normal dungeon wall, floor, stair or slab should
+        // still cast the heal; only blocks with a real menu/use retain their
+        // normal interaction.
+        val clicked = event.clickedBlock?.type
+        if (event.action == Action.RIGHT_CLICK_BLOCK && clicked != null && hasRealInteraction(clicked)) return
+        castMageHeal(event.player)
     }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
