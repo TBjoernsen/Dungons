@@ -123,6 +123,21 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         updateHoveredHealTarget(player, null)
     }
 
+    /**
+     * TEMPORARY: sees the event at MONITOR (last) with ignoreCancelled=false,
+     * so it logs even when something else cancelled it before HIGH. Compare
+     * against onMageHealAirClick's own log line: if this fires but that one
+     * never did, something cancels the event between LOWEST and HIGH; if
+     * this never fires either, the client/server never produced the event
+     * at all for that click.
+     */
+    @EventHandler(priority = EventPriority.MONITOR)
+    fun onMageHealAirClickMonitor(event: PlayerInteractEvent) {
+        if (event.hand != EquipmentSlot.HAND) return
+        debug(event.player, "MONITOR action=${event.action} sneaking=${event.player.isSneaking} " +
+            "clickedBlock=${event.clickedBlock?.type} cancelled=${event.isCancelled} useItemInHand=${event.useItemInHand()}")
+    }
+
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     fun onMageHealAirClick(event: PlayerInteractEvent) {
         debug(event.player, "onMageHealAirClick action=${event.action} hand=${event.hand} sneaking=${event.player.isSneaking} clickedBlock=${event.clickedBlock?.type}")
