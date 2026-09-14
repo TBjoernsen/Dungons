@@ -25,6 +25,7 @@ import org.bukkit.inventory.EquipmentSlot
 import org.bukkit.potion.PotionEffect
 import org.bukkit.potion.PotionEffectType
 import org.bukkit.util.Vector
+import java.util.Locale
 import java.util.UUID
 import kotlin.math.ceil
 import kotlin.math.cos
@@ -38,6 +39,8 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
 
     private val cooldownUntil = HashMap<UUID, Long>()
     private val mageHealCooldownUntil = HashMap<UUID, Long>()
+    private val blessingCooldownUntil = HashMap<UUID, Long>()
+    private val meteorCooldownUntil = HashMap<UUID, Long>()
     private val shieldExpiry = HashMap<UUID, Long>()
 
     /** Per Archer: the wall-clock ms until which a Wind Jump still counts for a Skyfall shot. */
@@ -65,6 +68,8 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         hoveredHealTargets.clear()
         originalGlowStates.clear()
         mageHealCooldownUntil.clear()
+        blessingCooldownUntil.clear()
+        meteorCooldownUntil.clear()
     }
 
     /**
@@ -79,6 +84,8 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
     fun remove(player: Player) {
         cooldownUntil.remove(player.uniqueId)
         mageHealCooldownUntil.remove(player.uniqueId)
+        blessingCooldownUntil.remove(player.uniqueId)
+        meteorCooldownUntil.remove(player.uniqueId)
         windJumpUntil.remove(player.uniqueId)
         windDashChargeUntil.remove(player.uniqueId)
         updateHoveredHealTarget(player, null)
@@ -93,13 +100,13 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         // being approximate, but approximate is exactly what this filter is.
         @Suppress("DEPRECATION")
         if (event.action == Action.RIGHT_CLICK_BLOCK && event.clickedBlock?.type?.isInteractable == true) return
-        castMageHeal(event.player)
+        if (event.player.isSneaking) castMasteryAbility(event.player) else castMageHeal(event.player)
     }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     fun onMageHealPlayerClick(event: PlayerInteractEntityEvent) {
         if (event.hand != EquipmentSlot.HAND || event.rightClicked !is Player) return
-        castMageHeal(event.player)
+        if (event.player.isSneaking) castMasteryAbility(event.player) else castMageHeal(event.player)
     }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
@@ -356,6 +363,88 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
             caster.sendMessage(Component.text("You healed ${target.name} with Regeneration II. (-${cost.toInt()} Mana)", NamedTextColor.LIGHT_PURPLE))
             target.sendMessage(Component.text("${caster.name} healed you with Regeneration II.", NamedTextColor.GREEN))
         }
+        plugin.refreshClassPlayer(caster)
+    }
+
+    /** Shift + Right-click with the staff: the mastery-specific ability, gated on having chosen one. */
+    private fun castMasteryAbility(caster: Player) {
+        if (!plugin.queries.isInDungeon(caster)) return
+        if (plugin.classes.activeClass(caster.uniqueId) != ClassType.MAGE) return
+        if (!plugin.classItems.isStaff(caster.inventory.itemInMainHand)) return
+        when (plugin.classes.subclass(caster.uniqueId)) {
+            "support" -> castBlessing(caster)
+            "attack" -> castMeteor(caster)
+            else -> caster.sendActionBar(Component.text("Requires a mastery - visit your skill tree at Level 100.", NamedTextColor.GRAY))
+        }
+    }
+
+    private val blessingPool = listOf(
+        PotionEffectType.STRENGTH, PotionEffectType.SPEED, PotionEffectType.RESISTANCE,
+        PotionEffectType.REGENERATION, PotionEffectType.ABSORPTION
+    )
+
+    /** Enchanter's Blessing: random positive effect(s) on whoever Heal would target (ally under the crosshair, else self). */
+    private fun castBlessing(caster: Player) {
+        val cfg = plugin.classesConfig
+        val now = System.currentTimeMillis()
+        val remaining = (blessingCooldownUntil[caster.uniqueId] ?: 0L) - now
+        if (remaining > 0) {
+            caster.sendActionBar(Component.text("Blessing ready in ${ceil(remaining / 1000.0).toInt()}s.", NamedTextColor.GRAY))
+            return
+        }
+        val data = plugin.classes.data(caster.uniqueId)
+        val cost = cfg.getDouble("abilities.mage.blessing-mana-cost", 40.0).coerceAtLeast(0.0)
+        if (data.mana < cost) {
+            caster.sendActionBar(Component.text("Not enough Mana (${cost.toInt()} required).", NamedTextColor.RED))
+            return
+        }
+        val target = currentHealTarget(caster) ?: caster
+        val duration = (cfg.getDouble("abilities.mage.blessing-duration-seconds", 20.0).coerceAtLeast(0.0) * 20).toInt()
+        val amplifier = cfg.getInt("abilities.mage.blessing-amplifier", 0).coerceAtLeast(0)
+        val count = cfg.getInt("abilities.mage.blessing-effect-count", 1).coerceIn(1, blessingPool.size)
+        data.mana -= cost
+        val cooldownMillis = (cfg.getDouble("abilities.mage.blessing-cooldown-seconds", 12.0).coerceAtLeast(0.0) * 1000).toLong()
+        blessingCooldownUntil[caster.uniqueId] = now + cooldownMillis
+        val chosen = blessingPool.shuffled().take(count)
+        chosen.forEach { target.addPotionEffect(PotionEffect(it, duration, amplifier, true, true, true)) }
+        plugin.classFeedback.mageBlessing(target)
+        val names = chosen.joinToString(", ") { it.name.lowercase(Locale.ROOT).replaceFirstChar(Char::uppercase) }
+        if (target == caster) {
+            caster.sendMessage(Component.text("You blessed yourself with $names. (-${cost.toInt()} Mana)", NamedTextColor.LIGHT_PURPLE))
+        } else {
+            caster.sendMessage(Component.text("You blessed ${target.name} with $names. (-${cost.toInt()} Mana)", NamedTextColor.LIGHT_PURPLE))
+            target.sendMessage(Component.text("${caster.name} blessed you with $names.", NamedTextColor.GREEN))
+        }
+        plugin.refreshClassPlayer(caster)
+    }
+
+    /** Battlemage's Meteor: aim at a spot, a telegraph ring shows it, then it falls and explodes - mobs full damage, players a fraction. */
+    private fun castMeteor(caster: Player) {
+        val cfg = plugin.classesConfig
+        val now = System.currentTimeMillis()
+        val remaining = (meteorCooldownUntil[caster.uniqueId] ?: 0L) - now
+        if (remaining > 0) {
+            caster.sendActionBar(Component.text("Meteor ready in ${ceil(remaining / 1000.0).toInt()}s.", NamedTextColor.GRAY))
+            return
+        }
+        val data = plugin.classes.data(caster.uniqueId)
+        val cost = cfg.getDouble("abilities.mage.meteor-mana-cost", 80.0).coerceAtLeast(0.0)
+        if (data.mana < cost) {
+            caster.sendActionBar(Component.text("Not enough Mana (${cost.toInt()} required).", NamedTextColor.RED))
+            return
+        }
+        val range = cfg.getDouble("abilities.mage.meteor-max-range", 20.0).coerceAtLeast(1.0)
+        val eye = caster.eyeLocation
+        val hit = caster.world.rayTraceBlocks(eye, eye.direction, range, FluidCollisionMode.NEVER, true)
+        val impact = hit?.hitPosition?.toLocation(caster.world) ?: run {
+            caster.sendActionBar(Component.text("No clear ground in range.", NamedTextColor.GRAY))
+            return
+        }
+        data.mana -= cost
+        val cooldownMillis = (cfg.getDouble("abilities.mage.meteor-cooldown-seconds", 14.0).coerceAtLeast(0.0) * 1000).toLong()
+        meteorCooldownUntil[caster.uniqueId] = now + cooldownMillis
+        MeteorSequence.launch(plugin, caster, impact)
+        caster.sendActionBar(Component.text("Meteor! (-${cost.toInt()} Mana)", NamedTextColor.GOLD))
         plugin.refreshClassPlayer(caster)
     }
 

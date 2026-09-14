@@ -342,6 +342,54 @@ class FeedbackService(private val plugin: DungeonPlugin) {
         world.playSound(centre, if (fiery) Sound.BLOCK_LAVA_POP else Sound.ENTITY_ILLUSIONER_MIRROR_MOVE, 0.7f, 0.9f)
     }
 
+    /** Enchanter's Blessing landing on its target. */
+    fun mageBlessing(target: Player) {
+        val at = target.location.clone().add(0.0, 1.0, 0.0)
+        val gold = Particle.DustOptions(Color.fromRGB(230, 200, 255), 1.5f)
+        target.world.spawnParticle(Particle.DUST, at, 26, 0.35, 0.55, 0.35, 0.0, gold)
+        target.world.spawnParticle(Particle.ENCHANT, at, 20, 0.4, 0.6, 0.4, 0.4)
+        target.world.spawnParticle(Particle.END_ROD, at, 10, 0.3, 0.5, 0.3, 0.03)
+        target.world.playSound(target.location, Sound.BLOCK_BEACON_ACTIVATE, 0.4f, 1.6f)
+        target.world.playSound(target.location, Sound.ITEM_TOTEM_USE, 0.5f, 1.5f)
+    }
+
+    /** One pulse of Meteor's landing-spot telegraph - a burning ring at exactly the radius it will hit. */
+    fun meteorTelegraph(centre: Location, radius: Double) {
+        val world = centre.world ?: return
+        val ember = Particle.DustOptions(Color.fromRGB(255, 120, 30), 1.2f)
+        val points = (radius * 6).toInt().coerceIn(12, 80)
+        for (i in 0 until points) {
+            val a = Math.PI * 2 * i / points
+            val x = centre.x + kotlin.math.cos(a) * radius
+            val z = centre.z + kotlin.math.sin(a) * radius
+            world.spawnParticle(Particle.DUST, x, centre.y + 0.1, z, 1, 0.0, 0.0, 0.0, 0.0, ember)
+        }
+        world.spawnParticle(Particle.FLAME, centre.clone().add(0.0, 0.2, 0.0), 4, 0.15, 0.3, 0.15, 0.01)
+        world.playSound(centre, Sound.BLOCK_FIRE_AMBIENT, 0.5f, 0.7f)
+    }
+
+    /** A falling Meteor's trail, called once per tick during its descent. */
+    fun meteorFallTrail(at: Location) {
+        val world = at.world ?: return
+        world.spawnParticle(Particle.FLAME, at, 4, 0.15, 0.15, 0.15, 0.01)
+        world.spawnParticle(Particle.SMOKE, at, 2, 0.12, 0.12, 0.12, 0.01)
+        world.spawnParticle(Particle.LAVA, at, 1, 0.1, 0.1, 0.1, 0.0)
+    }
+
+    /** Meteor's landing: the "massive damage" payoff - particles and sound only, no block damage. */
+    fun meteorImpact(centre: Location, radius: Double) {
+        val world = centre.world ?: return
+        val fire = Particle.DustOptions(Color.fromRGB(255, 110, 20), 2.0f)
+        world.spawnParticle(Particle.EXPLOSION_EMITTER, centre, 1, 0.0, 0.0, 0.0, 0.0)
+        world.spawnParticle(Particle.DUST, centre.clone().add(0.0, 0.3, 0.0), 50, radius * 0.55, 0.4, radius * 0.55, 0.0, fire)
+        world.spawnParticle(Particle.FLAME, centre.clone().add(0.0, 0.3, 0.0), 45, radius * 0.5, 0.4, radius * 0.5, 0.08)
+        world.spawnParticle(Particle.LAVA, centre, 14, radius * 0.3, 0.25, radius * 0.3, 0.0)
+        world.spawnParticle(Particle.LARGE_SMOKE, centre.clone().add(0.0, 0.5, 0.0), 20, radius * 0.4, 0.4, radius * 0.4, 0.03)
+        world.playSound(centre, Sound.ENTITY_GENERIC_EXPLODE, 1.1f, 0.7f)
+        world.playSound(centre, Sound.ENTITY_BLAZE_SHOOT, 0.8f, 0.5f)
+        world.playSound(centre, Sound.ITEM_FIRECHARGE_USE, 0.7f, 0.6f)
+    }
+
     fun tauntTriggered(player: Player) {
         val center = player.location.clone().add(0.0, 0.85, 0.0)
         val gold = Particle.DustOptions(Color.fromRGB(255, 205, 55), 1.55f)

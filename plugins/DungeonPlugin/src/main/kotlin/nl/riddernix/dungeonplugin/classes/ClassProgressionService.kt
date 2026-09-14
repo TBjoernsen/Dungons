@@ -292,6 +292,7 @@ class ClassProgressionService(private val plugin: DungeonPlugin) {
         if (data.level < plugin.classesConfig.subclassUnlockLevel(classType.id)) return SubclassResult.TOO_LOW_LEVEL
         val option = plugin.classesConfig.subclassOption(classType.id, subclassId) ?: return SubclassResult.UNKNOWN_SUBCLASS
         data.subclassId = option.id
+        refreshMageStaffItem(player, classType, option.id)
         save()
         plugin.refreshClassPlayer(player)
         return SubclassResult.SUCCESS
@@ -307,6 +308,7 @@ class ClassProgressionService(private val plugin: DungeonPlugin) {
         val classType = activeClass(player.uniqueId) ?: return SubclassResult.NO_CLASS
         val option = plugin.classesConfig.subclassOption(classType.id, subclassId) ?: return SubclassResult.UNKNOWN_SUBCLASS
         data(player.uniqueId).subclassId = option.id
+        refreshMageStaffItem(player, classType, option.id)
         save()
         plugin.refreshClassPlayer(player)
         return SubclassResult.SUCCESS
@@ -324,9 +326,18 @@ class ClassProgressionService(private val plugin: DungeonPlugin) {
             return SubclassResult.NEEDS_SOUL_SHARDS
         }
         data.subclassId = option.id
+        refreshMageStaffItem(player, classType, option.id)
         save()
         plugin.refreshClassPlayer(player)
         return SubclassResult.SUCCESS
+    }
+
+    /** A held/carried Mage staff reflects the wand preset immediately, instead of waiting for the next kit swap. */
+    private fun refreshMageStaffItem(player: Player, classType: ClassType, subclassId: String?) {
+        if (classType != ClassType.MAGE) return
+        val inventory = player.inventory
+        val slot = (0 until inventory.size).firstOrNull { plugin.classItems.isStaff(inventory.getItem(it)) } ?: return
+        inventory.setItem(slot, plugin.classItems.mageStaff(subclassId))
     }
 
     // ------------------------------------------------------------------

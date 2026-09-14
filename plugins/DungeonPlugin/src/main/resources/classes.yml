@@ -348,8 +348,10 @@ mage:
   surge-nova-damage-multiplier: 1.0
   # --- Mastery subclass ------------------------------------------------
   # At unlock-level, within range of the skill tree (mastery.select-radius
-  # below), a Mage picks one branch. Ability/VFX identity per branch is not
-  # built yet - this is the choice-and-storage layer only. Swapping branches
+  # below), a Mage picks one branch. Attack gets the Magma Wand (see
+  # subclass-wand-presets above) and a harder/further Surge; support keeps
+  # the arcane-rod look and a mending Surge. Both get a Shift+Right-click
+  # ability (abilities.mage.blessing-*/meteor-* below). Swapping branches
   # later costs reset-soul-shard-cost Soul Shards (see /skills mastery).
   subclasses:
     unlock-level: 100
@@ -425,3 +427,30 @@ abilities:
     heal-range: 50.0
     heal-aim-cone-degrees: 12.0
     heal-require-line-of-sight: true
+    # --- Mastery: Shift + Right-click ----------------------------------
+    # Enchanter's Blessing. Targets whoever Heal would target (ally under
+    # the crosshair, self if none) and applies one random positive effect
+    # from the pool at amplifier 0 (effect I). blessing-effect-count/
+    # blessing-amplifier are the future subclass-tree upgrade path (more
+    # effects at once, higher amplifier) - flat at 1/0 until that tree exists.
+    blessing-cooldown-seconds: 12.0
+    blessing-mana-cost: 40.0
+    blessing-duration-seconds: 20.0
+    blessing-amplifier: 0
+    blessing-effect-count: 1
+    # Battlemage's Meteor. Aim at a spot (raycast, not melee reach) - a
+    # telegraph ring shows where it will land, then it falls and explodes:
+    # full damage to mobs, meteor-ally-damage-fraction of it to players
+    # (self included), knockback to everyone, no block damage regardless of
+    # any gamerule (radius damage only, no vanilla explosion).
+    meteor-cooldown-seconds: 14.0
+    meteor-mana-cost: 80.0
+    meteor-max-range: 20.0
+    meteor-telegraph-ticks: 24
+    meteor-fall-height: 14.0
+    meteor-fall-ticks: 10
+    meteor-radius: 4.0
+    meteor-damage: 40.0
+    meteor-ally-damage-fraction: 0.25
+    meteor-knockback: 0.7
+    meteor-knockup: 0.35
