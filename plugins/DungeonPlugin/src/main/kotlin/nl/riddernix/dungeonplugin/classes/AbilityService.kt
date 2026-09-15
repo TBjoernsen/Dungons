@@ -153,7 +153,18 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
             "clickedBlock=${event.clickedBlock?.type} cancelled=${event.isCancelled} useItemInHand=${event.useItemInHand()}")
     }
 
-    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    /**
+     * No ignoreCancelled here, deliberately: Bukkit/Paper delivers a plain
+     * RIGHT_CLICK_AIR as already cancelled by default whenever the held item
+     * has no vanilla "use" action (a Blaze/Breeze Rod does nothing in
+     * vanilla) - that is not another plugin or another listener, it is how
+     * the event is constructed for "nothing was targeted, nothing to do" the
+     * moment it exists, before any listener runs. ignoreCancelled=true was
+     * silently discarding every one of those casts. A real block click never
+     * has this problem (it arrives uncancelled), which is why this only ever
+     * broke aiming at open space.
+     */
+    @EventHandler(priority = EventPriority.HIGH)
     fun onMageHealAirClick(event: PlayerInteractEvent) {
         debug(event.player, "onMageHealAirClick action=${event.action} hand=${event.hand} sneaking=${event.player.isSneaking} clickedBlock=${event.clickedBlock?.type}")
         if (event.hand != EquipmentSlot.HAND || !event.action.isRightClick) return
