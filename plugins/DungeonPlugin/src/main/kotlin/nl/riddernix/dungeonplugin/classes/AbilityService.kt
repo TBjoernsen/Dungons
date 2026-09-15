@@ -138,6 +138,21 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
             "clickedBlock=${event.clickedBlock?.type} cancelled=${event.isCancelled} useItemInHand=${event.useItemInHand()}")
     }
 
+    /**
+     * TEMPORARY: sees the event first, before any plugin listener (this one
+     * included) gets a chance to touch it. Every other plugin has now been
+     * ruled out by testing with only DungeonPlugin installed, so the only
+     * remaining question is whether the event arrives pre-cancelled - which
+     * would mean this is server/Paper default behaviour for this exact
+     * click, not a listener anywhere cancelling it.
+     */
+    @EventHandler(priority = EventPriority.LOWEST)
+    fun onMageHealAirClickLowest(event: PlayerInteractEvent) {
+        if (event.hand != EquipmentSlot.HAND) return
+        debug(event.player, "LOWEST action=${event.action} sneaking=${event.player.isSneaking} " +
+            "clickedBlock=${event.clickedBlock?.type} cancelled=${event.isCancelled} useItemInHand=${event.useItemInHand()}")
+    }
+
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     fun onMageHealAirClick(event: PlayerInteractEvent) {
         debug(event.player, "onMageHealAirClick action=${event.action} hand=${event.hand} sneaking=${event.player.isSneaking} clickedBlock=${event.clickedBlock?.type}")
