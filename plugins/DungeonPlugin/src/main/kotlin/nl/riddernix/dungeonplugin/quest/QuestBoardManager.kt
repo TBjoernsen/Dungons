@@ -3,6 +3,9 @@ package nl.riddernix.dungeonplugin.quest
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.minimessage.MiniMessage
 import nl.riddernix.dungeonplugin.DungeonPlugin
+import nl.riddernix.dungeonplugin.classes.ClassType
+import nl.riddernix.dungeonplugin.classes.MasteryClaimResult
+import nl.riddernix.dungeonplugin.classes.MasteryQuestStep
 import org.bukkit.Bukkit
 import org.bukkit.Chunk
 import org.bukkit.Color
@@ -42,11 +45,15 @@ import kotlin.math.sin
  * `quest-boards.yml` so a restart cannot duplicate them, per-viewer content on
  * top of shared framing.
  *
- * Two pages: page 0 is Daily (left column) and Weekly (right column), page 1
- * is General. The page arrows and the eight note hitboxes are shared; the
- * clicking player's own page decides what a hitbox does. Everything with
- * progress or state on it - the notes, the XP-multiplier strip, the visible
- * arrows - is per viewer and proximity-gated.
+ * Three pages: page 0 is Daily (left column) and Weekly (right column), page
+ * 1 is General - reached from page 0 by the gold right arrow. Page 2 is the
+ * Mage mastery quest ladder (see [nl.riddernix.dungeonplugin.classes.
+ * MasteryQuestLibrary]), reached from page 0 by a separate purple left
+ * arrow, not by paging further past General. The page arrows and hitboxes
+ * are shared furniture; the clicking player's own page decides what a
+ * hitbox does. Everything with progress or state on it - the notes, the
+ * XP-multiplier strip, the mastery cards, the visible arrows - is per
+ * viewer and proximity-gated.
  */
 class QuestBoardManager(private val plugin: DungeonPlugin) {
 
@@ -213,6 +220,18 @@ class QuestBoardManager(private val plugin: DungeonPlugin) {
         when {
             role == "hit-arrow-next" -> flipPage(player, id, current, (current + 1).coerceAtMost(1))
             role == "hit-arrow-prev" -> flipPage(player, id, current, (current - 1).coerceAtLeast(0))
+            // Mastery is not one more step past General - a dedicated pair of
+            // arrows jumps straight there from page 0 and straight back.
+            role == "hit-arrow-mastery" -> flipPage(player, id, current, 2)
+            role == "hit-arrow-mastery-back" -> flipPage(player, id, current, 0)
+            role == "hit-mastery-claim" -> {
+                when (plugin.classes.claimMasteryQuest(player)) {
+                    MasteryClaimResult.CLAIMED -> refreshViewer(player)
+                    MasteryClaimResult.NOT_READY -> sound(player, "deny", 1.0f)
+                    MasteryClaimResult.MAX_LEVEL -> sound(player, "deny", 1.3f)
+                    MasteryClaimResult.NO_LINE -> {}
+                }
+            }
             role.startsWith("hit-note-") -> {
                 val (category, slot) = resolveNote(role) ?: return
                 when (quests.claim(player, category, slot)) {
@@ -385,80 +404,99 @@ class QuestBoardManager(private val plugin: DungeonPlugin) {
         val currentPage = page.getOrDefault(player.uniqueId, 0)
         val ids = ArrayList<UUID>()
 
-        // XP-multiplier strip, under the title, above the columns.
-        val multiplier = quests.xpMultiplier(player.uniqueId)
-        val percent = (((multiplier - 1.0) * 100.0).coerceAtLeast(0.0)).toInt()
-        val stripText = (yaml.getString("board.multiplier.format")
-            ?: "<color:#c9a227>Dungeon XP Multiplier: <white>×<value> <gray>(+<percent>%)")
-            .replace("<value>", QuestManager.format(multiplier))
-            .replace("<percent>", percent.toString())
-        ids.add(spawnText(placement, boardId, "ov-multiplier", 0.0,
-            yaml.getDouble("board.multiplier.height", 4.9), frontZ(),
-            line(stripText), yaml.getDouble("board.multiplier.scale", 0.6).toFloat(),
-            TextDisplay.TextAlignment.CENTER, null, perViewer = true))
+        if (currentPage == 2) {
+            renderMasteryPage(player, boardId, placement, ids)
+        } else {
+            // XP-multiplier strip, under the title, above the columns.
+            val multiplier = quests.xpMultiplier(player.uniqueId)
+            val percent = (((multiplier - 1.0) * 100.0).coerceAtLeast(0.0)).toInt()
+            val stripText = (yaml.getString("board.multiplier.format")
+                ?: "<color:#c9a227>Dungeon XP Multiplier: <white>×<value> <gray>(+<percent>%)")
+                .replace("<value>", QuestManager.format(multiplier))
+                .replace("<percent>", percent.toString())
+            ids.add(spawnText(placement, boardId, "ov-multiplier", 0.0,
+                yaml.getDouble("board.multiplier.height", 4.9), frontZ(),
+                line(stripText), yaml.getDouble("board.multiplier.scale", 0.6).toFloat(),
+                TextDisplay.TextAlignment.CENTER, null, perViewer = true))
 
-        // Notes + their claim hitboxes. The hitbox is measured from the card's
-        // own text and sits on the same anchor; note-padding / height-scale /
-        // x-nudge / y-nudge are the knobs.
-        val scale = yaml.getDouble("board.notes.text-scale", 0.44)
-        val pad = yaml.getDouble("board.hitboxes.note-padding", 0.06)
-        val widthExtra = yaml.getDouble("board.hitboxes.note-width-extra", 0.3)
-        val heightScale = yaml.getDouble("board.hitboxes.height-scale", 0.8)
-        val xNudge = yaml.getDouble("board.hitboxes.x-nudge", 0.0)
-        // The client anchors the multi-line card text a bit lower than it is
-        // measured, so every note hitbox is lifted by this.
-        val yNudge = yaml.getDouble("board.hitboxes.y-nudge", 0.3)
-        // Extra per-row lift for rows 2 and 3 if they drift relative to 0 and 1.
-        val yRowNudge = yaml.getDouble("board.hitboxes.y-row-nudge", 0.0)
-        for ((category, slot, x) in pageSlots(currentPage)) {
-            val definition = quests.definition(category, slot)
-            val state = quests.state(player.uniqueId, category, slot)
-            val lines = if (definition == null) listOf("<color:#7a2d2d>(no quest)")
-                else noteLines(player, category, slot, definition, state)
-            val (w, h) = measureCard(lines, scale)
-            val paper = if (state == QuestManager.QuestState.COMPLETE_UNCLAIMED)
-                argb(yaml.getString("board.notes.paper-complete"), 0xE6D9A441.toInt())
-            else argb(yaml.getString("board.notes.paper"), 0xD8C89A6B.toInt())
-            ids.add(spawnText(placement, boardId, "ov-note-${category.id}-$slot", x, noteTopY(slot), frontZ(),
-                line(lines.joinToString("<newline>")), scale.toFloat(),
-                TextDisplay.TextAlignment.LEFT, Color.fromARGB(paper), perViewer = true))
-            ids.add(spawnHitbox(placement, boardId, "hit-note-${category.id}-$slot",
-                x + xNudge, noteTopY(slot) + yNudge + maxOf(0, slot - 1) * yRowNudge,
-                w + widthExtra + 2 * pad, h * heightScale + 2 * pad, perViewer = true))
+            // Notes + their claim hitboxes. The hitbox is measured from the card's
+            // own text and sits on the same anchor; note-padding / height-scale /
+            // x-nudge / y-nudge are the knobs.
+            val scale = yaml.getDouble("board.notes.text-scale", 0.44)
+            val pad = yaml.getDouble("board.hitboxes.note-padding", 0.06)
+            val widthExtra = yaml.getDouble("board.hitboxes.note-width-extra", 0.3)
+            val heightScale = yaml.getDouble("board.hitboxes.height-scale", 0.8)
+            val xNudge = yaml.getDouble("board.hitboxes.x-nudge", 0.0)
+            // The client anchors the multi-line card text a bit lower than it is
+            // measured, so every note hitbox is lifted by this.
+            val yNudge = yaml.getDouble("board.hitboxes.y-nudge", 0.3)
+            // Extra per-row lift for rows 2 and 3 if they drift relative to 0 and 1.
+            val yRowNudge = yaml.getDouble("board.hitboxes.y-row-nudge", 0.0)
+            for ((category, slot, x) in pageSlots(currentPage)) {
+                val definition = quests.definition(category, slot)
+                val state = quests.state(player.uniqueId, category, slot)
+                val lines = if (definition == null) listOf("<color:#7a2d2d>(no quest)")
+                    else noteLines(player, category, slot, definition, state)
+                val (w, h) = measureCard(lines, scale)
+                val paper = if (state == QuestManager.QuestState.COMPLETE_UNCLAIMED)
+                    argb(yaml.getString("board.notes.paper-complete"), 0xE6D9A441.toInt())
+                else argb(yaml.getString("board.notes.paper"), 0xD8C89A6B.toInt())
+                ids.add(spawnText(placement, boardId, "ov-note-${category.id}-$slot", x, noteTopY(slot), frontZ(),
+                    line(lines.joinToString("<newline>")), scale.toFloat(),
+                    TextDisplay.TextAlignment.LEFT, Color.fromARGB(paper), perViewer = true))
+                ids.add(spawnHitbox(placement, boardId, "hit-note-${category.id}-$slot",
+                    x + xNudge, noteTopY(slot) + yNudge + maxOf(0, slot - 1) * yRowNudge,
+                    w + widthExtra + 2 * pad, h * heightScale + 2 * pad, perViewer = true))
+            }
+
+            // A line under each column: clearing the whole track grants an XP boost.
+            val footerY = noteTopY(QuestCategory.SLOTS - 1) - yaml.getDouble("board.column-footer.y-gap", 0.9)
+            val footerScale = yaml.getDouble("board.column-footer.scale", 0.5).toFloat()
+            for ((category, columnX) in pageSlots(currentPage).map { it.first to it.third }.distinct()) {
+                val text = if (category.refreshing) {
+                    val percent = (((plugin.questConfig.categoryMultiplier(category) - 1.0) * 100.0)).toInt()
+                    (yaml.getString("board.column-footer.text")
+                        ?: "<gold>✦ Clear every <category> quest: <white>+<percent>% Dungeon XP")
+                        .replace("<category>", category.displayName).replace("<percent>", percent.toString())
+                } else {
+                    yaml.getString("board.column-footer.text-general") ?: ""
+                }
+                if (text.isNotBlank()) {
+                    ids.add(spawnText(placement, boardId, "ov-footer-${category.id}", columnX, footerY, frontZ(),
+                        line(text), footerScale, TextDisplay.TextAlignment.CENTER, null, perViewer = true))
+                }
+            }
         }
 
-        // A line under each column: clearing the whole track grants an XP boost.
-        val footerY = noteTopY(QuestCategory.SLOTS - 1) - yaml.getDouble("board.column-footer.y-gap", 0.9)
-        val footerScale = yaml.getDouble("board.column-footer.scale", 0.5).toFloat()
-        for ((category, columnX) in pageSlots(currentPage).map { it.first to it.third }.distinct()) {
-            val text = if (category.refreshing) {
-                val percent = (((plugin.questConfig.categoryMultiplier(category) - 1.0) * 100.0)).toInt()
-                (yaml.getString("board.column-footer.text")
-                    ?: "<gold>✦ Clear every <category> quest: <white>+<percent>% Dungeon XP")
-                    .replace("<category>", category.displayName).replace("<percent>", percent.toString())
-            } else {
-                yaml.getString("board.column-footer.text-general") ?: ""
-            }
-            if (text.isNotBlank()) {
-                ids.add(spawnText(placement, boardId, "ov-footer-${category.id}", columnX, footerY, frontZ(),
-                    line(text), footerScale, TextDisplay.TextAlignment.CENTER, null, perViewer = true))
-            }
-        }
-
-        // One page arrow: ">" on page 0 (to General), "<" on page 1 (back).
+        // Page 0 shows both edges: gold ">" to General (right), purple "<" to
+        // Mastery (left) - a separate branch from page 0, not one more step
+        // past General. Page 1 shows only the gold "<" back to page 0. Page 2
+        // (Mastery) shows only a purple ">" back to page 0.
         val arrowScale = yaml.getDouble("board.arrows.scale", 1.8).toFloat()
         val arrowH = yaml.getDouble("board.arrows.height", 2.6)
         val edgeX = yaml.getDouble("board.arrows.edge-x", 3.5)
         val aw = yaml.getDouble("board.hitboxes.arrow-width", 1.0)
         val ah = yaml.getDouble("board.hitboxes.arrow-height", 1.4)
-        if (currentPage == 0) {
-            ids.add(spawnArrow(placement, boardId, "ov-arrow-next", edgeX, arrowH,
-                yaml.getString("board.arrows.next") ?: ">", arrowScale))
-            ids.add(spawnHitbox(placement, boardId, "hit-arrow-next", edgeX, arrowH, aw, ah, perViewer = true))
-        } else {
-            ids.add(spawnArrow(placement, boardId, "ov-arrow-prev", -edgeX, arrowH,
-                yaml.getString("board.arrows.prev") ?: "<", arrowScale))
-            ids.add(spawnHitbox(placement, boardId, "hit-arrow-prev", -edgeX, arrowH, aw, ah, perViewer = true))
+        val masteryColor = yaml.getString("board.arrows.mastery-color") ?: "#b45aff"
+        when (currentPage) {
+            0 -> {
+                ids.add(spawnArrow(placement, boardId, "ov-arrow-next", edgeX, arrowH,
+                    yaml.getString("board.arrows.next") ?: ">", arrowScale))
+                ids.add(spawnHitbox(placement, boardId, "hit-arrow-next", edgeX, arrowH, aw, ah, perViewer = true))
+                ids.add(spawnArrow(placement, boardId, "ov-arrow-mastery", -edgeX, arrowH,
+                    yaml.getString("board.arrows.prev") ?: "<", arrowScale, masteryColor))
+                ids.add(spawnHitbox(placement, boardId, "hit-arrow-mastery", -edgeX, arrowH, aw, ah, perViewer = true))
+            }
+            1 -> {
+                ids.add(spawnArrow(placement, boardId, "ov-arrow-prev", -edgeX, arrowH,
+                    yaml.getString("board.arrows.prev") ?: "<", arrowScale))
+                ids.add(spawnHitbox(placement, boardId, "hit-arrow-prev", -edgeX, arrowH, aw, ah, perViewer = true))
+            }
+            else -> {
+                ids.add(spawnArrow(placement, boardId, "ov-arrow-mastery-back", edgeX, arrowH,
+                    yaml.getString("board.arrows.next") ?: ">", arrowScale, masteryColor))
+                ids.add(spawnHitbox(placement, boardId, "hit-arrow-mastery-back", edgeX, arrowH, aw, ah, perViewer = true))
+            }
         }
 
         for (entityId in ids) {
@@ -469,6 +507,87 @@ class QuestBoardManager(private val plugin: DungeonPlugin) {
 
     private fun removeOverlays(playerId: UUID, boardId: String) {
         overlays[playerId]?.remove(boardId)?.let(::removeEntities)
+    }
+
+    /**
+     * Page 2's content: the viewer's mastery quest ladder, in place of the
+     * Daily/Weekly/General notes - a header naming the branch and level, the
+     * current step (claimable once its counter reaches the requirement) on
+     * the left, and the next step up as a preview on the right, mirroring
+     * the two-column note layout everywhere else on this board.
+     */
+    private fun renderMasteryPage(player: Player, boardId: String, placement: Placement, ids: MutableList<UUID>) {
+        val headerScale = yaml.getDouble("board.mastery.header-scale", 0.55).toFloat()
+        val headerY = yaml.getDouble("board.mastery.header-y", 4.6)
+        val classType = plugin.classes.activeClass(player.uniqueId)
+        val subclassId = classType?.let { plugin.classes.subclass(player.uniqueId) }
+        val questLine = subclassId?.let { plugin.masteryQuests.line(it) }
+        if (classType != ClassType.MAGE || subclassId == null || questLine == null) {
+            ids.add(spawnText(placement, boardId, "ov-mastery-empty", 0.0, headerY, frontZ(),
+                line(yaml.getString("board.mastery.empty-text")
+                    ?: "<color:#7a2d2d>Choose a Mage mastery to unlock this page."),
+                headerScale, TextDisplay.TextAlignment.CENTER, null, perViewer = true))
+            return
+        }
+
+        val progress = plugin.classes.masteryProgress(player.uniqueId, subclassId)
+        val branchName = plugin.classesConfig.subclassOption(classType.id, subclassId)?.name ?: subclassId
+        ids.add(spawnText(placement, boardId, "ov-mastery-header", 0.0, headerY, frontZ(),
+            line("<color:#c9a227><bold>$branchName Mastery <white>- Level ${progress.level}/${questLine.ladder.size}"),
+            headerScale, TextDisplay.TextAlignment.CENTER, null, perViewer = true))
+
+        if (progress.level >= questLine.ladder.size) {
+            ids.add(spawnText(placement, boardId, "ov-mastery-done", 0.0, noteTopY(0), frontZ(),
+                line(yaml.getString("board.mastery.complete-text") ?: "<color:#2e7d32><bold>✔ Every mastery quest claimed!"),
+                yaml.getDouble("board.notes.text-scale", 0.44).toFloat(), TextDisplay.TextAlignment.CENTER, null, perViewer = true))
+            return
+        }
+
+        val scale = yaml.getDouble("board.notes.text-scale", 0.44)
+        val pad = yaml.getDouble("board.hitboxes.note-padding", 0.06)
+        val widthExtra = yaml.getDouble("board.hitboxes.note-width-extra", 0.3)
+        val heightScale = yaml.getDouble("board.hitboxes.height-scale", 0.8)
+        val yNudge = yaml.getDouble("board.hitboxes.y-nudge", 0.3)
+
+        val current = questLine.ladder[progress.level]
+        val ready = progress.counter >= current.required
+        val currentLines = masteryStepLines(current, progress.counter, ready, isNext = false)
+        val (cw, ch) = measureCard(currentLines, scale)
+        val currentPaper = if (ready) argb(yaml.getString("board.notes.paper-complete"), 0xE6D9A441.toInt())
+            else argb(yaml.getString("board.notes.paper"), 0xD8C89A6B.toInt())
+        ids.add(spawnText(placement, boardId, "ov-mastery-current", -columnX(), noteTopY(0), frontZ(),
+            line(currentLines.joinToString("<newline>")), scale.toFloat(),
+            TextDisplay.TextAlignment.LEFT, Color.fromARGB(currentPaper), perViewer = true))
+        ids.add(spawnHitbox(placement, boardId, "hit-mastery-claim", -columnX(), noteTopY(0) + yNudge,
+            cw + widthExtra + 2 * pad, ch * heightScale + 2 * pad, perViewer = true))
+
+        if (progress.level + 1 < questLine.ladder.size) {
+            val next = questLine.ladder[progress.level + 1]
+            val nextLines = masteryStepLines(next, 0, false, isNext = true)
+            ids.add(spawnText(placement, boardId, "ov-mastery-next", columnX(), noteTopY(0), frontZ(),
+                line(nextLines.joinToString("<newline>")), scale.toFloat(), TextDisplay.TextAlignment.LEFT,
+                Color.fromARGB(argb(yaml.getString("board.notes.paper"), 0xD8C89A6B.toInt())), perViewer = true))
+        }
+    }
+
+    /** The MiniMessage lines of one mastery ladder step's card. */
+    private fun masteryStepLines(step: MasteryQuestStep, counter: Int, ready: Boolean, isNext: Boolean): List<String> {
+        val shown = counter.coerceIn(0, step.required)
+        val lines = ArrayList<String>()
+        lines.add("<color:#3b2a12><bold>${step.title}")
+        lines.add("<color:#3b2a12>${step.description}")
+        if (!isNext) {
+            val segments = yaml.getInt("board.card.bar-segments", 10).coerceIn(4, 40)
+            val filled = if (step.required <= 0) segments else (shown * segments) / step.required
+            val bar = (yaml.getString("board.card.bar-fill") ?: "<color:#c9a227>▰").repeat(filled.coerceIn(0, segments)) +
+                (yaml.getString("board.card.bar-empty") ?: "<color:#5b4a2e>▰").repeat((segments - filled).coerceIn(0, segments))
+            lines.add("$bar <color:#3b2a12>$shown/${step.required}")
+            lines.add(if (ready) "<color:#2e7d32><bold>✔ Ready - click to claim!" else "<color:#7a2d2d>✖ In progress")
+        } else {
+            lines.add("<color:#6b5836>Requires ${step.required}")
+            lines.add("<color:#6b5836>Next up")
+        }
+        return lines
     }
 
     /** The MiniMessage lines of one card, in render order. */
@@ -578,11 +697,11 @@ class QuestBoardManager(private val plugin: DungeonPlugin) {
         return display.uniqueId
     }
 
-    /** A page arrow ("<" / ">") - literal glyphs, so no MiniMessage escaping. */
+    /** A page arrow ("<" / ">") - literal glyphs, so no MiniMessage escaping. `colorHex` overrides the shared default. */
     private fun spawnArrow(placement: Placement, boardId: String, role: String, x: Double, y: Double,
-                           glyph: String, scale: Float): UUID {
+                           glyph: String, scale: Float, colorHex: String? = null): UUID {
         val colour = net.kyori.adventure.text.format.TextColor.fromHexString(
-            yaml.getString("board.arrows.color", "#c9a227") ?: "#c9a227")
+            colorHex ?: yaml.getString("board.arrows.color", "#c9a227") ?: "#c9a227")
             ?: net.kyori.adventure.text.format.NamedTextColor.GOLD
         val component = Component.text(glyph, colour)
             .decoration(net.kyori.adventure.text.format.TextDecoration.BOLD, true)
