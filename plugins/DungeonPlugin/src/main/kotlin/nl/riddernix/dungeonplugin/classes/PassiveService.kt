@@ -583,7 +583,7 @@ class PassiveService(private val plugin: DungeonPlugin) {
             data.arcaneCharge = 0.0
             val pierceFrom = cfg.getInt("mage.surge-pierce-from-rank", 3)
             val pierce = if (rank >= pierceFrom) (rank - pierceFrom + 1).coerceAtMost(4) else 0
-            val surgeDamage = arcaneBoltDamage(rank) * cfg.getDouble("mage.surge-damage-multiplier", 2.2)
+            val surgeDamage = arcaneBoltDamage(player, rank) * cfg.getDouble("mage.surge-damage-multiplier", 2.2)
             val splashMul = cfg.getDouble("mage.surge-splash-multiplier", 1.6)
             var surgeExtraFired = false
             ArcaneBoltFlight.launch(plugin, player, surgeDamage, pierce, surge = true) { impact, directTargetId ->
@@ -609,7 +609,7 @@ class PassiveService(private val plugin: DungeonPlugin) {
             // connects with a mob, charge-per-cast when it only hits a wall (or
             // nothing at all). Never both - that was granting two increments
             // for a single enemy hit.
-            ArcaneBoltFlight.launch(plugin, player, arcaneBoltDamage(rank)) { impact, directTargetId ->
+            ArcaneBoltFlight.launch(plugin, player, arcaneBoltDamage(player, rank)) { impact, directTargetId ->
                 arcaneBoltSplash(player, impact, directTargetId)
                 if (directTargetId != null) {
                     addArcaneCharge(player, cfg.getDouble("mage.charge-per-hit", 3.0))
@@ -668,7 +668,7 @@ class PassiveService(private val plugin: DungeonPlugin) {
         if (rank >= cfg.getInt("mage.surge-nova-min-rank", 5)) {
             val world = impact.world ?: return
             val radius = cfg.getDouble("mage.surge-nova-radius", 4.0).coerceIn(1.0, 12.0)
-            val novaDamage = arcaneBoltDamage(rank) * cfg.getDouble("mage.surge-nova-damage-multiplier", 1.0)
+            val novaDamage = arcaneBoltDamage(player, rank) * cfg.getDouble("mage.surge-nova-damage-multiplier", 1.0)
             for (entity in world.getNearbyEntities(impact, radius, radius, radius)) {
                 val mob = entity as? LivingEntity ?: continue
                 if (mob is Player || !plugin.queries.isDungeonMob(mob)) continue
@@ -694,7 +694,7 @@ class PassiveService(private val plugin: DungeonPlugin) {
         if (!plugin.queries.isInDungeon(shooter)) return
         if (plugin.classes.activeClass(shooter.uniqueId) != ClassType.MAGE) return
         val radius = arcaneBoltSplashRadius() * (if (surgeMultiplier > 1.0) 1.5 else 1.0)
-        val splashDamage = arcaneBoltDamage(plugin.classes.signatureRank(shooter.uniqueId)) *
+        val splashDamage = arcaneBoltDamage(shooter, plugin.classes.signatureRank(shooter.uniqueId)) *
             arcaneBoltSplashDamageMultiplier() * surgeMultiplier
         if (radius <= 0.0 || splashDamage <= 0.0) return
         val at = impact.clone()
@@ -1032,9 +1032,13 @@ class PassiveService(private val plugin: DungeonPlugin) {
     private fun arcaneBoltManaCost(): Double =
         plugin.classesConfig.getDouble("mage.arcane-bolt-mana-cost", 10.0).coerceAtLeast(1.0)
 
-    private fun arcaneBoltDamage(rank: Int): Double =
-        plugin.classesConfig.getDouble("mage.arcane-bolt-base-damage", 5.0) +
-            plugin.classesConfig.getDouble("mage.arcane-bolt-damage-per-rank", 1.5) * rank
+    /** Battlemage's mastery quest ladder adds a flat bonus here, so it lands on every Bolt, Surge and splash hit. */
+    private fun arcaneBoltDamage(player: Player, rank: Int): Double {
+        val masteryLevel = plugin.classes.masteryLevelFor(player.uniqueId, "attack")
+        return plugin.classesConfig.getDouble("mage.arcane-bolt-base-damage", 5.0) +
+            plugin.classesConfig.getDouble("mage.arcane-bolt-damage-per-rank", 1.5) * rank +
+            plugin.classesConfig.getDouble("abilities.mage.battlemage-damage-per-mastery-level", 0.4) * masteryLevel
+    }
 
     private fun arcaneBoltSplashRadius(): Double =
         plugin.classesConfig.getDouble("mage.arcane-bolt-splash-radius", 1.5).coerceAtLeast(0.0)

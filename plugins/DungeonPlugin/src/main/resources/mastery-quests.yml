@@ -1,0 +1,45 @@
+# =====================================================================
+#  Mastery quest ladders
+# =====================================================================
+# Separate from the random-rolled Daily/Weekly/General quest system in
+# quests.yml. Each subclass has ONE fixed, ordered ladder of ten steps
+# against a single cumulative objective (total damage dealt, or total
+# healing done, since choosing that subclass). Two steps are ever "active"
+# at a time in the sense that the player is always progressing toward the
+# next unclaimed one while the one after it is already visible as next up -
+# claiming a step raises the player's mastery level by 1, which several
+# abilities read directly to scale their own numbers (see
+# abilities.mage.*-per-mastery-level in classes.yml). This is a starting
+# set - numbers and titles are all meant to be retuned after real testing.
+
+mastery-quests-version: 1
+
+mage:
+  attack:
+    objective: deal_damage
+    reward-xp: 150
+    ladder:
+      - { required: 300,   title: "First Scorch",   description: "Deal 300 damage." }
+      - { required: 750,   title: "Rising Heat",    description: "Deal 750 damage." }
+      - { required: 1500,  title: "Firestorm",      description: "Deal 1,500 damage." }
+      - { required: 3000,  title: "Scorched Earth", description: "Deal 3,000 damage." }
+      - { required: 5500,  title: "Blaze of Glory", description: "Deal 5,500 damage." }
+      - { required: 9000,  title: "Cataclysm",      description: "Deal 9,000 damage." }
+      - { required: 14000, title: "Ashfall",        description: "Deal 14,000 damage." }
+      - { required: 21000, title: "Meteoric Rise",  description: "Deal 21,000 damage." }
+      - { required: 30000, title: "Wildfire",       description: "Deal 30,000 damage." }
+      - { required: 42000, title: "Apocalypse",     description: "Deal 42,000 damage." }
+  support:
+    objective: heal_amount
+    reward-xp: 150
+    ladder:
+      - { required: 150,   title: "First Light",     description: "Heal 150 HP." }
+      - { required: 350,   title: "Steady Hand",     description: "Heal 350 HP." }
+      - { required: 700,   title: "Mending Touch",   description: "Heal 700 HP." }
+      - { required: 1300,  title: "Guardian Spirit", description: "Heal 1,300 HP." }
+      - { required: 2200,  title: "Lifegiver",       description: "Heal 2,200 HP." }
+      - { required: 3500,  title: "Sanctuary",       description: "Heal 3,500 HP." }
+      - { required: 5200,  title: "Beacon of Hope",  description: "Heal 5,200 HP." }
+      - { required: 7500,  title: "Wellspring",      description: "Heal 7,500 HP." }
+      - { required: 10500, title: "Radiant Grace",   description: "Heal 10,500 HP." }
+      - { required: 14500, title: "Font of Life",    description: "Heal 14,500 HP." }

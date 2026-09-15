@@ -392,8 +392,9 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
             return
         }
 
+        val cfg = plugin.classesConfig
         val data = plugin.classes.data(caster.uniqueId)
-        val cost = plugin.classesConfig.getDouble("abilities.mage.heal-mana-cost", 50.0).coerceAtLeast(0.0)
+        val cost = cfg.getDouble("abilities.mage.heal-mana-cost", 50.0).coerceAtLeast(0.0)
         if (data.mana < cost) {
             caster.sendActionBar(Component.text("Not enough Mana (${cost.toInt()} required).", NamedTextColor.RED))
             return
@@ -402,19 +403,32 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         val target = currentHealTarget(caster) ?: caster
         data.mana -= cost
         mageHealCooldownUntil[caster.uniqueId] = now + mageHealCooldownMillis()
-        target.addPotionEffect(PotionEffect(PotionEffectType.REGENERATION, 100, 1, true, true, true))
+        // Enchanter's mastery quest ladder raises both directly, not just Blessing.
+        val masteryLevel = plugin.classes.masteryLevelFor(caster.uniqueId, "support")
+        val duration = (cfg.getDouble("abilities.mage.heal-duration-ticks", 100.0) +
+            cfg.getDouble("abilities.mage.heal-duration-per-mastery-level", 10.0) * masteryLevel).toInt()
+        val amplifierLevels = cfg.getInt("abilities.mage.heal-amplifier-per-mastery-levels", 5).coerceAtLeast(1)
+        val amplifier = cfg.getInt("abilities.mage.heal-amplifier", 1) + masteryLevel / amplifierLevels
+        target.addPotionEffect(PotionEffect(PotionEffectType.REGENERATION, duration, amplifier, true, true, true))
         val effectLocation = target.location.clone().add(0.0, 1.0, 0.0)
         target.world.spawnParticle(Particle.HEART, effectLocation, 10, 0.35, 0.45, 0.35, 0.02)
         target.world.spawnParticle(Particle.HAPPY_VILLAGER, effectLocation, 16, 0.38, 0.5, 0.38, 0.05)
         target.world.playSound(effectLocation, Sound.BLOCK_AMETHYST_BLOCK_CHIME, 0.8f, 1.25f)
 
+        val tier = romanNumeral(amplifier + 1)
         if (target == caster) {
-            caster.sendMessage(Component.text("You healed yourself with Regeneration II. (-${cost.toInt()} Mana)", NamedTextColor.LIGHT_PURPLE))
+            caster.sendMessage(Component.text("You healed yourself with Regeneration $tier. (-${cost.toInt()} Mana)", NamedTextColor.LIGHT_PURPLE))
         } else {
-            caster.sendMessage(Component.text("You healed ${target.name} with Regeneration II. (-${cost.toInt()} Mana)", NamedTextColor.LIGHT_PURPLE))
-            target.sendMessage(Component.text("${caster.name} healed you with Regeneration II.", NamedTextColor.GREEN))
+            caster.sendMessage(Component.text("You healed ${target.name} with Regeneration $tier. (-${cost.toInt()} Mana)", NamedTextColor.LIGHT_PURPLE))
+            target.sendMessage(Component.text("${caster.name} healed you with Regeneration $tier.", NamedTextColor.GREEN))
         }
+        plugin.classes.addMasteryProgress(caster, MasteryObjective.HEAL_AMOUNT,
+            cfg.getInt("abilities.mage.heal-mastery-points-per-cast", 40))
         plugin.refreshClassPlayer(caster)
+    }
+
+    private fun romanNumeral(value: Int): String = when (value.coerceIn(1, 8)) {
+        1 -> "I"; 2 -> "II"; 3 -> "III"; 4 -> "IV"; 5 -> "V"; 6 -> "VI"; 7 -> "VII"; else -> "VIII"
     }
 
     /** Shift + Right-click with the staff: the mastery-specific ability, gated on having chosen one. */
@@ -450,9 +464,13 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
             return
         }
         val target = currentHealTarget(caster) ?: caster
-        val duration = (cfg.getDouble("abilities.mage.blessing-duration-seconds", 20.0).coerceAtLeast(0.0) * 20).toInt()
-        val amplifier = cfg.getInt("abilities.mage.blessing-amplifier", 0).coerceAtLeast(0)
-        val count = cfg.getInt("abilities.mage.blessing-effect-count", 1).coerceIn(1, blessingPool.size)
+        val masteryLevel = plugin.classes.masteryLevelFor(caster.uniqueId, "support")
+        val duration = ((cfg.getDouble("abilities.mage.blessing-duration-seconds", 20.0).coerceAtLeast(0.0) +
+            cfg.getDouble("abilities.mage.blessing-duration-per-mastery-level", 1.5) * masteryLevel) * 20).toInt()
+        val amplifierLevels = cfg.getInt("abilities.mage.blessing-amplifier-per-mastery-levels", 3).coerceAtLeast(1)
+        val amplifier = (cfg.getInt("abilities.mage.blessing-amplifier", 0) + masteryLevel / amplifierLevels).coerceAtLeast(0)
+        val countLevels = cfg.getInt("abilities.mage.blessing-effect-count-per-mastery-levels", 4).coerceAtLeast(1)
+        val count = (cfg.getInt("abilities.mage.blessing-effect-count", 1) + masteryLevel / countLevels).coerceIn(1, blessingPool.size)
         data.mana -= cost
         val cooldownMillis = (cfg.getDouble("abilities.mage.blessing-cooldown-seconds", 12.0).coerceAtLeast(0.0) * 1000).toLong()
         blessingCooldownUntil[caster.uniqueId] = now + cooldownMillis

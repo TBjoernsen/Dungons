@@ -41,7 +41,7 @@ class ClassCommands(private val plugin: DungeonPlugin) : CommandExecutor, TabCom
                 "difficulty", "unlockdifficulty" -> startsWith((1..9).map(Int::toString), args[1])
                 "soul" -> startsWith(ClassType.entries.map { it.id }, args[1])
                 "hardreset", "reset" -> startsWith(listOf("confirm"), args[1])
-                "mastery" -> startsWith(listOf("reset"), args[1])
+                "mastery" -> startsWith(listOf("reset", "quests"), args[1])
                 "give" -> startsWith(listOf("skill-shard", "soul-shard"), args[1])
                 "levelup" -> startsWith(listOf("1", "5", "10", "25", "50"), args[1])
                 "focusdraw" -> startsWith(listOf("0", "10", "15", "20", "25", "30", "40", "50"), args[1])
@@ -52,12 +52,19 @@ class ClassCommands(private val plugin: DungeonPlugin) : CommandExecutor, TabCom
             3 -> when (args[0].lowercase()) {
                 "difficulty", "unlockdifficulty", "passiverank" -> plugin.server.onlinePlayers.map { it.name }
                 "give" -> startsWith(listOf("1", "2", "4", "8", "16"), args[2])
-                "mastery" -> if (args[1].equals("reset", true))
-                    startsWith(masteryBranchIds(sender), args[2]) else emptyList()
+                "mastery" -> when {
+                    args[1].equals("reset", true) -> startsWith(masteryBranchIds(sender), args[2])
+                    args[1].equals("quests", true) -> startsWith(
+                        listOf("claim") + if (sender.hasPermission("dungeonplugin.admin")) listOf("progress") else emptyList(),
+                        args[2])
+                    else -> emptyList()
+                }
                 else -> emptyList()
             }
             4 -> when {
                 args[0].equals("mastery", true) && args[1].equals("reset", true) -> startsWith(listOf("confirm"), args[3])
+                args[0].equals("mastery", true) && args[1].equals("quests", true) && args[2].equals("progress", true) ->
+                    startsWith(listOf("100", "1000", "5000", "20000"), args[3])
                 else -> emptyList()
             }
             else -> emptyList()
@@ -224,6 +231,10 @@ class ClassCommands(private val plugin: DungeonPlugin) : CommandExecutor, TabCom
             handleMasteryReset(player, classType, args)
             return
         }
+        if (args.size >= 2 && args[1].equals("quests", ignoreCase = true)) {
+            handleMasteryQuests(player, args)
+            return
+        }
         val options = plugin.classes.subclassOptions(classType)
         if (options.isEmpty()) {
             player.sendMessage("§7${classType.displayName} has no mastery branches yet.")
@@ -278,6 +289,66 @@ class ClassCommands(private val plugin: DungeonPlugin) : CommandExecutor, TabCom
             SubclassResult.ALREADY_CHOSEN -> player.sendMessage("§eThat is already your mastery.")
             SubclassResult.NEEDS_SOUL_SHARDS -> player.sendMessage("§cYou need $cost Soul Shard(s) to switch.")
             SubclassResult.NO_CLASS, SubclassResult.TOO_LOW_LEVEL -> player.sendMessage("§cThat is not available right now.")
+        }
+    }
+
+    /**
+     * `/skills mastery quests` (view), `/skills mastery quests claim`, and
+     * the admin test command `/skills mastery quests progress <amount>` -
+     * mirrors `/quests progress` for the fixed mastery ladder. There is no
+     * board page for this yet (that is a follow-up); this command is the
+     * whole interface for now.
+     */
+    private fun handleMasteryQuests(player: Player, args: Array<out String>) {
+        val subclassId = plugin.classes.subclass(player.uniqueId)
+        if (subclassId == null) {
+            player.sendMessage("§7Choose a mastery first with §f/skills mastery§7.")
+            return
+        }
+        val line = plugin.classes.masteryQuestLine(player.uniqueId)
+        if (line == null) {
+            player.sendMessage("§7No mastery quests configured for that branch yet.")
+            return
+        }
+        val sub = args.getOrNull(2)?.lowercase()
+        if (sub == "claim") {
+            when (plugin.classes.claimMasteryQuest(player)) {
+                MasteryClaimResult.CLAIMED -> {
+                    val level = plugin.classes.masteryProgress(player.uniqueId, subclassId).level
+                    player.sendMessage("§6§lMastery quest claimed! §7Level $level/${line.ladder.size}.")
+                }
+                MasteryClaimResult.NOT_READY -> player.sendMessage("§cThat quest isn't complete yet.")
+                MasteryClaimResult.MAX_LEVEL -> player.sendMessage("§eYou've claimed every mastery quest on this branch.")
+                MasteryClaimResult.NO_LINE -> player.sendMessage("§7No mastery quests configured for that branch yet.")
+            }
+            return
+        }
+        if (sub == "progress") {
+            if (!player.hasPermission("dungeonplugin.admin")) { noPermission(player); return }
+            val amount = args.getOrNull(3)?.toIntOrNull()
+            if (amount == null || amount <= 0) {
+                usage(player, "/skills mastery quests progress <amount>")
+                return
+            }
+            plugin.classes.addMasteryProgress(player, line.objective, amount)
+            player.sendMessage("§7Added §f$amount §7to your §f${line.objective.id}§7 mastery progress.")
+            return
+        }
+        val progress = plugin.classes.masteryProgress(player.uniqueId, subclassId)
+        if (progress.level >= line.ladder.size) {
+            player.sendMessage("§6§lMastery: §eMax level (${line.ladder.size}/${line.ladder.size}).")
+            return
+        }
+        player.sendMessage("§6§lMastery Quests §7- Level ${progress.level}/${line.ladder.size}")
+        val current = line.ladder[progress.level]
+        player.sendMessage("§e${current.title} §7- ${current.description} " +
+            "§f(${progress.counter.coerceAtMost(current.required)}/${current.required})")
+        if (progress.level + 1 < line.ladder.size) {
+            val next = line.ladder[progress.level + 1]
+            player.sendMessage("§7Next: §f${next.title} §7- ${next.description} §8(${next.required})")
+        }
+        if (progress.counter >= current.required) {
+            player.sendMessage("§a§lReady to claim! §7Run §f/skills mastery quests claim§7.")
         }
     }
 
@@ -354,6 +425,7 @@ class ClassCommands(private val plugin: DungeonPlugin) : CommandExecutor, TabCom
         player.sendMessage("§f/class §7Choose or change class.  §f/skills §7Find the in-world skill panel.")
         player.sendMessage("§f/skills soul <class> §7Locked-class rebirth.  §f/skills reset §7Refund your tree for Skill Shards.")
         player.sendMessage("§f/skills mastery §7Choose your subclass near the skill tree, once eligible.")
+        player.sendMessage("§f/skills mastery quests §7View your mastery quest ladder.  §f...claim §7Claim a finished one.")
         if (player.hasPermission("dungeonplugin.admin")) {
             player.sendMessage("§8Admin: /skillshard [player] [amount], /soulshard [player] [amount]")
             player.sendMessage("§8Admin: /skills unlockdifficulty [player] <1-9>, /skills levelup [levels]")

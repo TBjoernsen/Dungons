@@ -2,6 +2,7 @@ package nl.riddernix.dungeonplugin.classes
 
 import nl.riddernix.dungeonplugin.DungeonPlugin
 import nl.riddernix.dungeonplugin.event.SkillWriteStatus
+import org.bukkit.Sound
 import org.bukkit.configuration.file.YamlConfiguration
 import org.bukkit.entity.Player
 import java.io.File
@@ -341,6 +342,63 @@ class ClassProgressionService(private val plugin: DungeonPlugin) {
     }
 
     // ------------------------------------------------------------------
+    //  Mastery quests
+    // ------------------------------------------------------------------
+
+    fun masteryProgress(playerId: UUID, subclassId: String): MasteryProgress =
+        data(playerId).masteryProgress.getOrPut(subclassId.lowercase()) { MasteryProgress() }
+
+    /** The player's claimed mastery level (0-10) on `requiredSubclassId`, or 0 unless that is their current subclass. */
+    fun masteryLevelFor(playerId: UUID, requiredSubclassId: String): Int {
+        val subclassId = subclass(playerId) ?: return 0
+        if (!subclassId.equals(requiredSubclassId, ignoreCase = true)) return 0
+        return masteryProgress(playerId, subclassId).level
+    }
+
+    /** The active subclass's mastery ladder, or null without a Mage subclass chosen (or no line configured for it). */
+    fun masteryQuestLine(playerId: UUID): MasteryQuestLine? {
+        val subclassId = subclass(playerId) ?: return null
+        return plugin.masteryQuests.line(subclassId)
+    }
+
+    /**
+     * Cumulative-counter contribution from real gameplay (damage dealt,
+     * healing done) toward the active subclass's mastery ladder. A no-op for
+     * a class/subclass with no matching line, or once every step is claimed.
+     */
+    fun addMasteryProgress(player: Player, objective: MasteryObjective, amount: Int) {
+        if (amount <= 0) return
+        val subclassId = subclass(player.uniqueId) ?: return
+        val line = plugin.masteryQuests.line(subclassId) ?: return
+        if (line.objective != objective) return
+        val progress = masteryProgress(player.uniqueId, subclassId)
+        if (progress.level >= line.ladder.size) return
+        val before = progress.counter
+        progress.counter += amount
+        val step = line.ladder[progress.level]
+        if (before < step.required && progress.counter >= step.required) {
+            player.sendMessage("§6§lMastery quest ready: §e${step.title} §7- claim it with §f/skills mastery quests claim§7.")
+            player.playSound(player.location, Sound.ENTITY_PLAYER_LEVELUP, 0.6f, 1.3f)
+        }
+        save()
+    }
+
+    /** Claims the active subclass's next unclaimed ladder step, if its threshold has been reached. */
+    fun claimMasteryQuest(player: Player): MasteryClaimResult {
+        val subclassId = subclass(player.uniqueId) ?: return MasteryClaimResult.NO_LINE
+        val line = plugin.masteryQuests.line(subclassId) ?: return MasteryClaimResult.NO_LINE
+        val progress = masteryProgress(player.uniqueId, subclassId)
+        if (progress.level >= line.ladder.size) return MasteryClaimResult.MAX_LEVEL
+        val step = line.ladder[progress.level]
+        if (progress.counter < step.required) return MasteryClaimResult.NOT_READY
+        progress.level++
+        save()
+        if (line.rewardXp > 0) grantSkillExperience(player, line.rewardXp)
+        plugin.refreshClassPlayer(player)
+        return MasteryClaimResult.CLAIMED
+    }
+
+    // ------------------------------------------------------------------
     //  Admin utilities
     // ------------------------------------------------------------------
 
@@ -351,6 +409,7 @@ class ClassProgressionService(private val plugin: DungeonPlugin) {
         data.experience = 0
         data.unlockedDifficulty = 1
         data.subclassId = null
+        data.masteryProgress.clear()
         data.clearCombatResources()
         save()
         plugin.refreshClassPlayer(player)
@@ -463,6 +522,13 @@ class ClassProgressionService(private val plugin: DungeonPlugin) {
             data.judgment = maxOf(0.0, yaml.getDouble("$path.judgment", 0.0))
             data.mana = maxOf(0.0, yaml.getDouble("$path.mana", 0.0))
             data.subclassId = yaml.getString("$path.subclass")
+            yaml.getConfigurationSection("$path.mastery-progress")?.let { section ->
+                for (subclassId in section.getKeys(false)) {
+                    val entry = "$path.mastery-progress.$subclassId"
+                    data.masteryProgress[subclassId.lowercase()] = MasteryProgress(
+                        maxOf(0, yaml.getInt("$entry.level", 0)), maxOf(0, yaml.getInt("$entry.counter", 0)))
+                }
+            }
             yaml.getConfigurationSection("$path.class-profiles")?.let { profiles ->
                 for (classKey in profiles.getKeys(false)) {
                     val profile = "$path.class-profiles.$classKey"
@@ -489,6 +555,10 @@ class ClassProgressionService(private val plugin: DungeonPlugin) {
             yaml.set("$path.judgment", data.judgment)
             yaml.set("$path.mana", data.mana)
             yaml.set("$path.subclass", data.subclassId)
+            for ((subclassId, progress) in data.masteryProgress) {
+                yaml.set("$path.mastery-progress.$subclassId.level", progress.level)
+                yaml.set("$path.mastery-progress.$subclassId.counter", progress.counter)
+            }
             for ((classId, progress) in data.classProfiles) {
                 val profile = "$path.class-profiles.$classId"
                 yaml.set("$profile.level", progress.level)
@@ -559,6 +629,13 @@ class PlayerClassData {
      */
     var subclassId: String? = null
 
+    /**
+     * Mastery quest ladder progress, keyed by subclass id ("attack",
+     * "support") - independent of which base class is currently active, so
+     * switching classes never touches it. See [MasteryQuestLibrary].
+     */
+    val masteryProgress = LinkedHashMap<String, MasteryProgress>()
+
     /** Inactive class profiles. The active class stays in the top-level fields. */
     val classProfiles = LinkedHashMap<String, ClassProgress>()
 
@@ -586,3 +663,8 @@ enum class SelectionResult { SUCCESS, ALREADY_SELECTED, LOCKED, NEEDS_SOUL_SHARD
 enum class SubclassResult {
     SUCCESS, NO_CLASS, TOO_LOW_LEVEL, ALREADY_CHOSEN, NOT_CHOSEN_YET, UNKNOWN_SUBCLASS, NEEDS_SOUL_SHARDS
 }
+
+/** One subclass's mastery ladder progress: how many steps claimed, and the cumulative counter toward the next one. */
+class MasteryProgress(var level: Int = 0, var counter: Int = 0)
+
+enum class MasteryClaimResult { CLAIMED, NOT_READY, NO_LINE, MAX_LEVEL }

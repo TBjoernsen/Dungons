@@ -427,12 +427,22 @@ abilities:
     heal-range: 50.0
     heal-aim-cone-degrees: 12.0
     heal-require-line-of-sight: true
+    # Base Healing Spell numbers - now config-driven instead of hardcoded,
+    # since heal-*-per-mastery-level below scales them for an Enchanter.
+    heal-duration-ticks: 100
+    heal-amplifier: 1
+    # A flat "worth" reported to the mastery ladder per successful cast,
+    # rather than trying to measure the regen tick-by-tick (which would
+    # under-count healing an ally, since the tick lands on them, not the
+    # caster).
+    heal-mastery-points-per-cast: 40
     # --- Mastery: Shift + Right-click ----------------------------------
     # Enchanter's Blessing. Targets whoever Heal would target (ally under
     # the crosshair, self if none) and applies one random positive effect
-    # from the pool at amplifier 0 (effect I). blessing-effect-count/
-    # blessing-amplifier are the future subclass-tree upgrade path (more
-    # effects at once, higher amplifier) - flat at 1/0 until that tree exists.
+    # from the pool. Base values below are level-0 (no mastery quests
+    # claimed yet); the *-per-mastery-level/-levels keys further down raise
+    # duration/amplifier/effect-count as the Enchanter's mastery quest
+    # ladder is claimed - see mastery-quests.yml.
     blessing-cooldown-seconds: 12.0
     blessing-mana-cost: 40.0
     blessing-duration-seconds: 20.0
@@ -457,3 +467,16 @@ abilities:
     meteor-ally-damage-fraction: 0.25
     meteor-knockback: 0.7
     meteor-knockup: 0.35
+    # --- Mastery quest scaling ------------------------------------------
+    # Claiming a mastery-quests.yml ladder step raises the player's mastery
+    # level by 1 (0-10, one per claimed step). These per-level increments
+    # are what "expand the damage/healing potential" - the ability formulas
+    # above read masteryLevel * these and add it on top of the base values.
+    battlemage-damage-per-mastery-level: 0.4  # added to every Arcane Bolt/Surge/Meteor-splash hit
+    meteor-damage-per-mastery-level: 4.0
+    meteor-radius-per-mastery-level: 0.15
+    heal-duration-per-mastery-level: 10.0     # ticks, applies to base Heal only
+    heal-amplifier-per-mastery-levels: 5      # +1 Heal amplifier every N levels
+    blessing-duration-per-mastery-level: 1.5  # seconds
+    blessing-amplifier-per-mastery-levels: 3  # +1 Blessing amplifier every N levels
+    blessing-effect-count-per-mastery-levels: 4  # +1 simultaneous effect every N levels

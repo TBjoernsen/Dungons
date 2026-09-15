@@ -28,10 +28,15 @@ class MeteorSequence private constructor(
 ) : BukkitRunnable() {
 
     private val cfg get() = plugin.classesConfig
+    // Battlemage's mastery quest ladder (mastery-quests.yml) raises Meteor's
+    // own numbers directly, on top of whatever the general Bolt/Surge bonus
+    // (PassiveService.arcaneBoltDamage) already gives it.
+    private val masteryLevel = plugin.classes.masteryLevelFor(caster.uniqueId, "attack")
     private val telegraphTicks = cfg.getInt("abilities.mage.meteor-telegraph-ticks", 24).coerceAtLeast(1)
     private val fallHeight = cfg.getDouble("abilities.mage.meteor-fall-height", 14.0).coerceAtLeast(1.0)
     private val fallTicks = cfg.getInt("abilities.mage.meteor-fall-ticks", 10).coerceAtLeast(1)
-    private val radius = cfg.getDouble("abilities.mage.meteor-radius", 4.0).coerceIn(1.0, 12.0)
+    private val radius = (cfg.getDouble("abilities.mage.meteor-radius", 4.0) +
+        cfg.getDouble("abilities.mage.meteor-radius-per-mastery-level", 0.15) * masteryLevel).coerceIn(1.0, 16.0)
     private var ticks = 0
     private var meteor: BlockDisplay? = null
 
@@ -81,7 +86,8 @@ class MeteorSequence private constructor(
     /** No block damage regardless of any gamerule: this is radius entity damage only, never a vanilla explosion. */
     private fun impactNow() {
         val world = impact.world ?: return
-        val damage = cfg.getDouble("abilities.mage.meteor-damage", 40.0).coerceAtLeast(0.0)
+        val damage = (cfg.getDouble("abilities.mage.meteor-damage", 40.0) +
+            cfg.getDouble("abilities.mage.meteor-damage-per-mastery-level", 4.0) * masteryLevel).coerceAtLeast(0.0)
         val allyFraction = cfg.getDouble("abilities.mage.meteor-ally-damage-fraction", 0.25).coerceIn(0.0, 1.0)
         val knockback = cfg.getDouble("abilities.mage.meteor-knockback", 0.7).coerceAtLeast(0.0)
         val knockUp = cfg.getDouble("abilities.mage.meteor-knockup", 0.35).coerceIn(0.0, 1.0)

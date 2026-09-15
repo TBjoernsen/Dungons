@@ -11,6 +11,8 @@ import nl.riddernix.dungeonplugin.classes.DungeonKitService
 import nl.riddernix.dungeonplugin.classes.FeedbackService
 import nl.riddernix.dungeonplugin.classes.HolographicClassSelection
 import nl.riddernix.dungeonplugin.classes.ItemService
+import nl.riddernix.dungeonplugin.classes.MasteryQuestLibrary
+import nl.riddernix.dungeonplugin.classes.MasteryQuestListener
 import nl.riddernix.dungeonplugin.classes.MasterySelectionUI
 import nl.riddernix.dungeonplugin.classes.PassiveService
 import nl.riddernix.dungeonplugin.command.DungeonCommand
@@ -170,6 +172,8 @@ class DungeonPlugin : JavaPlugin() {
     // --- class side ---------------------------------------------------
     lateinit var classesConfig: ClassesConfig
         private set
+    lateinit var masteryQuests: MasteryQuestLibrary
+        private set
     lateinit var classes: ClassProgressionService
         private set
     lateinit var classItems: ItemService
@@ -249,6 +253,7 @@ class DungeonPlugin : JavaPlugin() {
         // The class layer, built before the skill progress manager starts
         // answering point queries: available points derive from its budget.
         classesConfig = ClassesConfig(this)
+        masteryQuests = MasteryQuestLibrary(this)
         classItems = ItemService(this)
         classes = ClassProgressionService(this)
         skillProgress = SkillProgressManager(this)
@@ -328,6 +333,7 @@ class DungeonPlugin : JavaPlugin() {
             server.pluginManager.registerEvents(classAbilities, this)
             server.pluginManager.registerEvents(classPicker, this)
             server.pluginManager.registerEvents(masterySelection, this)
+            server.pluginManager.registerEvents(MasteryQuestListener(this), this)
             server.pluginManager.registerEvents(ClassDungeonListener(this), this)
             val classCommands = ClassCommands(this)
             for (name in listOf("class", "skills", "skillshard", "soulshard")) {
@@ -447,6 +453,7 @@ class DungeonPlugin : JavaPlugin() {
         skillTrees.reload()
         skillPanels.reload()
         classesConfig.reload()
+        masteryQuests.reload()
         questConfig.reload()
         // Pool or timezone may have changed; catch up any boundary that now
         // counts as passed.
