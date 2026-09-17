@@ -308,13 +308,28 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         return true
     }
 
-    /** Stormcaller's mastery ladder raises how many Wind Dash charges can be banked at once - everyone else always caps at 1. */
+    /**
+     * How many Wind Dash charges can be banked at once. Both Archer mastery
+     * ladders raise this cap as they're claimed - Stormcaller grows fastest
+     * since mobility is its focus (up to +2 at full mastery), Sharpshooter
+     * gets a smaller capstone perk (up to +1). No subclass, or subclass with
+     * no mastery yet, always caps at 1.
+     */
     private fun maxWindDashCharges(player: Player): Int {
         val cfg = plugin.classesConfig
-        if (plugin.classes.subclass(player.uniqueId) != "stormcaller") return 1
-        val masteryLevel = plugin.classes.masteryLevelFor(player.uniqueId, "stormcaller")
-        val levelsPerCharge = cfg.getInt("abilities.archer.wind-dash-charge-per-mastery-levels", 4).coerceAtLeast(1)
-        return 1 + masteryLevel / levelsPerCharge
+        return when (plugin.classes.subclass(player.uniqueId)) {
+            "stormcaller" -> {
+                val masteryLevel = plugin.classes.masteryLevelFor(player.uniqueId, "stormcaller")
+                val levelsPerCharge = cfg.getInt("abilities.archer.wind-dash-charge-per-mastery-levels", 4).coerceAtLeast(1)
+                1 + masteryLevel / levelsPerCharge
+            }
+            "precision" -> {
+                val masteryLevel = plugin.classes.masteryLevelFor(player.uniqueId, "precision")
+                val levelsPerCharge = cfg.getInt("abilities.archer.wind-dash-charge-per-mastery-levels-precision", 10).coerceAtLeast(1)
+                1 + masteryLevel / levelsPerCharge
+            }
+            else -> 1
+        }
     }
 
     /** Stormcaller's Wind Dash gust: a shove, not damage - the point is room to breathe/reposition, not a weapon. */

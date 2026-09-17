@@ -6,7 +6,7 @@
 # replaced with this bundled copy on the next load - the balance numbers
 # here move often and are meant to be tuned in the plugin, not held on the
 # server across updates. (Raised whenever the bundled defaults change.)
-config-version: 10
+config-version: 11
 
 classes:
   # Turning this off leaves a dungeons-only server: no classes, no kits, no
@@ -447,9 +447,14 @@ abilities:
     wind-jump-double-charge-min-rank: 4
     wind-jump-second-charge-seconds: 3.0
     wind-dash-forward-multiplier: 1.7
-    # Stormcaller only: Wind Dash charges bank instead of expiring, up to
-    # this cap, growing every wind-dash-charge-per-mastery-levels levels.
+    # Wind Dash charges bank instead of expiring, up to a per-subclass cap
+    # that grows with mastery. Stormcaller (mobility-focused) grows every
+    # wind-dash-charge-per-mastery-levels levels, reaching +2 at full
+    # mastery (level 10) with the default of 4. Sharpshooter gets a smaller
+    # capstone perk via wind-dash-charge-per-mastery-levels-precision,
+    # reaching +1 at full mastery with the default of 10.
     wind-dash-charge-per-mastery-levels: 4
+    wind-dash-charge-per-mastery-levels-precision: 10
     # --- Mastery: Shift + Right-click ----------------------------------
     # Sharpshooter's Deadeye: an instant, guaranteed-crit arrow independent
     # of the Focus bar - always marks its target (see archer.mark-*).
