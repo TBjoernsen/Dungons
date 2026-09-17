@@ -6,7 +6,7 @@
 # replaced with this bundled copy on the next load - the balance numbers
 # here move often and are meant to be tuned in the plugin, not held on the
 # server across updates. (Raised whenever the bundled defaults change.)
-config-version: 12
+config-version: 13
 
 classes:
   # Turning this off leaves a dungeons-only server: no classes, no kits, no
@@ -439,13 +439,16 @@ abilities:
     # How long after a Wind Jump a full-Focus drawn bow shot still counts as
     # a Skyfall strike (you also have to still be off the ground).
     wind-jump-window-seconds: 4.0
-    # At Focus rank wind-jump-double-charge-min-rank or higher, a Wind Jump
-    # also banks a charge - a forward Wind Dash (same air-only mechanics, no
-    # lift) usable any time you're next airborne. Banked charges do NOT
-    # expire on a timer; they sit ready until spent. wind-dash-forward-
-    # multiplier turns jump-velocity into that dash's horizontal speed.
+    # At Focus rank wind-jump-double-charge-min-rank or higher, an Archer
+    # banks Wind Dash charges - a forward dash (same air-only mechanics, no
+    # lift) usable any time they're airborne, ahead of the normal cooldown.
+    # Players start with a full bank; a spent charge quietly recharges on
+    # its own after wind-dash-charge-recharge-seconds, no action needed.
+    # wind-dash-forward-multiplier turns jump-velocity into that dash's
+    # horizontal speed.
     wind-jump-double-charge-min-rank: 4
     wind-dash-forward-multiplier: 1.7
+    wind-dash-charge-recharge-seconds: 20.0
     # How many charges can be banked at once - a per-subclass cap that grows
     # with mastery. Stormcaller (mobility-focused) grows every
     # wind-dash-charge-per-mastery-levels levels, reaching +2 at full

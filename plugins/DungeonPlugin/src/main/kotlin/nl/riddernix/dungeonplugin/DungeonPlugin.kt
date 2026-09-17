@@ -347,6 +347,7 @@ class DungeonPlugin : JavaPlugin() {
             }
             server.scheduler.runTaskTimer(this, Runnable {
                 classPassives.tick()
+                classAbilities.tickWindDashRecharge()
                 for (player in server.onlinePlayers) {
                     coreListener?.stripArmor(player)
                     refreshClassPlayer(player)
