@@ -73,10 +73,12 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
     /** Per Archer: the wall-clock ms until which a Wind Jump still counts for a Skyfall shot. */
     private val windJumpUntil = HashMap<UUID, Long>()
 
-    /** Per max-rank Archer: ms until which any currently-banked Wind Dash charges expire unused. */
-    private val windDashChargeUntil = HashMap<UUID, Long>()
-
-    /** Per max-rank Archer: how many bonus forward Wind Dashes are currently banked - capped by maxWindDashCharges. */
+    /**
+     * Per max-rank Archer: how many bonus forward Wind Dashes are currently
+     * banked - capped by [maxWindDashCharges]. Banked charges do NOT expire
+     * on a timer; they sit ready until spent (a forward Wind Dash) or the
+     * player leaves the dungeon/class ([remove]).
+     */
     private val windDashCharges = HashMap<UUID, Int>()
     private val hoveredHealTargets = HashMap<UUID, HoveredHealTarget>()
     private val originalGlowStates = HashMap<UUID, Boolean>()
@@ -129,7 +131,6 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         deadeyeCooldownUntil.remove(player.uniqueId)
         tempestCooldownUntil.remove(player.uniqueId)
         windJumpUntil.remove(player.uniqueId)
-        windDashChargeUntil.remove(player.uniqueId)
         windDashCharges.remove(player.uniqueId)
         updateHoveredHealTarget(player, null)
     }
@@ -188,20 +189,16 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         event.isCancelled = true
 
         // A max-Focus Archer's banked charges: a forward Wind Dash spendable
-        // inside the window, ahead of (and ignoring) the normal cooldown.
-        // Stormcaller's mastery raises how many can be banked at once.
-        if (classType == ClassType.ARCHER) {
+        // any time they're airborne, ahead of (and ignoring) the normal
+        // cooldown. Mastery raises how many can be banked at once (see
+        // maxWindDashCharges) - banked charges sit ready until spent, no
+        // separate expiry timer.
+        if (classType == ClassType.ARCHER && !player.isOnGround) {
             val charges = windDashCharges[player.uniqueId] ?: 0
-            val windowActive = (windDashChargeUntil[player.uniqueId] ?: 0L) > System.currentTimeMillis()
-            if (charges > 0 && windowActive) {
+            if (charges > 0) {
                 val remaining = charges - 1
-                if (remaining <= 0) {
-                    windDashCharges.remove(player.uniqueId)
-                    windDashChargeUntil.remove(player.uniqueId)
-                } else {
-                    windDashCharges[player.uniqueId] = remaining
-                }
-                if (archerDoubleJump(player, forward = true)) {
+                if (remaining <= 0) windDashCharges.remove(player.uniqueId) else windDashCharges[player.uniqueId] = remaining
+                if (archerDoubleJump(player, forward = true, chargesRemaining = remaining)) {
                     cooldownUntil[player.uniqueId] = System.currentTimeMillis() + cooldownMillis(classType)
                 }
                 return
@@ -262,7 +259,7 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
      * launch instead of lift. A first Wind Jump at max Focus rank grants a
      * short window in which the next press becomes a Wind Dash.
      */
-    private fun archerDoubleJump(player: Player, forward: Boolean): Boolean {
+    private fun archerDoubleJump(player: Player, forward: Boolean, chargesRemaining: Int? = null): Boolean {
         @Suppress("DEPRECATION")
         if (player.isOnGround) {
             player.sendActionBar(Component.text(
@@ -291,14 +288,26 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         windJumpUntil[player.uniqueId] = System.currentTimeMillis() + (windowSeconds * 1000).toLong()
 
         var chargeNote = ""
-        if (!forward && plugin.classes.signatureRank(player.uniqueId) >=
+        if (forward) {
+            // Spending a banked charge - report what's left so the player
+            // always knows where they stand, not just when one is gained.
+            if (chargesRemaining != null) {
+                val cap = maxWindDashCharges(player)
+                chargeNote = if (chargesRemaining > 0) " §e(charges: $chargesRemaining/$cap)" else " §7(no charges left)"
+            }
+        } else if (plugin.classes.signatureRank(player.uniqueId) >=
             cfg.getInt("abilities.archer.wind-jump-double-charge-min-rank", 4)) {
-            val secs = cfg.getDouble("abilities.archer.wind-jump-second-charge-seconds", 3.0).coerceAtLeast(0.0)
-            windDashChargeUntil[player.uniqueId] = System.currentTimeMillis() + (secs * 1000).toLong()
             val cap = maxWindDashCharges(player)
-            val banked = ((windDashCharges[player.uniqueId] ?: 0) + 1).coerceAtMost(cap)
-            windDashCharges[player.uniqueId] = banked
-            chargeNote = " §e+ Wind Dash ($banked/$cap)"
+            val current = windDashCharges[player.uniqueId] ?: 0
+            if (current < cap) {
+                val banked = current + 1
+                windDashCharges[player.uniqueId] = banked
+                chargeNote = if (banked >= cap) " §e§lWind Dash charge banked! ($banked/$cap - full)"
+                    else " §eWind Dash charge banked! ($banked/$cap)"
+                player.world.playSound(player.location, Sound.ENTITY_WIND_CHARGE_THROW, 0.8f, 1.4f)
+            } else {
+                chargeNote = " §7Wind Dash charges full ($cap/$cap)"
+            }
         }
         val focused = plugin.classPassives.focusFull(player)
         player.sendActionBar(Component.text(
