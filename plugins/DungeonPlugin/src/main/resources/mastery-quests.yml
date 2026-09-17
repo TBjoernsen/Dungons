@@ -2,44 +2,78 @@
 #  Mastery quest ladders
 # =====================================================================
 # Separate from the random-rolled Daily/Weekly/General quest system in
-# quests.yml. Each subclass has ONE fixed, ordered ladder of ten steps
-# against a single cumulative objective (total damage dealt, or total
-# healing done, since choosing that subclass). Two steps are ever "active"
-# at a time in the sense that the player is always progressing toward the
+# quests.yml. Each subclass has ONE fixed, ordered ladder of ten steps.
+# Every step names its OWN objective (see MasteryObjective in
+# MasteryQuestLibrary.kt) - a ladder can freely interleave objective types
+# (Sharpshooter's and Stormcaller's both do), since each objective is its
+# own lifetime counter per player that never resets, even while a
+# different objective's step is "current". Two steps are ever "active" at
+# a time in the sense that the player is always progressing toward the
 # next unclaimed one while the one after it is already visible as next up -
 # claiming a step raises the player's mastery level by 1, which several
-# abilities read directly to scale their own numbers (see
-# abilities.mage.*-per-mastery-level in classes.yml). This is a starting
-# set - numbers and titles are all meant to be retuned after real testing.
+# abilities read directly to scale their own numbers (see the
+# *-per-mastery-level keys in classes.yml). This is a starting set -
+# numbers and titles are all meant to be retuned after real testing.
 
-mastery-quests-version: 1
+mastery-quests-version: 2
 
 mage:
   attack:
-    objective: deal_damage
     reward-xp: 150
     ladder:
-      - { required: 300,   title: "First Scorch",   description: "Deal 300 damage." }
-      - { required: 750,   title: "Rising Heat",    description: "Deal 750 damage." }
-      - { required: 1500,  title: "Firestorm",      description: "Deal 1,500 damage." }
-      - { required: 3000,  title: "Scorched Earth", description: "Deal 3,000 damage." }
-      - { required: 5500,  title: "Blaze of Glory", description: "Deal 5,500 damage." }
-      - { required: 9000,  title: "Cataclysm",      description: "Deal 9,000 damage." }
-      - { required: 14000, title: "Ashfall",        description: "Deal 14,000 damage." }
-      - { required: 21000, title: "Meteoric Rise",  description: "Deal 21,000 damage." }
-      - { required: 30000, title: "Wildfire",       description: "Deal 30,000 damage." }
-      - { required: 42000, title: "Apocalypse",     description: "Deal 42,000 damage." }
+      - { objective: deal_damage, required: 300,   title: "First Scorch",   description: "Deal 300 damage." }
+      - { objective: deal_damage, required: 750,   title: "Rising Heat",    description: "Deal 750 damage." }
+      - { objective: deal_damage, required: 1500,  title: "Firestorm",      description: "Deal 1,500 damage." }
+      - { objective: deal_damage, required: 3000,  title: "Scorched Earth", description: "Deal 3,000 damage." }
+      - { objective: deal_damage, required: 5500,  title: "Blaze of Glory", description: "Deal 5,500 damage." }
+      - { objective: deal_damage, required: 9000,  title: "Cataclysm",      description: "Deal 9,000 damage." }
+      - { objective: deal_damage, required: 14000, title: "Ashfall",        description: "Deal 14,000 damage." }
+      - { objective: deal_damage, required: 21000, title: "Meteoric Rise",  description: "Deal 21,000 damage." }
+      - { objective: deal_damage, required: 30000, title: "Wildfire",       description: "Deal 30,000 damage." }
+      - { objective: deal_damage, required: 42000, title: "Apocalypse",     description: "Deal 42,000 damage." }
   support:
-    objective: heal_amount
     reward-xp: 150
     ladder:
-      - { required: 150,   title: "First Light",     description: "Heal 150 HP." }
-      - { required: 350,   title: "Steady Hand",     description: "Heal 350 HP." }
-      - { required: 700,   title: "Mending Touch",   description: "Heal 700 HP." }
-      - { required: 1300,  title: "Guardian Spirit", description: "Heal 1,300 HP." }
-      - { required: 2200,  title: "Lifegiver",       description: "Heal 2,200 HP." }
-      - { required: 3500,  title: "Sanctuary",       description: "Heal 3,500 HP." }
-      - { required: 5200,  title: "Beacon of Hope",  description: "Heal 5,200 HP." }
-      - { required: 7500,  title: "Wellspring",      description: "Heal 7,500 HP." }
-      - { required: 10500, title: "Radiant Grace",   description: "Heal 10,500 HP." }
-      - { required: 14500, title: "Font of Life",    description: "Heal 14,500 HP." }
+      - { objective: heal_amount, required: 150,   title: "First Light",     description: "Heal 150 HP." }
+      - { objective: heal_amount, required: 350,   title: "Steady Hand",     description: "Heal 350 HP." }
+      - { objective: heal_amount, required: 700,   title: "Mending Touch",   description: "Heal 700 HP." }
+      - { objective: heal_amount, required: 1300,  title: "Guardian Spirit", description: "Heal 1,300 HP." }
+      - { objective: heal_amount, required: 2200,  title: "Lifegiver",       description: "Heal 2,200 HP." }
+      - { objective: heal_amount, required: 3500,  title: "Sanctuary",       description: "Heal 3,500 HP." }
+      - { objective: heal_amount, required: 5200,  title: "Beacon of Hope",  description: "Heal 5,200 HP." }
+      - { objective: heal_amount, required: 7500,  title: "Wellspring",      description: "Heal 7,500 HP." }
+      - { objective: heal_amount, required: 10500, title: "Radiant Grace",   description: "Heal 10,500 HP." }
+      - { objective: heal_amount, required: 14500, title: "Font of Life",    description: "Heal 14,500 HP." }
+
+archer:
+  # Sharpshooter interleaves all three of its signature tools: Deadeye's
+  # marks, Focus Shot's confirmed kills, and time spent floating under
+  # Scope's Slow Falling.
+  precision:
+    reward-xp: 150
+    ladder:
+      - { objective: deadeye_marks,     required: 15,  title: "First Mark",         description: "Mark 15 enemies with Deadeye." }
+      - { objective: focus_shot_kills,  required: 10,  title: "Clean Kill",         description: "Kill 10 enemies with Focus Shot." }
+      - { objective: scope_seconds,     required: 60,  title: "Steady Eye",         description: "Spend 60 seconds floating under Scope." }
+      - { objective: deadeye_marks,     required: 40,  title: "Marked for Death",   description: "Mark 40 enemies with Deadeye." }
+      - { objective: focus_shot_kills,  required: 25,  title: "Precision Strike",   description: "Kill 25 enemies with Focus Shot." }
+      - { objective: scope_seconds,     required: 150, title: "Eagle Eye",          description: "Spend 150 seconds floating under Scope." }
+      - { objective: deadeye_marks,     required: 80,  title: "Death's Signature",  description: "Mark 80 enemies with Deadeye." }
+      - { objective: focus_shot_kills,  required: 50,  title: "Sharpshooter's Toll", description: "Kill 50 enemies with Focus Shot." }
+      - { objective: scope_seconds,     required: 300, title: "Endless Vigil",      description: "Spend 300 seconds floating under Scope." }
+      - { objective: focus_shot_kills,  required: 90,  title: "Apex Predator",      description: "Kill 90 enemies with Focus Shot." }
+  # Stormcaller interleaves Tempest's fan of arrows, Skyfall's kills, and
+  # Wind Dash's mobility.
+  stormcaller:
+    reward-xp: 150
+    ladder:
+      - { objective: tempest_hits,    required: 30,  title: "First Gale",         description: "Hit enemies with Tempest 30 times." }
+      - { objective: skyfall_kills,   required: 8,   title: "Falling Star",       description: "Kill 8 enemies with Skyfall." }
+      - { objective: wind_dash_uses,  required: 20,  title: "Restless Wind",      description: "Wind Dash 20 times." }
+      - { objective: tempest_hits,    required: 80,  title: "Storm Surge",        description: "Hit enemies with Tempest 80 times." }
+      - { objective: skyfall_kills,   required: 20,  title: "Meteor Strike",      description: "Kill 20 enemies with Skyfall." }
+      - { objective: wind_dash_uses,  required: 50,  title: "Tempest's Grace",    description: "Wind Dash 50 times." }
+      - { objective: tempest_hits,    required: 160, title: "Howling Gale",       description: "Hit enemies with Tempest 160 times." }
+      - { objective: skyfall_kills,   required: 35,  title: "Sky's Wrath",        description: "Kill 35 enemies with Skyfall." }
+      - { objective: wind_dash_uses,  required: 90,  title: "Boundless Motion",   description: "Wind Dash 90 times." }
+      - { objective: skyfall_kills,   required: 60,  title: "Herald of the Storm", description: "Kill 60 enemies with Skyfall." }

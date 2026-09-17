@@ -56,6 +56,21 @@ class MasteryQuestLibrary(private val plugin: DungeonPlugin) {
         yaml = YamlConfiguration.loadConfiguration(file)
         plugin.getResource(FILE_NAME)?.use { resource ->
             val defaults = YamlConfiguration.loadConfiguration(InputStreamReader(resource, StandardCharsets.UTF_8))
+            // Ladders are meant to be tuned in the bundled resource, not hand-held
+            // on the server - a version bump replaces the whole file, same as
+            // ClassesConfig does for classes.yml. Without this, a deployed
+            // server's copy would keep stale ladder shapes forever, since a
+            // per-key merge never touches a top-level key (e.g. "mage") that
+            // already exists on disk.
+            val bundledVersion = defaults.getInt("mastery-quests-version", 0)
+            if (yaml.getInt("mastery-quests-version", 0) < bundledVersion) {
+                plugin.logger.info(
+                    "$FILE_NAME: mastery-quests-version ${yaml.getInt("mastery-quests-version", 0)} -> $bundledVersion; " +
+                        "replacing with bundled defaults (tune mastery-quests.yml in the plugin, not on the server).")
+                file.delete()
+                plugin.saveResource(FILE_NAME, false)
+                yaml = YamlConfiguration.loadConfiguration(file)
+            }
             yaml.setDefaults(defaults)
             yaml.options().copyDefaults(true)
         }

@@ -74,7 +74,7 @@ class ItemService(private val plugin: DungeonPlugin) {
     fun isDeadeyeShot(projectile: Projectile): Boolean =
         projectile.persistentDataContainer.has(deadeyeShotKey, PersistentDataType.BYTE)
 
-    /** Stormcaller's Tempest Volley: one of a ground-usable fan of arrows. */
+    /** Stormcaller's Tempest: one of a ground-usable fan of arrows. */
     fun markTempestArrow(projectile: Projectile) {
         projectile.persistentDataContainer.set(tempestArrowKey, PersistentDataType.BYTE, 1)
     }

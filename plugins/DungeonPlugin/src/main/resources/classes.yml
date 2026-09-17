@@ -6,7 +6,7 @@
 # replaced with this bundled copy on the next load - the balance numbers
 # here move often and are meant to be tuned in the plugin, not held on the
 # server across updates. (Raised whenever the bundled defaults change.)
-config-version: 9
+config-version: 10
 
 classes:
   # Turning this off leaves a dungeons-only server: no classes, no kits, no
@@ -102,6 +102,9 @@ focus:
 # Each arrow adds the Archer's Attack stat, then this multiplier is applied.
 archer:
   attack-stat-damage-multiplier: 1.0
+  # Added to every arrow hit, flat, per mastery level - either branch, on
+  # top of whatever that branch's own more specific scaling adds.
+  mastery-damage-per-level: 0.5
   # Focus break rules. Taking a hit of at least focus-break-damage-threshold
   # final damage shatters the whole bar; a smaller hit only drops
   # focus-chip-penalty stacks. A missed arrow costs focus-miss-penalty
@@ -117,6 +120,9 @@ archer:
   focus-shot-base-multiplier: 2.0
   focus-shot-multiplier-per-rank: 0.25
   focus-shot-pierce-from-rank: 4
+  # Sharpshooter's mastery ladder adds further to Focus Shot's multiplier,
+  # on top of the per-rank growth above.
+  focus-shot-multiplier-per-mastery-level: 0.05
   # "Skyfall": loosing a drawn bow shot while airborne from Wind Jump with a
   # full Focus bar spends the bar and makes that arrow detonate on impact
   # (ground or enemy). Every dungeon mob within skyfall-radius takes
@@ -155,17 +161,27 @@ archer:
   mark-duration-seconds: 5.0
   mark-bonus-damage-percent: 30.0
   mark-bonus-per-mastery-level: 3.0
+  # How many marks the same shooter can have active at once. Applying a new
+  # mark past capacity evicts the oldest one. Capacity grows every
+  # mark-capacity-per-mastery-levels mastery levels.
+  mark-capacity: 1
+  mark-capacity-per-mastery-levels: 4
   # Scope's Slow Falling stays universal (everyone at rank scope-min-rank+);
-  # Sharpshooter additionally arms a damage window on top of it.
+  # Sharpshooter additionally arms a damage window on top of it, and its
+  # mastery ladder extends how long that window (and the Slow Falling
+  # float) lasts.
   scope-damage-bonus-percent: 20.0
   scope-damage-bonus-per-mastery-level: 2.0
+  scope-duration-per-mastery-level: 4.0
   # --- Stormcaller: Skyfall feeding Wind Dash --------------------------
   # A landed Skyfall extends the Wind Jump window by skyfall-dash-refund-
   # seconds (enough to Wind Dash again while still descending) and its
-  # radius grows by skyfall-radius-bonus-stormcaller.
+  # radius grows by skyfall-radius-bonus-stormcaller. Its mastery ladder
+  # also adds flat damage per level.
   skyfall-radius-bonus-stormcaller: 1.5
   skyfall-radius-bonus-per-mastery-level: 0.15
   skyfall-dash-refund-seconds: 2.5
+  skyfall-damage-per-mastery-level: 1.5
   # Wind Dash itself gives nearby enemies a shove - mobility doubles as an
   # escape/reposition tool that also buys you room.
   wind-dash-knockback: 0.5
@@ -431,6 +447,9 @@ abilities:
     wind-jump-double-charge-min-rank: 4
     wind-jump-second-charge-seconds: 3.0
     wind-dash-forward-multiplier: 1.7
+    # Stormcaller only: Wind Dash charges bank instead of expiring, up to
+    # this cap, growing every wind-dash-charge-per-mastery-levels levels.
+    wind-dash-charge-per-mastery-levels: 4
     # --- Mastery: Shift + Right-click ----------------------------------
     # Sharpshooter's Deadeye: an instant, guaranteed-crit arrow independent
     # of the Focus bar - always marks its target (see archer.mark-*).
@@ -438,7 +457,7 @@ abilities:
     deadeye-speed: 3.6
     deadeye-damage-multiplier: 2.2
     deadeye-damage-multiplier-per-mastery-level: 0.08
-    # Stormcaller's Tempest Volley: a ground-usable fan of arrows, unlike
+    # Stormcaller's Tempest: a ground-usable fan of arrows, unlike
     # Skyfall which needs airborne + a spent Focus bar.
     tempest-cooldown-seconds: 10.0
     tempest-arrow-count: 5

@@ -302,7 +302,7 @@ class FeedbackService(private val plugin: DungeonPlugin) {
         world.playSound(centre, Sound.ENTITY_WIND_CHARGE_WIND_BURST, 0.8f, 0.9f)
     }
 
-    /** One Tempest Volley arrow leaving the bow - a teal trail, distinct from Focus Shot's cyan and Skyfall's lime. */
+    /** One Tempest arrow leaving the bow - a teal trail, distinct from Focus Shot's cyan and Skyfall's lime. */
     fun tempestFired(arrow: Arrow) {
         arrowTrail(arrow, Color.fromRGB(45, 200, 190))
     }

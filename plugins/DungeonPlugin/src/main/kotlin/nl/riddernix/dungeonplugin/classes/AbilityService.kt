@@ -73,8 +73,11 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
     /** Per Archer: the wall-clock ms until which a Wind Jump still counts for a Skyfall shot. */
     private val windJumpUntil = HashMap<UUID, Long>()
 
-    /** Per max-rank Archer: ms until which a granted second Wind Jump charge (a forward Wind Dash) can be spent. */
+    /** Per max-rank Archer: ms until which any currently-banked Wind Dash charges expire unused. */
     private val windDashChargeUntil = HashMap<UUID, Long>()
+
+    /** Per max-rank Archer: how many bonus forward Wind Dashes are currently banked - capped by maxWindDashCharges. */
+    private val windDashCharges = HashMap<UUID, Int>()
     private val hoveredHealTargets = HashMap<UUID, HoveredHealTarget>()
     private val originalGlowStates = HashMap<UUID, Boolean>()
     private val shieldCapacityKey = NamespacedKey(plugin, "paladin_active_shield_capacity")
@@ -127,6 +130,7 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         tempestCooldownUntil.remove(player.uniqueId)
         windJumpUntil.remove(player.uniqueId)
         windDashChargeUntil.remove(player.uniqueId)
+        windDashCharges.remove(player.uniqueId)
         updateHoveredHealTarget(player, null)
     }
 
@@ -183,15 +187,25 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         if (!plugin.classItems.isAllowedWeapon(classType, player.inventory.itemInMainHand)) return
         event.isCancelled = true
 
-        // A max-Focus Archer's granted second charge: a forward Wind Dash
-        // spendable inside its window, ahead of (and ignoring) the cooldown.
-        if (classType == ClassType.ARCHER &&
-            (windDashChargeUntil[player.uniqueId] ?: 0L) > System.currentTimeMillis()) {
-            windDashChargeUntil.remove(player.uniqueId)
-            if (archerDoubleJump(player, forward = true)) {
-                cooldownUntil[player.uniqueId] = System.currentTimeMillis() + cooldownMillis(classType)
+        // A max-Focus Archer's banked charges: a forward Wind Dash spendable
+        // inside the window, ahead of (and ignoring) the normal cooldown.
+        // Stormcaller's mastery raises how many can be banked at once.
+        if (classType == ClassType.ARCHER) {
+            val charges = windDashCharges[player.uniqueId] ?: 0
+            val windowActive = (windDashChargeUntil[player.uniqueId] ?: 0L) > System.currentTimeMillis()
+            if (charges > 0 && windowActive) {
+                val remaining = charges - 1
+                if (remaining <= 0) {
+                    windDashCharges.remove(player.uniqueId)
+                    windDashChargeUntil.remove(player.uniqueId)
+                } else {
+                    windDashCharges[player.uniqueId] = remaining
+                }
+                if (archerDoubleJump(player, forward = true)) {
+                    cooldownUntil[player.uniqueId] = System.currentTimeMillis() + cooldownMillis(classType)
+                }
+                return
             }
-            return
         }
 
         val remaining = (cooldownUntil[player.uniqueId] ?: 0L) - System.currentTimeMillis()
@@ -262,6 +276,7 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         if (forward) {
             val push = cfg.getDouble("abilities.archer.wind-dash-forward-multiplier", 1.7)
             player.velocity = horizontalDirection(player).multiply(power * push).setY(0.3)
+            plugin.classes.addMasteryProgress(player, MasteryObjective.WIND_DASH_USES, 1)
             // Stormcaller only: the dash itself shoves nearby enemies aside -
             // mobility that also buys room, not just repositioning.
             if (plugin.classes.subclass(player.uniqueId) == "stormcaller") {
@@ -280,7 +295,10 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
             cfg.getInt("abilities.archer.wind-jump-double-charge-min-rank", 4)) {
             val secs = cfg.getDouble("abilities.archer.wind-jump-second-charge-seconds", 3.0).coerceAtLeast(0.0)
             windDashChargeUntil[player.uniqueId] = System.currentTimeMillis() + (secs * 1000).toLong()
-            chargeNote = " §e+ Wind Dash"
+            val cap = maxWindDashCharges(player)
+            val banked = ((windDashCharges[player.uniqueId] ?: 0) + 1).coerceAtMost(cap)
+            windDashCharges[player.uniqueId] = banked
+            chargeNote = " §e+ Wind Dash ($banked/$cap)"
         }
         val focused = plugin.classPassives.focusFull(player)
         player.sendActionBar(Component.text(
@@ -288,6 +306,15 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
                 (if (focused) " §b§lSkyfall armed" else "") + chargeNote,
             NamedTextColor.GREEN))
         return true
+    }
+
+    /** Stormcaller's mastery ladder raises how many Wind Dash charges can be banked at once - everyone else always caps at 1. */
+    private fun maxWindDashCharges(player: Player): Int {
+        val cfg = plugin.classesConfig
+        if (plugin.classes.subclass(player.uniqueId) != "stormcaller") return 1
+        val masteryLevel = plugin.classes.masteryLevelFor(player.uniqueId, "stormcaller")
+        val levelsPerCharge = cfg.getInt("abilities.archer.wind-dash-charge-per-mastery-levels", 4).coerceAtLeast(1)
+        return 1 + masteryLevel / levelsPerCharge
     }
 
     /** Stormcaller's Wind Dash gust: a shove, not damage - the point is room to breathe/reposition, not a weapon. */
@@ -591,13 +618,13 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         caster.sendActionBar(Component.text("§6§lDEADEYE"))
     }
 
-    /** Stormcaller's Tempest Volley: a ground-usable fan of arrows - unlike Skyfall, no airborne or spent-Focus requirement. */
+    /** Stormcaller's Tempest: a ground-usable fan of arrows - unlike Skyfall, no airborne or spent-Focus requirement. */
     private fun castTempestVolley(caster: Player) {
         val cfg = plugin.classesConfig
         val now = System.currentTimeMillis()
         val remaining = (tempestCooldownUntil[caster.uniqueId] ?: 0L) - now
         if (remaining > 0) {
-            caster.sendActionBar(Component.text("Tempest Volley ready in ${ceil(remaining / 1000.0).toInt()}s.", NamedTextColor.GRAY))
+            caster.sendActionBar(Component.text("Tempest ready in ${ceil(remaining / 1000.0).toInt()}s.", NamedTextColor.GRAY))
             return
         }
         val cooldownMillis = (cfg.getDouble("abilities.archer.tempest-cooldown-seconds", 10.0).coerceAtLeast(0.0) * 1000).toLong()
@@ -627,7 +654,7 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
             plugin.classItems.markTempestArrow(arrow)
             plugin.classFeedback.tempestFired(arrow)
         }
-        caster.sendActionBar(Component.text("§b§lTEMPEST VOLLEY"))
+        caster.sendActionBar(Component.text("§b§lTEMPEST"))
     }
 
     private fun safeBlinkDestination(player: Player, maxDistance: Double, vertical: Boolean): Location? {

@@ -55,6 +55,9 @@ class PassiveService(private val plugin: DungeonPlugin) {
     private val markedUntil = HashMap<UUID, Long>()
     private val markedBy = HashMap<UUID, UUID>()
 
+    /** Sharpshooter only: shooter -> their currently-marked target UUIDs, oldest first, capped by maxActiveMarks. */
+    private val activeMarksByShooter = HashMap<UUID, MutableList<UUID>>()
+
     /** Warriors currently inside a Berserk window - so [tick] can fire the "started/fading/ended" cues once each. */
     private val berserkActive = HashSet<UUID>()
     private val berserkFadeWarned = HashSet<UUID>()
@@ -469,9 +472,14 @@ class PassiveService(private val plugin: DungeonPlugin) {
         if (player.isOnGround || player.isGliding) return
         val now = System.currentTimeMillis()
         if ((scopeReadyAt[player.uniqueId] ?: 0L) > now) return
-        val durationTicks = plugin.classesConfig.getInt("archer.scope-duration-ticks", 24).coerceIn(5, 200)
-        val cooldownMs = (plugin.classesConfig.getDouble("archer.scope-cooldown-seconds", 3.0)
-            .coerceAtLeast(0.0) * 1000.0).toLong()
+        val cfg = plugin.classesConfig
+        val precision = plugin.classes.subclass(player.uniqueId) == "precision"
+        val masteryLevel = if (precision) plugin.classes.masteryLevelFor(player.uniqueId, "precision") else 0
+        // Sharpshooter's mastery ladder extends the float itself, not just
+        // the damage window it arms below.
+        val durationTicks = (cfg.getInt("archer.scope-duration-ticks", 24) +
+            cfg.getDouble("archer.scope-duration-per-mastery-level", 4.0) * masteryLevel).toInt().coerceIn(5, 400)
+        val cooldownMs = (cfg.getDouble("archer.scope-cooldown-seconds", 3.0).coerceAtLeast(0.0) * 1000.0).toLong()
         scopeReadyAt[player.uniqueId] = now + cooldownMs
         player.addPotionEffect(PotionEffect(PotionEffectType.SLOW_FALLING, durationTicks, 0, true, false, true))
         player.playSound(player.location, Sound.ITEM_SPYGLASS_USE, 0.7f, 1.25f)
@@ -479,9 +487,11 @@ class PassiveService(private val plugin: DungeonPlugin) {
         // Sharpshooter only: the same window also arms bonus shot damage, on
         // top of the Slow Falling every Archer gets at this rank.
         var message = "§bScope §7- steady your shot"
-        if (plugin.classes.subclass(player.uniqueId) == "precision") {
+        if (precision) {
             scopeDamageBonusUntil[player.uniqueId] = now + durationTicks * 50L
             message += " §6(+damage)"
+            plugin.classes.addMasteryProgress(player, MasteryObjective.SCOPE_SECONDS,
+                (durationTicks / 20.0).roundToInt().coerceAtLeast(1))
         }
         player.sendActionBar(Component.text(message))
     }
@@ -500,13 +510,18 @@ class PassiveService(private val plugin: DungeonPlugin) {
             radius += cfg.getDouble("archer.skyfall-radius-bonus-stormcaller", 1.5) +
                 cfg.getDouble("archer.skyfall-radius-bonus-per-mastery-level", 0.15) * masteryLevel
         }
-        val damage = archerAttackBonus(shooter) * cfg.getDouble("archer.skyfall-damage-multiplier", 1.5).coerceAtLeast(0.0)
+        var damage = archerAttackBonus(shooter) * cfg.getDouble("archer.skyfall-damage-multiplier", 1.5).coerceAtLeast(0.0)
+        if (stormcaller) {
+            val masteryLevel = plugin.classes.masteryLevelFor(shooter.uniqueId, "stormcaller")
+            damage += cfg.getDouble("archer.skyfall-damage-per-mastery-level", 1.5) * masteryLevel
+        }
         val knockUp = cfg.getDouble("archer.skyfall-knockup", 0.35).coerceIn(0.0, 2.0)
         val world = where.world ?: return
         for (entity in world.getNearbyEntities(where, radius, radius, radius)) {
             val mob = entity as? LivingEntity ?: continue
             if (mob is Player || (!plugin.queries.isDungeonMob(mob) && mob !is Mob)) continue
             mob.damage(damage, shooter)
+            if (mob.isDead) plugin.classes.addMasteryProgress(shooter, MasteryObjective.SKYFALL_KILLS, 1)
             val away = mob.location.toVector().subtract(where.toVector())
             if (away.lengthSquared() > 0.0001) away.normalize() else away.zero()
             mob.velocity = mob.velocity.add(away.multiply(0.35)).setY(knockUp)
@@ -578,7 +593,7 @@ class PassiveService(private val plugin: DungeonPlugin) {
             return
         }
         val rank = plugin.classes.signatureRank(shooter.uniqueId)
-        event.damage = (event.damage + archerAttackBonus(shooter)) * focusShotDamageMultiplier(rank)
+        event.damage = (event.damage + archerAttackBonus(shooter)) * focusShotDamageMultiplier(shooter, rank)
         (event.entity as? LivingEntity)?.let { target ->
             event.damage *= markDamageMultiplier(target, shooter)
             event.damage *= scopeDamageMultiplier(shooter)
@@ -601,11 +616,12 @@ class PassiveService(private val plugin: DungeonPlugin) {
         (event.entity as? LivingEntity)?.let { target ->
             event.damage *= scopeDamageMultiplier(shooter)
             applyMark(target, shooter)
+            plugin.classes.addMasteryProgress(shooter, MasteryObjective.DEADEYE_MARKS, 1)
         }
         plugin.classFeedback.deadeyeImpact(projectile.location)
     }
 
-    /** One Tempest Volley arrow connecting - a flat reduced multiplier per arrow, no Focus interaction and no mark. */
+    /** One Tempest arrow connecting - a flat reduced multiplier per arrow, no Focus interaction and no mark. */
     fun handleTempestDamage(event: EntityDamageByEntityEvent, shooter: Player) {
         if (plugin.classes.activeClass(shooter.uniqueId) != ClassType.ARCHER) {
             event.isCancelled = true
@@ -613,6 +629,7 @@ class PassiveService(private val plugin: DungeonPlugin) {
         }
         val multiplier = plugin.classesConfig.getDouble("archer.tempest-damage-multiplier", 0.6).coerceAtLeast(0.0)
         event.damage = (event.damage + archerAttackBonus(shooter)) * multiplier
+        plugin.classes.addMasteryProgress(shooter, MasteryObjective.TEMPEST_HITS, 1)
     }
 
     fun handleProjectileMiss(event: ProjectileHitEvent, shooter: Player) {
@@ -1037,19 +1054,42 @@ class PassiveService(private val plugin: DungeonPlugin) {
 
     private fun fullFocusDamageBonus(rank: Int): Double = (0.20 + rank * 0.05).coerceAtMost(0.50)
 
-    /** The spent Focus Shot's on-hit multiplier: base at Rank I, growing each rank. */
-    private fun focusShotDamageMultiplier(rank: Int): Double {
-        val base = plugin.classesConfig.getDouble("archer.focus-shot-base-multiplier", 2.0)
-        val perRank = plugin.classesConfig.getDouble("archer.focus-shot-multiplier-per-rank", 0.25)
-        return (base + (rank - 1).coerceAtLeast(0) * perRank).coerceAtLeast(1.0)
+    /** The spent Focus Shot's on-hit multiplier: base at Rank I, growing each rank - Sharpshooter's mastery adds further on top. */
+    private fun focusShotDamageMultiplier(shooter: Player, rank: Int): Double {
+        val cfg = plugin.classesConfig
+        val base = cfg.getDouble("archer.focus-shot-base-multiplier", 2.0)
+        val perRank = cfg.getDouble("archer.focus-shot-multiplier-per-rank", 0.25)
+        val masteryLevel = plugin.classes.masteryLevelFor(shooter.uniqueId, "precision")
+        val masteryBonus = cfg.getDouble("archer.focus-shot-multiplier-per-mastery-level", 0.05) * masteryLevel
+        return (base + (rank - 1).coerceAtLeast(0) * perRank + masteryBonus).coerceAtLeast(1.0)
+    }
+
+    /** Sharpshooter's mastery ladder raises how many marks they can hold at once - beyond the cap, a new mark bumps the oldest. */
+    private fun maxActiveMarks(shooter: Player): Int {
+        val cfg = plugin.classesConfig
+        val masteryLevel = plugin.classes.masteryLevelFor(shooter.uniqueId, "precision")
+        val levelsPerMark = cfg.getInt("archer.mark-capacity-per-mastery-levels", 4).coerceAtLeast(1)
+        return cfg.getInt("archer.mark-capacity", 1).coerceAtLeast(1) + masteryLevel / levelsPerMark
     }
 
     /** Sharpshooter only: marks `target`, crediting `shooter` - only their own plain arrows benefit. */
     private fun applyMark(target: LivingEntity, shooter: Player) {
         val cfg = plugin.classesConfig
         val durationMs = (cfg.getDouble("archer.mark-duration-seconds", 5.0).coerceAtLeast(0.0) * 1000L).toLong()
-        markedUntil[target.uniqueId] = System.currentTimeMillis() + durationMs
-        markedBy[target.uniqueId] = shooter.uniqueId
+        val shooterId = shooter.uniqueId
+        val targetId = target.uniqueId
+        val active = activeMarksByShooter.getOrPut(shooterId) { ArrayList() }
+        if (targetId !in active) {
+            val cap = maxActiveMarks(shooter)
+            while (active.size >= cap && active.isNotEmpty()) {
+                val oldest = active.removeAt(0)
+                markedUntil.remove(oldest)
+                markedBy.remove(oldest)
+            }
+            active.add(targetId)
+        }
+        markedUntil[targetId] = System.currentTimeMillis() + durationMs
+        markedBy[targetId] = shooterId
         plugin.classFeedback.markApplied(target)
     }
 
@@ -1088,12 +1128,29 @@ class PassiveService(private val plugin: DungeonPlugin) {
             }
             plugin.classFeedback.markPulse(entity)
         }
-        expired.forEach { markedUntil.remove(it); markedBy.remove(it) }
+        expired.forEach { id ->
+            markedUntil.remove(id)
+            val shooterId = markedBy.remove(id)
+            if (shooterId != null) activeMarksByShooter[shooterId]?.remove(id)
+        }
     }
 
-    private fun archerAttackBonus(player: Player): Double =
-        (player.getAttribute(Attribute.ATTACK_DAMAGE)?.value ?: 1.0) *
-            plugin.classesConfig.getDouble("archer.attack-stat-damage-multiplier", 1.0).coerceAtLeast(0.0)
+    /**
+     * The flat bonus added to every arrow hit. A mastery level in either
+     * Archer branch adds a flat extra on top - "general damage" that grows
+     * regardless of which specific ability landed the hit, alongside each
+     * branch's own more specific scaling (Focus Shot/Deadeye/mark for
+     * Sharpshooter, Tempest/Skyfall for Stormcaller).
+     */
+    private fun archerAttackBonus(player: Player): Double {
+        val cfg = plugin.classesConfig
+        val base = (player.getAttribute(Attribute.ATTACK_DAMAGE)?.value ?: 1.0) *
+            cfg.getDouble("archer.attack-stat-damage-multiplier", 1.0).coerceAtLeast(0.0)
+        val subclassId = plugin.classes.subclass(player.uniqueId)
+        val masteryLevel = if (subclassId != null) plugin.classes.masteryLevelFor(player.uniqueId, subclassId) else 0
+        val masteryBonus = cfg.getDouble("archer.mastery-damage-per-level", 0.5) * masteryLevel
+        return base + masteryBonus
+    }
 
     private fun tauntThreshold(rank: Int): Double {
         val base = plugin.classesConfig.getDouble("paladin.taunt-damage-threshold", 250.0)
