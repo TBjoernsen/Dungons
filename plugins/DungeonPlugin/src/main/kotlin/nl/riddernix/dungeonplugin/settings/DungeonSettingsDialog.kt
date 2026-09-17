@@ -41,23 +41,23 @@ class DungeonSettingsDialog(private val plugin: DungeonPlugin) {
     private fun openRoomCounts(player: Player) {
         val fields = ArrayList<NumberField>()
         for (difficulty in 1..9) {
-            fields.add(NumberField("rooms$difficulty", "generation.rooms-per-difficulty.$difficulty",
-                text("settings.labels.room-count", "difficulty", difficulty.toString()), 2F, 64F, 1F))
+            val base = "generation.template.difficulties.$difficulty."
+            val number = difficulty.toString()
+            fields.add(NumberField("combat$difficulty", base + "combat-rooms",
+                text("settings.labels.combat-rooms", "difficulty", number), 3F, 12F, 1F))
+            fields.add(NumberField("keys$difficulty", base + "keys",
+                text("settings.labels.keys", "difficulty", number), 0F, 3F, 1F))
+            fields.add(NumberField("minibosses$difficulty", base + "minibosses",
+                text("settings.labels.minibosses", "difficulty", number), 0F, 2F, 1F))
         }
         openNumbers(player, "settings.pages.room-counts", fields)
     }
 
     private fun openGeneration(player: Player) {
         val fields = listOf(
-            field("prefab-width", "generation.prefab-room.size.x", "settings.labels.prefab-width", 7F, 127F, 2F),
-            field("prefab-height", "generation.prefab-room.size.y", "settings.labels.prefab-height", 6F, 64F, 1F),
-            field("prefab-depth", "generation.prefab-room.size.z", "settings.labels.prefab-depth", 7F, 127F, 2F),
             field("corridor-length", "generation.corridor.length", "settings.labels.corridor-length", 7F, 80F, 1F),
-            field("branch-chance", "generation.branching.branch-frequency", "settings.labels.branch-chance", 0F, 1F, 0.05F),
-            field("short-branch", "generation.branching.short-branch-max-length", "settings.labels.short-branch", 1F, 8F, 1F),
-            field("long-branch", "generation.branching.long-branch-max-length", "settings.labels.long-branch", 1F, 8F, 1F),
-            field("turn-min", "generation.critical-path.min-rooms-before-turn", "settings.labels.turn-min", 1F, 8F, 1F),
-            field("turn-max", "generation.critical-path.max-rooms-before-turn", "settings.labels.turn-max", 1F, 8F, 1F)
+            field("stairs-drop", "generation.template.placeholder.stairs-drop", "settings.labels.stairs-drop", 1F, 24F, 1F),
+            field("hall-drop", "generation.template.placeholder.great-hall-drop", "settings.labels.hall-drop", 0F, 32F, 1F)
         )
         openNumbers(player, "settings.pages.generation", fields)
     }

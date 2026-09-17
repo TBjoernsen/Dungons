@@ -86,6 +86,8 @@ class DungeonMobManager(private val plugin: DungeonPlugin) : Listener {
     private val pendingSplits = HashMap<UUID, MutableList<SplitContext>>()
     private val pendingBossMinions = HashMap<UUID, PendingBossMinions>()
     private val activeBossSummons = HashMap<UUID, BossSummoningSequence>()
+    /** dungeonId:roomId keys of miniboss rooms whose entrance has already played. */
+    private val minibossEntrances = HashSet<String>()
     private val bossBars = HashMap<UUID, ActiveBossBar>()
     private val testingMobs = HashMap<UUID, TestMobLocation>()
     private val testingMobsFile = File(plugin.dataFolder, "testing-mobs.yml")
@@ -396,9 +398,26 @@ class DungeonMobManager(private val plugin: DungeonPlugin) : Listener {
             prepareDungeonMob(entity, dungeon, room, settings, member.category, member.stats, false, null,
                 member.definition.name, member.definition.nameVisible)
             placed.add(location)
+            beginMinibossEntrance(dungeon, room, member.category, entity)
         } else {
             entity.remove()
         }
+    }
+
+    /**
+     * A miniboss slot is an ordinary combat room whose strongest champion
+     * arrives through the boss summoning sequence. Only the room's first
+     * champion gets the entrance; its packmates spawn plainly around it.
+     */
+    private fun beginMinibossEntrance(dungeon: DungeonInstance, room: DungeonRoom, category: Role,
+                                      champion: LivingEntity) {
+        if (!room.miniboss || category != Role.CHAMPION) return
+        val key = dungeon.id + ":" + room.id
+        if (!minibossEntrances.add(key)) return
+        val settings = BossSummoningSettings.read(plugin.config, "mobs.miniboss.summoning.")
+        val sequence = BossSummoningSequence(champion.uniqueId, champion, dungeon.id, settings) {}
+        activeBossSummons[champion.uniqueId] = sequence
+        sequence.begin()
     }
 
     private fun spawnBoss(dungeon: DungeonInstance, room: DungeonRoom, settings: DifficultySettings) {
@@ -422,7 +441,8 @@ class DungeonMobManager(private val plugin: DungeonPlugin) : Listener {
             if (pending.dungeon !== dungeon || pending.room !== room || bossId in activeBossSummons) continue
             val entity = Bukkit.getEntity(bossId)
             if (entity is LivingEntity && !entity.isDead && entity.isValid) {
-                val sequence = BossSummoningSequence(bossId, entity, pending)
+                val sequence = BossSummoningSequence(bossId, entity, pending.dungeon.id,
+                    pending.boss.summoning()) { pending.spawnNow() }
                 activeBossSummons[bossId] = sequence
                 plugin.events.fireBossSummon(plugin.snapshots.of(dungeon), entity, pending.settings.theme,
                     pending.boss.summoning().durationTicks)
@@ -668,8 +688,8 @@ class DungeonMobManager(private val plugin: DungeonPlugin) : Listener {
             plugin.gates.notifyKill(dungeon, identity.roomId)
         }
         if (dungeon != null && !identity.boss && "guardian" == identity.category &&
-            dungeon.keyGate != null && dungeon.keyGate.guardianRoomId == identity.roomId) {
-            plugin.doors.onGuardianDeath(dungeon, entity.location)
+            dungeon.keyGate != null && identity.roomId in dungeon.keyGate.guardianRoomIds) {
+            plugin.doors.onGuardianDeath(dungeon, identity.roomId, entity.location)
         }
         if (dungeon != null && identity.boss) {
             // The arena bars drop at the kill itself, before the completion
@@ -966,8 +986,9 @@ class DungeonMobManager(private val plugin: DungeonPlugin) : Listener {
         mobs.remove(dungeon.id)
         pendingSplits.remove(dungeon.world.uid)
         pendingBossMinions.entries.removeIf { it.value.dungeon.id == dungeon.id }
+        minibossEntrances.removeIf { it.startsWith(dungeon.id + ":") }
         activeBossSummons.entries.removeIf { entry ->
-            if (entry.value.pending.dungeon.id != dungeon.id) return@removeIf false
+            if (entry.value.dungeonId != dungeon.id) return@removeIf false
             entry.value.abort()
             true
         }
@@ -983,8 +1004,9 @@ class DungeonMobManager(private val plugin: DungeonPlugin) : Listener {
         mobs.remove(dungeon.id)
         pendingSplits.remove(dungeon.world.uid)
         pendingBossMinions.entries.removeIf { it.value.dungeon.id == dungeon.id }
+        minibossEntrances.removeIf { it.startsWith(dungeon.id + ":") }
         activeBossSummons.entries.removeIf { entry ->
-            if (entry.value.pending.dungeon.id != dungeon.id) return@removeIf false
+            if (entry.value.dungeonId != dungeon.id) return@removeIf false
             entry.value.abort()
             true
         }
@@ -1395,10 +1417,11 @@ class DungeonMobManager(private val plugin: DungeonPlugin) : Listener {
     private inner class BossSummoningSequence(
         private val bossId: UUID,
         private val boss: LivingEntity,
-        val pending: PendingBossMinions
+        val dungeonId: String,
+        private val settings: BossSummoningSettings,
+        private val onComplete: () -> Unit
     ) : BukkitRunnable() {
 
-        private val settings = pending.boss.summoning()
         private val animation: SpawnAnimation?
         private val previousAi = boss.hasAI()
         private val previousInvulnerability = boss.isInvulnerable
@@ -1469,7 +1492,7 @@ class DungeonMobManager(private val plugin: DungeonPlugin) : Listener {
                 boss.setAI(previousAi)
                 boss.isInvulnerable = previousInvulnerability
             }
-            pending.spawnNow()
+            onComplete()
         }
 
         /** Tears the sequence down without its outro, for a dungeon being removed. */

@@ -55,7 +55,7 @@ switch to the shadow plugin.
 |---|---|---|
 | `event` | DungeonRecords, DungeonEvents, SkillEvents (19 event types) | api/, made internal |
 | `internal` | DungeonEventBus, DungeonSnapshots, DungeonQueries (ex-ApiImpl) | internal/ |
-| `util`, `world`, `build`, `generation` | Messages, void worlds, layout planner/builder | 1:1 |
+| `util`, `world`, `build`, `generation` | Messages, void worlds, template planner/builder (TemplateConfig, TemplateGeometry, TemplateLayoutGenerator, PlaceholderShell) | rebuilt 2026-09-17 |
 | `room` | RoomTypes, RoomEvents, DungeonInstance, registry, marker scanner/definitions, NormalRoomLibrary, CorridorLibrary | 1:1 |
 | `party`, `trap`, `door`, `mob`, `completion` | 1:1 | |
 | `player`, `model`, `settings`, `menu` (PartyMenu only), `npc`, `fx`, `panel` | 1:1 | |
@@ -145,6 +145,68 @@ Structure and flow only; quest **content is placeholder** and lives in
   and Friday; progress wipes hitting the right players; the double-chest slot
   layout rendering as intended.
 
+## Template room generation (2026-09-17, replaces the old planner)
+
+The exact door-pattern matching (normal_straight, branch_corner_l, ...) is
+gone. A dungeon is now planned from `generation.template` in config.yml: an
+ordered flow of slots (role, pool, size class), stretched per difficulty by
+three numbers under `generation.template.difficulties` — `combat-rooms`
+(3 at diff 1 to 7 at diff 9), `keys` (1–3, each key a corridor + parkour +
+key-room branch off a different combat room) and `minibosses` (0–2, combat
+rooms whose champion arrives through the boss summoning sequence; recipe
+`mobs.room-roles.miniboss`, presentation `mobs.miniboss.summoning`). Config
+version is **2**; the old composition/branching/critical-path sections died.
+
+**Placement is anchor-chained**: each room is chosen from its pool during
+planning and placed flush against the previous room's exit door — red marker
+against red marker, a corridor of length zero. Alignment is per door:
+horizontally on the marker strip's own centre (strips no longer need to be
+centred on their wall), vertically on that door's own opening floor. Doors on
+one file may sit at different floors, which is the whole stairs mechanism.
+A 3D AABB check rejects overlap; a slot that cannot be placed fails the
+generation loudly with the slot and every candidate's reason (backtracking
+runs first). The only silent path is a **placeholder shell** for a pool with
+no usable file: class-exact checkerboard box, doorways where the layout needs
+them, a sign naming the role above each entrance, runtime mob anchors — a
+fresh install plays end to end (proven by `TemplateLayoutGeneratorTest`,
+which runs the real config with empty pools for all nine difficulties).
+
+**Size classes** (`generation.size-classes`): spawn 35x18x35, large 67x34x67,
+small 15x12x15 (provisional), great_hall 35x41x91 (provisional), boss
+75x41x75. Validation is exact per class, loud otherwise. Pools by filename:
+`spawn`, `link` (variants straight/corner/stairs), `combat`, `rest`,
+`great_hall`, `boss`, `parkour`, `key`. Legacy `normal_*`/`branch_*` files
+load into the combat pool (`branch_parkour*` into parkour) with a rename
+hint; their shape suffix means nothing. A room with more doors than its slot
+needs gets the extras filled with its own sampled wall block.
+
+**The three authoring answers** the spec asked to be told, not guessed:
+
+1. **A stairs link declares nothing.** Build a `link_stairs*.schem` (small
+   class) with two doors whose air openings sit at different heights; the
+   loader reads each door's own opening floor and the planner enters through
+   the higher one for a `stairs: down` slot. Markers float exactly as
+   always: a red strip on the outer wall with a ≥3x3 air opening below it —
+   each door's walking floor is simply the bottom of its own opening.
+   A `link_stairs` file whose doors share one floor logs a warning.
+2. **The great hall is one schematic of its own class.** 35x41x91 is ~130k
+   blocks — the cursor builder does that in a couple of ticks (the boss
+   arena is already ~230k). Resize the class in config when the real room
+   is built; nothing else cares about its length.
+3. **The locked door is placed by the plugin at the connection point**, not
+   authored into the schematic: `DungeonDoorManager` seals the flush doorway
+   into the great hall (both wall planes, passable blocks only) exactly as
+   it sealed the old corridor mouth, and opens it when the last key is in.
+   Keys stay party state; `door-key-progress` reports x/y keys, the
+   watchdog watches every key room separately, and `/dungeon door open`
+   still overrides.
+
+`/dungeon rooms` now ends with a template coverage report (every role, pool
+and class → files or PLACEHOLDER); each generation logs a real/placeholder
+summary per slot. `/dungeon settings` edits the per-difficulty template
+numbers instead of the dead room counts. `verifyGenerated` still audits every
+passage for passability after the build.
+
 ## Untested — read before first run
 
 Nothing has ever run on a server; DungeonForge's own handover already said
@@ -154,7 +216,12 @@ loaded at all. First-run checklist:
 1. Server needs internet once (kotlin-stdlib via `libraries:`).
 2. Fresh `plugins/DungeonPlugin/` appears with config.yml (v1), classes.yml,
    skills.yml (v6), rooms/, corridors/.
-3. `/dungeon start 1` end-to-end: gates, key door, guardian, arena, boss.
+3. `/dungeon start 1` end-to-end (all rooms will be placeholder shells on a
+   fresh install until new-format rooms exist): spawn shell -> hall ->
+   combat -> stairs down -> combat -> rest -> combat -> great hall with
+   sealed entrance -> corridor branch -> parkour -> key room; guardian drops
+   the key, door opens, boss arena. Watch the flush doorways (wall against
+   wall, no gap) and the stairs floor transition in particular.
 4. `/class`, kit swap on enter, passives, F-abilities, sidebar.
 5. Skill panel: gated nodes grey, buy on double click, points update.
 6. `/dungeon api status` should list 19 event types.
@@ -187,4 +254,9 @@ loaded at all. First-run checklist:
   carousel still does not *change* the active class - that stays in `/class`
   and the holographic selector (options 2 "drop the carousel" and 3 "carousel
   = class selection" were the roads not taken).
+- The old 67-class room files (bundled and live) still load as combat rooms,
+  but the bundled spawn.schem (35x18x35) is the only file matching its class;
+  every generic branch_* file that is not 67x34x67 is now rejected loudly by
+  class validation, exactly as specified. The parkour pool is empty until a
+  67-class parkour room is built (the old 31x34x111 file no longer fits).
 - The folder is committed to the Dungons repo — the revert path is git history, plus the untouched DungeonForge and classskills folders beside it.

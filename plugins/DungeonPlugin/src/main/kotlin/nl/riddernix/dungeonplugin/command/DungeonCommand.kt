@@ -8,10 +8,10 @@ import nl.riddernix.dungeonplugin.build.BoxSpec
 import nl.riddernix.dungeonplugin.event.SkillWriteStatus
 import nl.riddernix.dungeonplugin.fx.AnimationPreview
 import nl.riddernix.dungeonplugin.generation.BuildOperation
-import nl.riddernix.dungeonplugin.generation.DungeonLayout
 import nl.riddernix.dungeonplugin.generation.DungeonLayoutBuilder
-import nl.riddernix.dungeonplugin.generation.DungeonLayoutGenerator
 import nl.riddernix.dungeonplugin.generation.GenerationStyle
+import nl.riddernix.dungeonplugin.generation.TemplateLayoutGenerator
+import nl.riddernix.dungeonplugin.generation.TemplatePlan
 import nl.riddernix.dungeonplugin.party.DungeonParty
 import nl.riddernix.dungeonplugin.party.PartyManager
 import nl.riddernix.dungeonplugin.room.CorridorLibrary
@@ -147,30 +147,30 @@ class DungeonCommand(private val plugin: DungeonPlugin) : TabExecutor {
         }
 
         try {
-            val generator = DungeonLayoutGenerator(plugin.config, plugin.normalRooms)
-            var layouts = ArrayList<DungeonLayout>()
+            val generator = templateGenerator()
+            var plans = ArrayList<TemplatePlan>()
             if (amount == 1) {
-                layouts.add(generator.generate(difficulty, baseSeed))
+                plans.add(generator.generate(difficulty, baseSeed))
             } else {
                 val seeds = Random(baseSeed)
                 for (index in 0 until amount) {
-                    layouts.add(generator.generate(difficulty, seeds.nextLong()))
+                    plans.add(generator.generate(difficulty, seeds.nextLong()))
                 }
-                layouts = ArrayList(arrangeInGrid(layouts,
+                plans = ArrayList(arrangeInGrid(plans,
                     maxOf(32, plugin.config.getInt("generation.multi.padding", 96))))
             }
 
-            val finalLayouts = layouts
-            startLayouts(player, layouts) {
+            val finalPlans = plans
+            startLayouts(player, plans) {
                 if (amount == 1) {
                     plugin.messages.send(player, "generation-started",
-                        Messages.ph("difficulty", difficulty), Messages.ph("seed", finalLayouts.first().seed))
+                        Messages.ph("difficulty", difficulty), Messages.ph("seed", finalPlans.first().layout.seed))
                     return@startLayouts
                 }
                 plugin.messages.send(player, "generation-batch-started",
                     Messages.ph("difficulty", difficulty), Messages.ph("amount", amount))
-                for (index in finalLayouts.indices) {
-                    val layout = finalLayouts[index]
+                for (index in finalPlans.indices) {
+                    val layout = finalPlans[index].layout
                     plugin.messages.send(player, "generation-batch-entry",
                         Messages.ph("index", index + 1),
                         Messages.ph("seed", layout.seed),
@@ -179,11 +179,14 @@ class DungeonCommand(private val plugin: DungeonPlugin) : TabExecutor {
                         Messages.ph("z", layout.spawnZ))
                 }
             }
-        } catch (ex: DungeonLayoutGenerator.GenerationException) {
+        } catch (ex: TemplateLayoutGenerator.GenerationException) {
             plugin.logger.warning("Dungeon generation failed: ${ex.message}")
-            plugin.messages.send(player, "generation-failed")
+            plugin.messages.send(player, "generation-failed-detail", Messages.ph("reason", ex.message ?: ""))
         }
     }
+
+    private fun templateGenerator(): TemplateLayoutGenerator =
+        TemplateLayoutGenerator(plugin.config, plugin.templates, plugin.normalRooms::catalogue, plugin.logger)
 
     private fun handleCompare(sender: CommandSender, args: Array<out String>) {
         val player = asPlayer(sender) ?: return
@@ -193,34 +196,34 @@ class DungeonCommand(private val plugin: DungeonPlugin) : TabExecutor {
         }
 
         try {
-            val generator = DungeonLayoutGenerator(plugin.config, plugin.normalRooms)
-            val layouts = ArrayList<DungeonLayout>()
+            val generator = templateGenerator()
+            val plans = ArrayList<TemplatePlan>()
             var cellWidth = 0
             var cellDepth = 0
             for (difficulty in 1..9) {
-                val layout = generator.generate(difficulty, seed)
-                layouts.add(layout)
-                cellWidth = maxOf(cellWidth, layout.bounds.sizeX())
-                cellDepth = maxOf(cellDepth, layout.bounds.sizeZ())
+                val plan = generator.generate(difficulty, seed)
+                plans.add(plan)
+                cellWidth = maxOf(cellWidth, plan.layout.bounds.sizeX())
+                cellDepth = maxOf(cellDepth, plan.layout.bounds.sizeZ())
             }
             val padding = maxOf(16, plugin.config.getInt("generation.comparison.padding", 48))
             cellWidth += padding
             cellDepth += padding
 
-            val translated = ArrayList<DungeonLayout>()
-            for (index in layouts.indices) {
-                val layout = layouts[index]
+            val translated = ArrayList<TemplatePlan>()
+            for (index in plans.indices) {
+                val plan = plans[index]
                 val column = index % 3
                 val row = index / 3
-                translated.add(layout.translate(column * cellWidth - layout.bounds.minX, 0,
-                    row * cellDepth - layout.bounds.minZ))
+                translated.add(plan.translate(column * cellWidth - plan.layout.bounds.minX, 0,
+                    row * cellDepth - plan.layout.bounds.minZ))
             }
             startLayouts(player, translated) {
                 plugin.messages.send(player, "comparison-started", Messages.ph("seed", seed))
             }
-        } catch (ex: DungeonLayoutGenerator.GenerationException) {
+        } catch (ex: TemplateLayoutGenerator.GenerationException) {
             plugin.logger.warning("Dungeon comparison generation failed: ${ex.message}")
-            plugin.messages.send(player, "generation-failed")
+            plugin.messages.send(player, "generation-failed-detail", Messages.ph("reason", ex.message ?: ""))
         }
     }
 
@@ -291,11 +294,11 @@ class DungeonCommand(private val plugin: DungeonPlugin) : TabExecutor {
             return
         }
         try {
-            val layout = DungeonLayoutGenerator(plugin.config, plugin.normalRooms).generate(difficulty, seed)
-            startPartyDungeon(leader, party, layout, difficulty)
-        } catch (ex: DungeonLayoutGenerator.GenerationException) {
+            val plan = templateGenerator().generate(difficulty, seed)
+            startPartyDungeon(leader, party, plan, difficulty)
+        } catch (ex: TemplateLayoutGenerator.GenerationException) {
             plugin.logger.warning("Party dungeon generation failed: ${ex.message}")
-            plugin.messages.send(leader, "generation-failed")
+            plugin.messages.send(leader, "generation-failed-detail", Messages.ph("reason", ex.message ?: ""))
         }
     }
 
@@ -504,14 +507,9 @@ class DungeonCommand(private val plugin: DungeonPlugin) : TabExecutor {
         }
     }
 
-    private fun startPartyDungeon(leader: Player, party: DungeonParty, layout: DungeonLayout, difficulty: Int) {
-        val roomPlan = plugin.normalRooms.plan(layout)
-        if (roomPlan.hasRequiredPrefabFailures()) {
-            plugin.logger.severe("Dungeon generation refused for seed ${layout.seed}: " +
-                roomPlan.requiredPrefabFailures.joinToString(" | "))
-            plugin.messages.send(leader, "required-prefab-failure")
-            return
-        }
+    private fun startPartyDungeon(leader: Player, party: DungeonParty, plan: TemplatePlan, difficulty: Int) {
+        val layout = plan.layout
+        val roomPlan = plugin.normalRooms.buildPlan(plan)
         if (!building.add(leader.uniqueId)) {
             plugin.messages.send(leader, "already-building")
             return
@@ -539,6 +537,7 @@ class DungeonCommand(private val plugin: DungeonPlugin) : TabExecutor {
         DungeonLayoutBuilder.start(plugin, world, operations, budget,
             { percent -> sendProgress(leader, percent) },
             { result ->
+                plugin.normalRooms.applyPlaceholderSigns(world, roomPlan)
                 plugin.normalRooms.verifyGenerated(world, layout, roomPlan)
                 DungeonMarkerScanner.start(plugin, world, listOf(layout), plugin.config, budget) { markers ->
                     building.remove(leader.uniqueId)
@@ -752,19 +751,16 @@ class DungeonCommand(private val plugin: DungeonPlugin) : TabExecutor {
                     Messages.ph("corridor-offset-match", room.corridorOffsetCompatibility(corridorOffsets)),
                     Messages.ph("valid", if (room.valid) "valid" else "invalid"),
                     Messages.ph("type", room.displayType()),
-                    Messages.ph("pattern", room.shape.configName()), Messages.ph("name-match", room.filenameMatch),
                     Messages.ph("markers", room.markers()), Messages.ph("special-markers", room.displaySpecialMarkers()),
                     Messages.ph("problems", room.displayProblems()))
             }
         }
-        for (type in listOf(NormalRoomLibrary.PrefabType.NORMAL, NormalRoomLibrary.PrefabType.BRANCH)) {
-            val missing = plugin.normalRooms.missingUsableShapes(type).map { it.configName() }
-            plugin.messages.send(sender, "rooms-missing", Messages.ph("room-type", type.configName()),
-                Messages.ph("shapes", if (missing.isEmpty()) "none" else missing.joinToString(", ")))
-        }
-        val unusable = plugin.normalRooms.unusablePrefabs()
-        if (unusable.isNotEmpty()) {
-            plugin.messages.send(sender, "rooms-unusable", Messages.ph("rooms", unusable.joinToString(", ")))
+        // The template coverage report: every role and size class the
+        // template can ask for, and whether the pool can serve it or a
+        // placeholder shell will stand in.
+        plugin.messages.send(sender, "rooms-template-header")
+        for (line in plugin.normalRooms.coverageReport()) {
+            plugin.messages.send(sender, "rooms-template-entry", Messages.ph("entry", line))
         }
     }
 
@@ -1150,23 +1146,16 @@ class DungeonCommand(private val plugin: DungeonPlugin) : TabExecutor {
         return amount
     }
 
-    private fun startLayouts(player: Player, layouts: List<DungeonLayout>, onStarted: Runnable) {
+    private fun startLayouts(player: Player, plans: List<TemplatePlan>, onStarted: Runnable) {
         if (!building.add(player.uniqueId)) {
             plugin.messages.send(player, "already-building")
             return
         }
 
+        val layouts = plans.map { it.layout }
         val roomPlans = ArrayList<NormalRoomLibrary.RoomPlan>()
-        for (layout in layouts) {
-            val roomPlan = plugin.normalRooms.plan(layout)
-            if (roomPlan.hasRequiredPrefabFailures()) {
-                building.remove(player.uniqueId)
-                plugin.logger.severe("Dungeon generation refused for seed ${layout.seed}: " +
-                    roomPlan.requiredPrefabFailures.joinToString(" | "))
-                plugin.messages.send(player, "required-prefab-failure")
-                return
-            }
-            roomPlans.add(roomPlan)
+        for (plan in plans) {
+            roomPlans.add(plugin.normalRooms.buildPlan(plan))
         }
 
         val worldName = plugin.worlds.worldNameFor(player)
@@ -1197,6 +1186,7 @@ class DungeonCommand(private val plugin: DungeonPlugin) : TabExecutor {
             { percent -> sendProgress(player, percent) },
             { result ->
                 for (index in layouts.indices) {
+                    plugin.normalRooms.applyPlaceholderSigns(world, roomPlans[index])
                     plugin.normalRooms.verifyGenerated(world, layouts[index], roomPlans[index])
                 }
                 DungeonMarkerScanner.start(plugin, world, layouts, plugin.config, budget) { markers ->
@@ -1508,23 +1498,23 @@ class DungeonCommand(private val plugin: DungeonPlugin) : TabExecutor {
         }
 
         /** Packs layouts into a grid using their actual planned bounds plus padding. */
-        private fun arrangeInGrid(layouts: List<DungeonLayout>, padding: Int): List<DungeonLayout> {
+        private fun arrangeInGrid(plans: List<TemplatePlan>, padding: Int): List<TemplatePlan> {
             var cellWidth = 0
             var cellDepth = 0
-            for (layout in layouts) {
-                cellWidth = maxOf(cellWidth, layout.bounds.sizeX())
-                cellDepth = maxOf(cellDepth, layout.bounds.sizeZ())
+            for (plan in plans) {
+                cellWidth = maxOf(cellWidth, plan.layout.bounds.sizeX())
+                cellDepth = maxOf(cellDepth, plan.layout.bounds.sizeZ())
             }
             cellWidth += padding
             cellDepth += padding
-            val columns = ceil(sqrt(layouts.size.toDouble())).toInt()
-            val result = ArrayList<DungeonLayout>()
-            for (index in layouts.indices) {
-                val layout = layouts[index]
+            val columns = ceil(sqrt(plans.size.toDouble())).toInt()
+            val result = ArrayList<TemplatePlan>()
+            for (index in plans.indices) {
+                val plan = plans[index]
                 val column = index % columns
                 val row = index / columns
-                result.add(layout.translate(column * cellWidth - layout.bounds.minX, 0,
-                    row * cellDepth - layout.bounds.minZ))
+                result.add(plan.translate(column * cellWidth - plan.layout.bounds.minX, 0,
+                    row * cellDepth - plan.layout.bounds.minZ))
             }
             return result
         }

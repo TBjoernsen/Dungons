@@ -3,7 +3,7 @@
 #  Everything here is live-editable: edit, save, /dungeon reload
 # =====================================================================
 
-config-version: 1
+config-version: 2
 
 world:
   # Every dungeon world is this prefix + the player's name.
@@ -58,64 +58,96 @@ generation:
       x: 0
       y: 64
       z: 0
-    size:
-      x: 35
-      y: 18
-      z: 35
-    # The first corridor always leaves this face. Valid values: NORTH, SOUTH,
-    # EAST, WEST. Later critical-path segments may still turn left or right.
+    # The spawn room's exit door faces this way. Valid values: NORTH, SOUTH,
+    # EAST, WEST. Turns further along come from the rooms themselves: a room
+    # whose exit door sits on a side wall turns the path.
     exit-direction: SOUTH
 
-  # Counts include the fixed entrance and the final boss room. A difficulty
-  # with a composition below ignores its entry here: its room count follows
-  # from the composed path instead.
-  rooms-per-difficulty:
-    1: 4
-    2: 5
-    3: 6
-    4: 7
-    5: 8
-    6: 9
-    7: 10
-    8: 11
-    9: 12
+  # Exterior footprint per size class. A room file must match its class
+  # exactly - loud error otherwise. small and great_hall are provisional
+  # until the first real room of each class is built; change them here and
+  # every placeholder shell follows.
+  size-classes:
+    spawn:      { x: 35, y: 18, z: 35 }
+    large:      { x: 67, y: 34, z: 67 }
+    small:      { x: 15, y: 12, z: 15 }
+    great_hall: { x: 35, y: 41, z: 91 }
+    boss:       { x: 75, y: 41, z: 75 }
 
-  # A composed difficulty replaces random layout and marker-driven mob mixes
-  # with an authored sequence. Each path entry names a room role between the
-  # spawn room and the boss arena, in walking order. What a role spawns is
-  # defined under mobs.room-roles; which prefab it prefers comes from the
-  # role token in the schematic filename (normal_<role>_<shape>).
-  # Difficulties without a composition keep the old behaviour untouched.
-  composition:
-    1:
-      path: [swarm, pack, rest, swarm-champion, approach]
-      # The composed path turns like any other, so corner and junction rooms
-      # appear instead of one straight run. A role slot whose own prefab does
-      # not exist in the required shape falls back to the generic pool, so
-      # only turn this off if you want every role in exactly one shape.
-      allow-turns: true
-      # A mandatory detour: the corridor after path room door-after is sealed
-      # until the guardian at the end of this branch dies. The branch leaves
-      # the path room at from and its rooms are walked in order, so the
-      # parkour sits between the main path and the key.
-      key-branch:
-        enabled: true
-        from: 3
-        door-after: 3
-        rooms: [parkour, guardian]
+  # The template that drives every dungeon: an ordered flow of slots, each
+  # connected flush to the one before it (red door marker against red door
+  # marker - a corridor of length zero). role names the slot for signs,
+  # reports and mobs; pool is the room-file prefix it draws from (defaults
+  # to the role); class must name a size class above. mobs names a recipe
+  # under mobs.room-roles - leave it out for a quiet room. A slot with no
+  # usable room file gets a placeholder shell, so the run is always playable.
+  template:
+    flow:
+      - { role: spawn,      class: spawn }
+      - { role: hall,       pool: link, class: small }
+      - { role: combat,     class: large, mobs: swarm }
+      # The floor transition: a link room whose two doors sit on different
+      # floors. Entered through its higher door, left through the lower one.
+      - { role: stairs,     pool: link, class: small, stairs: down }
+      - { role: combat,     class: large, mobs: pack }
+      - { role: rest,       class: small, mobs: rest }
+      - { role: combat,     class: large, mobs: swarm-champion }
+      # The great hall descends toward the arena; its entrance carries the
+      # locked door, sealed until every key below has been collected.
+      - { role: great_hall, class: great_hall, locked-door: true }
+      - { role: boss,       class: boss }
+    # Difficulties needing more combat rooms than the flow holds insert
+    # extra ones before the locked-door slot, each preceded by a link room.
+    # The mobs list is cycled across the extra rooms in order.
+    extra-combat:
+      link: { role: link, pool: link, class: small }
+      room: { role: combat, class: large }
+      mobs: [swarm, pack, swarm-champion]
+    # One branch per key: leaves a combat room through a spare doorway, over
+    # a real corridor, into the parkour, ending at the key room. The first
+    # branch attaches to combat room attach-to-combat (1-based, walking
+    # order); each further key attaches to the next combat room.
+    key-branch:
+      connection: corridor
+      attach-to-combat: 2
+      rooms:
+        - { role: parkour, class: large }
+        - { role: key, class: small, mobs: guardian, dead-end: true }
+    # A miniboss slot is a combat room whose strongest champion arrives
+    # through the boss summoning sequence. Minibosses claim the last combat
+    # rooms of the run, never the first.
+    miniboss:
+      mobs: miniboss
+    # The three numbers that stretch the fixed flow per difficulty.
+    difficulties:
+      1: { combat-rooms: 3, keys: 1, minibosses: 0 }
+      2: { combat-rooms: 3, keys: 1, minibosses: 0 }
+      3: { combat-rooms: 4, keys: 1, minibosses: 0 }
+      4: { combat-rooms: 4, keys: 2, minibosses: 1 }
+      5: { combat-rooms: 5, keys: 2, minibosses: 1 }
+      6: { combat-rooms: 5, keys: 2, minibosses: 1 }
+      7: { combat-rooms: 6, keys: 3, minibosses: 2 }
+      8: { combat-rooms: 6, keys: 3, minibosses: 2 }
+      9: { combat-rooms: 7, keys: 3, minibosses: 2 }
+    # Stand-in shells for slots whose pool has no usable file yet: class-
+    # exact exterior, missing-texture checkerboard, doorways where the layout
+    # needs them, and a sign naming the slot role above each entrance.
+    placeholder:
+      materials: [MAGENTA_CONCRETE, BLACK_CONCRETE]
+      door-marker-width: 3
+      # Floor drop generated inside placeholder stairs and great-hall shells.
+      stairs-drop: 6
+      great-hall-drop: 12
 
-  # Fallback dimensions used when no valid prefab exists for a slot. Loaded
-  # room schematics are free to use their own dimensions; the generator plans
-  # against the largest loaded footprint and places each room at its real size.
-  prefab-room:
-    size: { x: 67, y: 34, z: 67 }
-
-  # Filename prefix chooses the eligible slot: normal_* is NORMAL only and
-  # branch_* is BRANCH only. Empty export padding is trimmed automatically.
+  # Room files belong to pools by filename prefix (spawn, link, combat, rest,
+  # great_hall, boss, parkour, key). Legacy normal_*/branch_* files still
+  # load into the combat pool - their old shape suffix means nothing now.
+  # Empty export padding is trimmed automatically.
   rooms:
     markers:
       doorway:
-        # One centred block or a contiguous centred strip on an outside wall.
+        # One red block or a contiguous strip on an outside wall. It no
+        # longer needs to be centred: doors align on their own marker.
         # DungeonForge finds the real air opening below the marker, then aligns
         # the flat corridor platform with that opening automatically.
         material: RED_WOOL
@@ -173,19 +205,6 @@ generation:
         # never interpreted as a champion marker, and removed from the build.
         legacy-purple: AIR
 
-  room-variants:
-    plain: { weight: 4 }
-    # Retired in favour of the composed key branch, whose parkour role uses a
-    # real branch_parkour_* prefab. The old variant produced an empty
-    # procedural box, so it stays at 0 unless deliberately revived.
-    parkour: { weight: 0 }
-    # Regular room slots use schematics by default. A parkour variant remains
-    # procedural until it has its own prefab format.
-    allow-normal-parkour: false
-
-  boss-room:
-    min-size: { x: 63, y: 34, z: 63 }
-    max-size: { x: 71, y: 40, z: 71 }
 
   corridor:
     # Legacy opening dimensions, still used by procedural rooms and doorway validation.
@@ -223,24 +242,6 @@ generation:
       virtual-door-marker:
         width: 3
         height-above-floor: 30
-
-  critical-path:
-    # The main path holds a heading for this many rooms before it may turn.
-    min-rooms-before-turn: 2
-    max-rooms-before-turn: 4
-
-  branching:
-    # 0.0 = every room belongs to the critical path.
-    # 1.0 = use every room beyond the minimum critical path as a side room.
-    branch-frequency: 0.55
-    # One branch may use this longer limit. A room directly off the critical
-    # path has length 1, so the default permits one two-room detour.
-    long-branch-max-length: 2
-    # Every other branch uses this shorter limit.
-    short-branch-max-length: 1
-    # Includes the entrance and boss. Keeps the critical path meaningful even
-    # when branch frequency is 1.0.
-    minimum-critical-path-rooms: 4
 
   multi:
     # /dungeon generate <difficulty> <amount> [seed] is capped at this amount.
@@ -314,13 +315,13 @@ settings:
   boolean-on: "On"
   boolean-off: "Off"
   pages:
-    room-counts: "<gold>Room counts by difficulty"
-    generation: "<gold>Generation dimensions and branching"
+    room-counts: "<gold>Template numbers by difficulty"
+    generation: "<gold>Generation and placeholders"
     mobs-low: "<gold>Mob counts and tiers: difficulties 1-5"
     mobs-high: "<gold>Mob counts and tiers: difficulties 6-9"
     toggles: "<gold>Runtime toggles"
   buttons:
-    room-counts: "<green>Room counts"
+    room-counts: "<green>Template numbers"
     generation: "<green>Generation"
     mobs-low: "<green>Mobs 1-5"
     mobs-high: "<green>Mobs 6-9"
@@ -329,16 +330,12 @@ settings:
     reset: "<yellow>Reset this page"
     back: "<gray>Back"
   labels:
-    room-count: "Difficulty <difficulty> room count"
-    prefab-width: "Fallback prefab room width"
-    prefab-height: "Fallback prefab room height"
-    prefab-depth: "Fallback prefab room depth"
-    corridor-length: "Corridor length"
-    branch-chance: "Branch chance"
-    short-branch: "Regular branch maximum depth"
-    long-branch: "One long branch maximum depth"
-    turn-min: "Minimum rooms before a path turn"
-    turn-max: "Maximum rooms before a path turn"
+    combat-rooms: "Difficulty <difficulty> combat rooms"
+    keys: "Difficulty <difficulty> keys"
+    minibosses: "Difficulty <difficulty> minibosses"
+    corridor-length: "Branch corridor length"
+    stairs-drop: "Placeholder stairs floor drop"
+    hall-drop: "Placeholder great-hall floor drop"
     swarm-count: "Difficulty <difficulty> swarm group count"
     pack-count: "Difficulty <difficulty> pack group count"
     champion-count: "Difficulty <difficulty> champion group count"
@@ -447,22 +444,13 @@ mobs:
     outward-search-step: 2
     attempts-per-ring: 20
     generated:
-      # Placeholder stone rooms receive markers procedurally. Hand-built
-      # prefabs already contain their own markers and use the same scanner.
+      # Runtime anchors: where a roled room's recipe asks for more groups
+      # than its file carries markers, the shortfall is placed on clear
+      # floor with these rules. Placeholder shells rely on this entirely.
       minimum-distance: 8
       doorway-clearance: 5
       edge-clearance: 3
       placement-attempts: 100
-      per-difficulty:
-        1: { swarm: 1, pack: 0, champion: 0 }
-        2: { swarm: 1, pack: 1, champion: 0 }
-        3: { swarm: 1, pack: 1, champion: 0 }
-        4: { swarm: 1, pack: 1, champion: 1 }
-        5: { swarm: 1, pack: 1, champion: 1 }
-        6: { swarm: 1, pack: 1, champion: 1 }
-        7: { swarm: 1, pack: 1, champion: 1 }
-        8: { swarm: 1, pack: 1, champion: 1 }
-        9: { swarm: 1, pack: 1, champion: 1 }
   # What one composed room role spawns: category -> number of complete groups.
   # Group sizes and stats stay under mobs.difficulties.<d>.categories. A
   # marker of a matching colour in the chosen prefab anchors a group at its
@@ -477,6 +465,15 @@ mobs:
     approach:       {}
     parkour:        {}
     guardian:       { guardian: 1 }
+    # The miniboss room: its champion arrives through the boss summoning
+    # sequence (mobs.miniboss.summoning below overrides the shared block).
+    miniboss:       { swarm: 1, champion: 1 }
+  # Overrides for the miniboss entrance; anything omitted falls back to
+  # mobs.boss-summoning.
+  miniboss:
+    summoning:
+      duration-ticks: 40
+      animation: none
   boss-summoning:
     # The sequence begins when a player enters the boss room. It always
     # completes, even if the arena becomes empty, so minions cannot remain
@@ -1307,6 +1304,7 @@ messages:
   generation-batch-entry: "<dark_gray> #<index> <gray>seed <white><seed></white> <gray>entrance <white><x> <y> <z>"
   comparison-started: "<gray>Generating all nine difficulties with seed <white><seed></white>."
   generation-failed: "<red>Could not find a valid layout. Check the console and generation settings."
+  generation-failed-detail: "<red>Dungeon generation failed: <gray><reason>"
   player-not-found: "<red>That player is not online."
   party-none: "<red>You're not in a party."
   party-not-leader: "<red>Only the party leader can do that."
@@ -1346,6 +1344,7 @@ messages:
   room-entered: "<gray>Entered room <white>#<id></white> <gray>(<type>, depth <white><depth></white><gray>) <dark_gray>[<prefab>]"
   door-locked: "<red>The way is sealed. <gray>Its key is guarded somewhere along the side passage."
   door-key-obtained: "<gold>The key guardian falls - <green>the sealed way is open!"
+  door-key-progress: "<gold>A key guardian falls - <yellow><obtained><gray>/<yellow><required> <gray>keys collected."
   door-opened-force: "<green>The sealed door has been forced open."
   door-usage: "<gray>Usage: <white>/dungeon door open"
   door-none: "<red>This dungeon has no sealed door."
@@ -1389,10 +1388,9 @@ messages:
   summon-cleared: "<green>Removed <white><count></white> summoned testing mob(s)."
   rooms-header: "<gold>Room prefabs <dark_gray>(<white><folder><dark_gray>):"
   rooms-empty: "<yellow>No room files were found. Normal and branch rooms will use the procedural stone fallback."
-  rooms-entry: "<dark_gray>- <white><file></white> <gray>stated <white><size></white>, actual <white><actual></white>, trimmed <white><trimmed></white>, marker offset <white><marker-offsets></white> <dark_gray>| <gray>doorway groups <white><doorways></white> <dark_gray>| <gray>corridor offset <white><corridor-offsets></white> <gray><corridor-offset-match></gray> <dark_gray>| <gray><valid> <dark_gray>| <gray>type <white><type></white> <dark_gray>| <gray>pattern <white><pattern></white> <dark_gray>| <gray>name <white><name-match></white> <dark_gray>| <gray>markers <white><markers></white> <dark_gray>| <gray>special markers <white><special-markers></white> <dark_gray>| <gray>problems <white><problems>"
-  required-prefab-failure: "<red>Dungeon generation was refused because the required spawn or boss schematic is missing or invalid. Run <white>/dungeon rooms</white> and fix the reported file."
-  rooms-missing: "<gray>Missing usable <white><room-type></white> room shapes: <white><shapes>"
-  rooms-unusable: "<yellow>Loaded prefab(s) currently unusable by the layout: <white><rooms>"
+  rooms-entry: "<dark_gray>- <white><file></white> <gray>stated <white><size></white>, actual <white><actual></white>, trimmed <white><trimmed></white>, marker offset <white><marker-offsets></white> <dark_gray>| <gray>doorway groups <white><doorways></white> <dark_gray>| <gray>corridor offset <white><corridor-offsets></white> <gray><corridor-offset-match></gray> <dark_gray>| <gray><valid> <dark_gray>| <gray>pool <white><type></white> <dark_gray>| <gray>markers <white><markers></white> <dark_gray>| <gray>special markers <white><special-markers></white> <dark_gray>| <gray>problems <white><problems>"
+  rooms-template-header: "<gold>Template coverage <dark_gray>(role, pool, size class -> files or placeholder):"
+  rooms-template-entry: "<dark_gray>- <gray><entry>"
   corridors-header: "<gold>Corridor schematic tiles <dark_gray>(<white><folder><dark_gray>):"
   corridors-empty: "<yellow>No corridor files were found. Procedural corridor fallback is active."
   corridors-entry: "<dark_gray>- <white><file></white> <gray>stated <white><stated></white>, actual <white><actual></white>, trimmed <white><trimmed></white>, marker offset <white><marker-offsets></white> <dark_gray>| <gray><valid> <dark_gray>| <gray>connectors <white><connectors></white> <dark_gray>| <gray>problems <white><problems>"

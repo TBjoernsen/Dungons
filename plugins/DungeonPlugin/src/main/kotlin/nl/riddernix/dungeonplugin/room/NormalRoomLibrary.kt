@@ -11,28 +11,39 @@ import nl.riddernix.dungeonplugin.DungeonPlugin
 import nl.riddernix.dungeonplugin.generation.BlockListOperation
 import nl.riddernix.dungeonplugin.generation.Bounds
 import nl.riddernix.dungeonplugin.generation.BuildOperation
+import nl.riddernix.dungeonplugin.generation.CatalogueRoom
 import nl.riddernix.dungeonplugin.generation.DungeonLayout
+import nl.riddernix.dungeonplugin.generation.PlaceholderShell
+import nl.riddernix.dungeonplugin.generation.PlaceholderPlacement
+import nl.riddernix.dungeonplugin.generation.RoomPlacement
+import nl.riddernix.dungeonplugin.generation.TemplateGeometry
+import nl.riddernix.dungeonplugin.generation.TemplatePlan
 import org.bukkit.Material
 import org.bukkit.Tag
 import org.bukkit.World
 import org.bukkit.block.BlockFace
+import org.bukkit.block.sign.Side
 import org.bukkit.configuration.file.FileConfiguration
 import org.bukkit.util.BlockVector
 import java.io.File
 import java.io.FileInputStream
 import java.io.IOException
 import java.util.EnumMap
-import java.util.EnumSet
 import java.util.Locale
-import java.util.Random
-import java.util.TreeMap
 import java.util.regex.Pattern
+import net.kyori.adventure.text.Component
 
 /**
- * Loads regular-room prefabs through WorldEdit without ever using a WorldEdit
- * edit session. The resulting block data is placed by the plugin's own cursor
- * builder. Filename prefixes keep normal and branch room pools deliberately
- * separate.
+ * Loads room prefabs through WorldEdit without ever using a WorldEdit edit
+ * session; the plugin's own cursor builder places every block. Files belong
+ * to role pools by filename prefix (spawn, link, combat, rest, great_hall,
+ * boss, parkour, key), and each pool's files must exactly match the size
+ * class the template assigns to that pool.
+ *
+ * The old door-pattern matching (normal_straight, branch_corner_l, ...) is
+ * gone: rooms are selected by pool during template planning and connected on
+ * their own door markers. Legacy normal_/branch_ files still load into the
+ * combat pool - their pattern suffix just stops meaning anything.
  */
 class NormalRoomLibrary(private val plugin: DungeonPlugin) {
 
@@ -40,7 +51,6 @@ class NormalRoomLibrary(private val plugin: DungeonPlugin) {
     private var prefabs: List<Prefab> = emptyList()
     private var inspections: List<Inspection> = emptyList()
     private var worldEditAvailable = false
-    private var unavailableReason: String? = "no valid room schematic is loaded"
 
     /** Reloads the folder, preserving a report for every room file including failures. */
     fun reload() {
@@ -51,150 +61,72 @@ class NormalRoomLibrary(private val plugin: DungeonPlugin) {
         worldEditAvailable = worldEdit != null && worldEdit.isEnabled
         if (!worldEditAvailable) {
             plugin.logger.severe("WorldEdit is missing or disabled. Room prefabs are unavailable; " +
-                "procedural stone rooms will be used.")
+                "every slot will receive a placeholder shell.")
             prefabs = emptyList()
-            inspections = listOf(Inspection("(WorldEdit unavailable)", 0, 0, 0, "none", "none", emptyList(), false,
-                PrefabType.UNKNOWN, null, NormalRoomShape.UNKNOWN, "not parsed", emptyMap(), emptyList(), emptyList(),
+            inspections = listOf(Inspection("(WorldEdit unavailable)", 0, 0, 0, "none", "none", emptyList(),
+                false, "unknown", null, "not parsed", null, emptyMap(), emptyList(), emptyList(),
                 listOf("WorldEdit is missing or disabled.")))
-            unavailableReason = "WorldEdit is missing or disabled"
             return
         }
 
         val files = folder.listFiles { file: File -> file.isFile }
         if (files == null || files.isEmpty()) {
             plugin.logger.info("No room schematics found in ${folder.absolutePath}" +
-                "; procedural stone rooms remain active.")
+                "; placeholder shells will stand in for every slot.")
             prefabs = emptyList()
             inspections = emptyList()
-            unavailableReason = "the room folder is empty"
             return
         }
+        val poolClasses = plugin.templates.poolClasses()
         val ordered = files.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
         val loaded = ArrayList<Prefab>()
         val report = ArrayList<Inspection>()
         for (file in ordered) {
-            val result = load(file)
+            val result = load(file, poolClasses)
             report.add(result.inspection)
             if (result.prefab != null) {
                 loaded.add(result.prefab)
-                if ("matches" != result.inspection.filenameMatch) {
+                if (result.inspection.problems.isNotEmpty()) {
                     plugin.logger.warning("Room prefab ${file.name} loaded, but ${result.inspection.displayProblems()}")
                 }
             } else {
                 plugin.logger.warning("Rejected room prefab ${file.name}: ${result.inspection.displayProblems()}")
             }
+            result.inspection.renameHint?.let(plugin.logger::info)
         }
         prefabs = loaded.toList()
         inspections = report.toList()
-        if (prefabs.isEmpty()) {
-            plugin.logger.warning("No valid room schematics loaded from ${folder.absolutePath}" +
-                "; procedural stone rooms remain active.")
-            unavailableReason = "no valid room schematic is loaded: " + report.joinToString("; ") {
-                "${it.fileName} (${it.displayProblems()})"
-            }.ifEmpty { "no files found" }
-        } else {
-            plugin.logger.info("Loaded ${prefabs.size} room schematic(s) from ${folder.absolutePath}.")
-            unavailableReason = null
-        }
-        reportPoolFootprints()
-    }
-
-    /**
-     * The planner reserves one envelope per pool - the largest loaded member -
-     * so a pool whose files differ in size leaves every smaller room standing
-     * inside an oversized reservation: the corridor stops at the reservation
-     * edge while the room's wall is a block further in. That gap is invisible
-     * in the files and obvious in game, so it is called out by name here.
-     */
-    private fun reportPoolFootprints() {
-        val pools = HashMap<String, MutableList<Prefab>>()
-        for (prefab in prefabs) {
-            if (prefab.type != PrefabType.NORMAL && prefab.type != PrefabType.BRANCH) continue
-            pools.getOrPut(prefab.type.configName() + (prefab.role?.let { " $it" } ?: "")) { ArrayList() }.add(prefab)
-        }
-        for ((key, value) in TreeMap(pools)) {
-            val sizes = value.map { "${it.width}x${it.height}x${it.depth}" }.distinct()
-            if (sizes.size < 2) continue
-            plugin.logger.severe("Room pool '$key' mixes ${sizes.size}" +
-                " footprints, so every room smaller than the largest will leave a gap between its wall and its" +
-                " corridors. Resize them to one size. Loaded: " + value
-                .map { "${it.fileName} ${it.width}x${it.height}x${it.depth}" }
-                .sortedWith(String.CASE_INSENSITIVE_ORDER).joinToString(", "))
-        }
+        plugin.logger.info("Loaded ${prefabs.size} of ${files.size} room schematic(s) from ${folder.absolutePath}.")
     }
 
     fun folder(): File = folder
 
     fun inspections(): List<Inspection> = inspections
 
-    /**
-     * Largest loaded footprint for collision-safe layout planning. This is
-     * not a validation limit: every selected schematic still uses its own
-     * size.
-     *
-     * The envelope a slot reserves covers every prefab that slot could
-     * receive. A roled slot prefers its own pool but falls back to the
-     * generic one, so the reservation spans both. Reserving only the role's
-     * size is what makes an oversized fallback catastrophic rather than
-     * merely untidy: a prefab wider than its reservation overhangs into the
-     * corridor space on both sides, and once the overhang reaches the
-     * corridor length the two rooms end up sharing a wall with no gap left to
-     * build a corridor in.
-     */
-    @JvmOverloads
-    fun planningDimensions(type: PrefabType, role: String? = null): PlanningDimensions {
-        val pool = prefabs
-            .filter { it.type == type }
-            .filter { it.role == null || (role != null && role == it.role) }
-        val fallbackPath = when (type) {
-            PrefabType.SPAWN -> "generation.entrance.size"
-            PrefabType.BOSS -> "generation.boss-room.max-size"
-            PrefabType.NORMAL, PrefabType.BRANCH, PrefabType.UNKNOWN -> "generation.prefab-room.size"
-        }
-        val fallbackWidth = maxOf(1, plugin.config.getInt("$fallbackPath.x", 67))
-        val fallbackHeight = maxOf(1, plugin.config.getInt("$fallbackPath.y", 34))
-        val fallbackDepth = maxOf(1, plugin.config.getInt("$fallbackPath.z", 67))
-        return PlanningDimensions(
-            pool.maxOfOrNull { it.width } ?: fallbackWidth,
-            pool.maxOfOrNull { it.height } ?: fallbackHeight,
-            pool.maxOfOrNull { it.depth } ?: fallbackDepth)
-    }
-
-    /** Lists eligible shapes with no valid file for one explicit layout room type. */
-    fun missingUsableShapes(type: PrefabType): List<NormalRoomShape> {
-        // Roled prefabs cannot serve generic slots, so they cannot satisfy a
-        // generic shape either.
-        return usableShapes(type).filter { shape ->
-            prefabs.none { it.type == type && it.role == null && it.shape == shape }
-        }
-    }
-
-    /** Valid files that the present layout rules can never choose. */
-    fun unusablePrefabs(): List<String> {
-        // Roled prefabs answer to their composition, not to the legacy branch
-        // rules, so those limits say nothing about their usability.
-        return prefabs
-            .filter { it.role == null &&
-                (it.type == PrefabType.NORMAL || it.type == PrefabType.BRANCH) &&
-                it.shape !in usableShapes(it.type) }
-            .map { "${it.fileName} (${it.type.configName()} ${it.shape.configName()})" }
-            .sortedWith(String.CASE_INSENSITIVE_ORDER)
-    }
-
-    /** Plans the deterministic prefab selection and all tick-spread placement operations for one layout. */
-    fun plan(layout: DungeonLayout): RoomPlan {
-        val requestedRooms = layout.rooms.filter(::usesPrefabSlot)
-        if (requestedRooms.isEmpty()) return RoomPlan.empty()
-        if (!worldEditAvailable || prefabs.isEmpty()) {
-            logFallback(layout, listOf(unavailableReason ?: "no valid room schematic is loaded"))
-            val requiredFailures = requestedRooms
-                .filter { it.type == DungeonLayout.RoomType.SPAWN || it.type == DungeonLayout.RoomType.BOSS }
-                .map { room ->
-                    "room ${room.id} (${room.type.name.lowercase(Locale.ROOT)}) requires a valid schematic: " +
-                        (unavailableReason ?: "no valid room schematic is loaded")
+    /** The planner's view of one pool: geometry only, deterministically ordered. */
+    fun catalogue(pool: String): List<CatalogueRoom> {
+        val wanted = pool.lowercase(Locale.ROOT)
+        return prefabs.filter { it.pool == wanted }
+            .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.fileName })
+            .map { prefab ->
+                val doors = prefab.doorways.map { doorway ->
+                    TemplateGeometry.LocalDoor(direction(doorway.facing), doorway.marker.cross(),
+                        doorway.marker.y, doorway.opening.minY,
+                        crossSize(doorway.opening, doorway.facing), doorway.opening.sizeY(),
+                        doorway.marker.width)
                 }
-            return RoomPlan.withRequiredFailures(requiredFailures)
-        }
+                CatalogueRoom(prefab.fileName, prefab.pool, prefab.width, prefab.height, prefab.depth, doors,
+                    prefab.doorways.indexOfFirst { it.entrance }.takeIf { it >= 0 })
+            }
+    }
+
+    /**
+     * Turns a planned template into build operations and room metadata: the
+     * chosen prefab per placed slot, a placeholder shell per empty slot, and
+     * a fill for every unused doorway so a three-door room serving a two-door
+     * slot does not open into the void.
+     */
+    fun buildPlan(template: TemplatePlan): RoomPlan {
         val operations = ArrayList<BuildOperation>()
         val prefabRooms = HashSet<String>()
         val markers = HashMap<String, List<DungeonMarker>>()
@@ -204,170 +136,152 @@ class NormalRoomLibrary(private val plugin: DungeonPlugin) {
         val playerSpawns = HashMap<String, DungeonSpecialMarker>()
         val bossSpawns = HashMap<String, DungeonSpecialMarker>()
         val traps = HashMap<String, DungeonTrap>()
-        val chosen = HashMap<String, String>()
         val prefabFiles = HashMap<String, String>()
-        val fallbackReasons = ArrayList<String>()
-        val roleFallbacks = ArrayList<String>()
-        val requiredPrefabFailures = ArrayList<String>()
+        val signs = ArrayList<PlaceholderShell.Sign>()
 
-        for (room in layout.rooms) {
-            if (!usesPrefabSlot(room)) continue
-            val required = requiredFaces(room, layout.tunnels)
-            val arrivalFace = arrivalFace(room, layout.tunnels)
-            val wantedType = PrefabType.from(room.type)
-            var candidates: List<Candidate> = emptyList()
-            if (room.role != null) {
-                candidates = candidates(wantedType, room.role, required, arrivalFace)
-                if (candidates.isEmpty()) {
-                    // A composed room silently wearing a generic prefab is the
-                    // kind of thing nobody notices until the run feels wrong.
-                    roleFallbacks.add("room ${room.id} wants role '${room.role}' but no " +
-                        "${wantedType.configName()}_${room.role}* prefab has exactly the doorways " +
-                        faces(required) + (arrivalFace?.let { " (entered from $it)" } ?: "") +
-                        "; loaded for that role: " + rolePoolDescription(wantedType, room.role))
-                }
-            }
-            if (candidates.isEmpty()) candidates = candidates(wantedType, null, required, arrivalFace)
-            if (candidates.isEmpty()) {
-                val reason = "room ${room.id} requires ${faces(required)}" +
-                    (arrivalFace?.let { " entering from $it" } ?: "") + "; " +
-                    candidateDiagnostics(room, required)
-                if (room.type == DungeonLayout.RoomType.SPAWN || room.type == DungeonLayout.RoomType.BOSS) {
-                    requiredPrefabFailures.add(reason)
-                } else {
-                    fallbackReasons.add(reason)
-                }
+        val byFileName = prefabs.associateBy { it.fileName }
+        for ((roomId, placement) in template.placements) {
+            val prefab = byFileName[placement.fileName]
+            if (prefab == null) {
+                // The library reloaded between planning and building; the
+                // planner works from this catalogue, so this is a real bug.
+                plugin.logger.severe("Planned prefab ${placement.fileName} for room $roomId" +
+                    " is no longer loaded; the room will be missing entirely.")
                 continue
             }
-            val candidate = candidates[Random(layout.seed xor 0x524f4f4d53454544L
-                xor (room.id.hashCode().toLong() shl 32)).nextInt(candidates.size)]
-            val origin = origin(room, candidate)
-            val placedSize = rotatedDimensions(candidate.prefab.width, candidate.prefab.depth, candidate.rotation)
-            prefabFiles[room.id] = candidate.prefab.fileName
-            chosen[room.id] = "${candidate.prefab.fileName} rot${candidate.rotation}" +
-                " origin ${origin.x},${origin.z} size ${placedSize.x}x${placedSize.z}"
-            prefabRooms.add(room.id)
-            operations.add(blocks(candidate, origin))
-            playableBounds[room.id] = playableBounds(candidate, origin)
+            val origin = PlacementOrigin(placement.origin.x, placement.origin.y, placement.origin.z)
+            prefabRooms.add(roomId)
+            prefabFiles[roomId] = prefab.fileName
+            operations.add(blocks(prefab, placement.rotation, origin))
+            val placedSize = rotatedDimensions(prefab.width, prefab.depth, placement.rotation)
+            playableBounds[roomId] = Bounds(origin.x, origin.y, origin.z,
+                origin.x + placedSize.x - 1, origin.y + prefab.height - 1, origin.z + placedSize.z - 1)
 
-            val roomMarkers = ArrayList<DungeonMarker>()
-            for (marker in candidate.prefab.markers) {
-                val point = rotate(marker.x, marker.z, candidate.prefab.width, candidate.prefab.depth, candidate.rotation)
-                roomMarkers.add(DungeonMarker(marker.category, origin.x + point.x,
-                    origin.y + marker.y, origin.z + point.z))
+            markers[roomId] = prefab.markers.map { marker ->
+                val point = rotate(marker.x, marker.z, prefab.width, prefab.depth, placement.rotation)
+                DungeonMarker(marker.category, origin.x + point.x, origin.y + marker.y, origin.z + point.z)
             }
-            markers[room.id] = roomMarkers.toList()
 
             val roomDoors = ArrayList<DungeonDoorway>()
             val roomDoorMarkers = ArrayList<DungeonDoorMarker>()
-            for (doorway in candidate.prefab.doorways) {
+            for (index in prefab.doorways.indices) {
+                val doorway = prefab.doorways[index]
+                if (index in placement.sealedDoorIndexes) {
+                    operations.add(sealDoorway(prefab, doorway, placement.rotation, origin))
+                    continue
+                }
                 val point = rotate(doorway.opening.centreX(), doorway.opening.centreZ(),
-                    candidate.prefab.width, candidate.prefab.depth, candidate.rotation)
-                val face = rotate(doorway.facing, candidate.rotation)
-                val placed = DungeonDoorway(origin.x + point.x,
-                    origin.y + doorway.opening.minY, origin.z + point.z, face, face)
-                roomDoors.add(placed)
-
+                    prefab.width, prefab.depth, placement.rotation)
+                val face = rotate(doorway.facing, placement.rotation)
+                roomDoors.add(DungeonDoorway(origin.x + point.x, origin.y + doorway.opening.minY,
+                    origin.z + point.z, face, face))
                 val markerPoint = rotate(doorway.marker.centreX, doorway.marker.centreZ,
-                    candidate.prefab.width, candidate.prefab.depth, candidate.rotation)
-                val markerFace = rotate(doorway.marker.facing, candidate.rotation)
-                roomDoorMarkers.add(DungeonDoorMarker(origin.x + markerPoint.x,
-                    origin.y + doorway.marker.y, origin.z + markerPoint.z, markerFace, doorway.marker.width))
+                    prefab.width, prefab.depth, placement.rotation)
+                roomDoorMarkers.add(DungeonDoorMarker(origin.x + markerPoint.x, origin.y + doorway.marker.y,
+                    origin.z + markerPoint.z, rotate(doorway.marker.facing, placement.rotation),
+                    doorway.marker.width))
             }
-            doorways[room.id] = roomDoors.toList()
-            doorwayMarkers[room.id] = roomDoorMarkers.toList()
+            doorways[roomId] = roomDoors.toList()
+            doorwayMarkers[roomId] = roomDoorMarkers.toList()
 
-            for (marker in candidate.prefab.specialMarkers) {
-                val point = rotate(marker.x, marker.z, candidate.prefab.width, candidate.prefab.depth, candidate.rotation)
+            for (marker in prefab.specialMarkers) {
+                val point = rotate(marker.x, marker.z, prefab.width, prefab.depth, placement.rotation)
                 val placed = DungeonSpecialMarker(marker.kind,
                     origin.x + point.x, origin.y + marker.y, origin.z + point.z)
-                if (marker.kind == SpecialMarkerKind.PLAYER_SPAWN) playerSpawns[room.id] = placed
-                if (marker.kind == SpecialMarkerKind.BOSS_SPAWN) bossSpawns[room.id] = placed
+                if (marker.kind == SpecialMarkerKind.PLAYER_SPAWN) playerSpawns[roomId] = placed
+                if (marker.kind == SpecialMarkerKind.BOSS_SPAWN) bossSpawns[roomId] = placed
             }
 
-            if (candidate.prefab.trapColumns.isNotEmpty() && candidate.prefab.pressurePlates.isNotEmpty()) {
-                val columns = ArrayList<DungeonTrap.Column>()
-                for (column in candidate.prefab.trapColumns) {
-                    val point = rotate(column.x, column.z, candidate.prefab.width, candidate.prefab.depth, candidate.rotation)
-                    columns.add(DungeonTrap.Column(origin.x + point.x, origin.y + column.y, origin.z + point.z))
+            if (prefab.trapColumns.isNotEmpty() && prefab.pressurePlates.isNotEmpty()) {
+                val columns = prefab.trapColumns.map { column ->
+                    val point = rotate(column.x, column.z, prefab.width, prefab.depth, placement.rotation)
+                    DungeonTrap.Column(origin.x + point.x, origin.y + column.y, origin.z + point.z)
                 }
-                val plates = HashSet<BlockVector>()
-                for (plate in candidate.prefab.pressurePlates) {
-                    val point = rotate(plate.x, plate.z, candidate.prefab.width, candidate.prefab.depth, candidate.rotation)
-                    plates.add(BlockVector(origin.x + point.x, origin.y + plate.y, origin.z + point.z))
+                val plates = prefab.pressurePlates.mapTo(HashSet()) { plate ->
+                    val point = rotate(plate.x, plate.z, prefab.width, prefab.depth, placement.rotation)
+                    BlockVector(origin.x + point.x, origin.y + plate.y, origin.z + point.z)
                 }
-                traps[room.id] = DungeonTrap(room.id, columns, plates)
+                traps[roomId] = DungeonTrap(roomId, columns, plates)
             }
         }
-        if (roleFallbacks.isNotEmpty()) {
-            plugin.logger.severe("Composed room role fallback for dungeon seed ${layout.seed}: " +
-                roleFallbacks.joinToString(" | ") + ". A generic room of the right shape was used instead.")
+
+        val shellMaterials = shellMaterials()
+        for ((roomId, placeholder) in template.placeholders) {
+            prefabRooms.add(roomId)
+            prefabFiles[roomId] = "placeholder"
+            val shell = PlaceholderShell.build(placeholder.sizeX, placeholder.sizeY, placeholder.sizeZ,
+                placeholder.origin, placeholder.doors, shellOpeningWidth(), shellOpeningHeight(),
+                shellMaterials, "${placeholder.role} (${placeholder.pool})", placeholder.highFace)
+            operations.add(shell.operation)
+            signs.addAll(shell.signs)
+            playableBounds[roomId] = Bounds(placeholder.origin.x, placeholder.origin.y, placeholder.origin.z,
+                placeholder.origin.x + placeholder.sizeX - 1,
+                placeholder.origin.y + placeholder.sizeY - 1,
+                placeholder.origin.z + placeholder.sizeZ - 1)
+            doorways[roomId] = placeholder.doorMarkers.map { door ->
+                val face = blockFace(door.face)
+                DungeonDoorway(doorwayCentreX(door), door.floor, doorwayCentreZ(door), face, face)
+            }
+            doorwayMarkers[roomId] = placeholder.doorMarkers.map { door ->
+                DungeonDoorMarker(doorwayCentreX(door), door.markerY, doorwayCentreZ(door),
+                    blockFace(door.face), door.markerWidth)
+            }
+            if (placeholder.playerSpawn) {
+                val box = playableBounds.getValue(roomId)
+                val floor = placeholder.doorMarkers.firstOrNull()?.floor ?: (box.minY + 1)
+                playerSpawns[roomId] = DungeonSpecialMarker(SpecialMarkerKind.PLAYER_SPAWN,
+                    box.centreX(), floor, box.centreZ())
+            }
         }
-        if (fallbackReasons.isNotEmpty()) {
-            logFallback(layout, fallbackReasons)
+
+        for (line in template.summary) {
+            plugin.logger.info("Template: $line")
         }
-        logLayout(layout, chosen)
+        val real = template.placements.size
+        val stand = template.placeholders.size
+        plugin.logger.info("Template rooms for seed ${template.layout.seed}: $real real, $stand placeholder(s)." +
+            (if (stand > 0) " Placeholder slots: " + template.placeholders.entries
+                .joinToString(", ") { "${it.key}=${it.value.role}/${it.value.pool}" } else ""))
+
         return RoomPlan(prefabRooms.toSet(), operations.toList(), immutable(markers), immutable(doorways),
             immutable(doorwayMarkers), playableBounds.toMap(), playerSpawns.toMap(), bossSpawns.toMap(),
-            traps.toMap(), prefabFiles.toMap(), requiredPrefabFailures.toList())
+            traps.toMap(), prefabFiles.toMap(), signs.toList())
     }
 
-    /**
-     * One line per room and per corridor gap. A layout fault - a room at the
-     * wrong distance, a prefab that does not fill its reservation - is
-     * invisible in the world but obvious side by side here.
-     */
-    private fun logLayout(layout: DungeonLayout, chosen: Map<String, String>) {
-        val lines = ArrayList<String>()
-        for (room in layout.rooms) {
-            val bounds = room.bounds
-            lines.add("room ${room.id} ${room.type.name.lowercase(Locale.ROOT)}" +
-                (room.role?.let { "/$it" } ?: "") +
-                " x ${bounds.minX}..${bounds.maxX} z ${bounds.minZ}..${bounds.maxZ}" +
-                " (${bounds.sizeX()}x${bounds.sizeZ()}) " +
-                chosen.getOrDefault(room.id, "procedural"))
-        }
-        for (tunnel in layout.tunnels) {
-            val first = tunnel.firstDoorway
-            val second = tunnel.secondDoorway
-            val gap = maxOf(Math.abs(second.minX - first.minX), Math.abs(second.minZ - first.minZ))
-            lines.add("tunnel ${tunnel.id()} doorways ${first.minX},${first.minZ}" +
-                " -> ${second.minX},${second.minZ} wall gap $gap")
-        }
-        plugin.logger.info("Layout for seed ${layout.seed}: ${lines.joinToString(" | ")}")
-    }
-
-    /** One high-signal line per generated dungeon avoids hiding a bad prefab in console noise. */
-    private fun logFallback(layout: DungeonLayout, reasons: List<String>) {
-        plugin.logger.severe("Schematic room fallback for dungeon seed ${layout.seed}: " +
-            reasons.joinToString(" | ") + ". Procedural stone rooms will be used for the listed slot(s).")
-    }
-
-    /**
-     * Branches are deliberately linear: a side room can extend a branch, but
-     * cannot split into another side branch. A two-door branch schematic is
-     * therefore useful only if either configured branch-length limit exceeds
-     * one.
-     */
-    private fun usableShapes(type: PrefabType): List<NormalRoomShape> = when (type) {
-        PrefabType.NORMAL -> listOf(NormalRoomShape.STRAIGHT, NormalRoomShape.CORNER,
-            NormalRoomShape.TJUNCTION, NormalRoomShape.CROSS)
-        PrefabType.BRANCH -> {
-            val shortLimit = maxOf(1, plugin.config.getInt("generation.branching.short-branch-max-length", 1))
-            val longLimit = maxOf(shortLimit,
-                plugin.config.getInt("generation.branching.long-branch-max-length", 2))
-            if (maxOf(shortLimit, longLimit) > 1) {
-                listOf(NormalRoomShape.STRAIGHT, NormalRoomShape.CORNER, NormalRoomShape.DEAD_END)
-            } else {
-                listOf(NormalRoomShape.DEAD_END)
+    /** Writes the role labels onto the placeholder signs once the blocks exist. */
+    fun applyPlaceholderSigns(world: World, plan: RoomPlan) {
+        for (sign in plan.placeholderSigns) {
+            val state = world.getBlockAt(sign.x, sign.y, sign.z).state
+            if (state is org.bukkit.block.Sign) {
+                val side = state.getSide(Side.FRONT)
+                side.line(0, Component.text("v-- becomes --v"))
+                side.line(1, Component.text(sign.text))
+                state.isWaxed = true
+                state.update(true, false)
             }
         }
-        PrefabType.SPAWN, PrefabType.BOSS, PrefabType.UNKNOWN -> emptyList()
+    }
+
+    /** Every pool and class the template needs, with what the folder offers - for /dungeon rooms. */
+    fun coverageReport(): List<String> {
+        val lines = ArrayList<String>()
+        for ((role, pool, sizeClass) in plugin.templates.requirements()) {
+            val matching = prefabs.filter { it.pool == pool }
+            val exact = matching.filter { it.width == sizeClass.x && it.height == sizeClass.y && it.depth == sizeClass.z }
+            val status = when {
+                exact.isNotEmpty() -> "${exact.size} file(s): " + exact.joinToString(", ") { it.fileName }
+                matching.isNotEmpty() -> "PLACEHOLDER - ${matching.size} file(s) exist but none is " +
+                    sizeClass.dimensions() + ": " + matching.joinToString(", ") { "${it.fileName} ${it.width}x${it.height}x${it.depth}" }
+                else -> "PLACEHOLDER - no ${pool}_* file"
+            }
+            lines.add("$role (pool $pool, class ${sizeClass.name} ${sizeClass.dimensions()}): $status")
+        }
+        return lines.toList()
     }
 
     /**
      * Audits the finished world, not just the plan. This catches a malformed
-     * schematic that physically overwrote a corridor opening after validation.
+     * schematic that physically overwrote a passage after validation.
      */
     fun verifyGenerated(world: World, layout: DungeonLayout, plan: RoomPlan) {
         val roomsById = layout.rooms.associateBy { it.id }
@@ -376,20 +290,12 @@ class NormalRoomLibrary(private val plugin: DungeonPlugin) {
             val portals = portals(room, layout.tunnels)
             if (room.id in plan.prefabRoomIds) {
                 val prefabDoors = plan.doorways[room.id] ?: emptyList()
-                for (doorway in prefabDoors) {
-                    val connected = portals.any { it.facing == doorway.facing }
-                    if (!connected) {
-                        plugin.logger.severe("Dungeon doorway audit: room ${room.id} at " +
-                            position(doorway.x, doorway.y, doorway.z) + " facing ${doorway.facing}" +
-                            " has no connected corridor.")
-                    }
-                }
                 for (portal in portals) {
                     val declared = prefabDoors.any { it.facing == portal.facing }
                     if (!declared) {
                         plugin.logger.severe("Dungeon doorway audit: room ${room.id} at " +
                             position(portal.doorway.centreX(), portal.doorway.minY, portal.doorway.centreZ()) +
-                            " facing ${portal.facing} has a corridor but the placed prefab has no doorway.")
+                            " facing ${portal.facing} has a connection but the placed room has no doorway.")
                     }
                 }
             }
@@ -411,9 +317,9 @@ class NormalRoomLibrary(private val plugin: DungeonPlugin) {
                 for (x in doorway.minX..doorway.maxX) {
                     val material = world.getBlockAt(x, y, z).type
                     if (!world.getBlockAt(x, y, z).isPassable) {
-                        plugin.logger.severe("Dungeon corridor audit: room ${room.id} at " +
+                        plugin.logger.severe("Dungeon doorway audit: room ${room.id} at " +
                             position(x, y, z) + " facing ${portal.facing} is blocked by $material" +
-                            "; the corridor has no usable doorway.")
+                            "; the passage is not usable.")
                         return
                     }
                 }
@@ -421,18 +327,23 @@ class NormalRoomLibrary(private val plugin: DungeonPlugin) {
         }
     }
 
-    private fun load(file: File): LoadResult {
+    // ------------------------------------------------------------------
+    // Loading
+    // ------------------------------------------------------------------
+
+    private fun load(file: File, poolClasses: Map<String, nl.riddernix.dungeonplugin.generation.TemplateConfig.SizeClass>): LoadResult {
         val problems = ArrayList<String>()
-        val declaration = declaration(file.name)
+        val declaration = declaration(file.name, poolClasses.keys)
         if (!declaration.parsed) {
-            problems.add("Filename must start with normal_, branch_, spawn, or boss. After the prefix you may name a" +
-                " composed role, a shape, or both: branch_parkour, branch_parkour_straight, normal_cross.")
+            problems.add("Filename must start with a pool name (" +
+                (poolClasses.keys + setOf("spawn", "boss")).sorted().joinToString(", ") +
+                ") or a legacy normal_/branch_ prefix.")
         }
         val format = ClipboardFormats.findByFile(file)
         if (format == null) {
             problems.add("WorldEdit could not detect a supported clipboard format.")
-            return result(file, 0, 0, 0, null, null, emptyList(), false, declaration.type, declaration.role,
-                NormalRoomShape.UNKNOWN, false, emptyMap(), problems, null)
+            return result(file, 0, 0, 0, null, null, emptyList(), false, declaration, null,
+                emptyMap(), problems, null)
         }
         try {
             format.getReader(FileInputStream(file)).use { reader ->
@@ -533,7 +444,7 @@ class NormalRoomLibrary(private val plugin: DungeonPlugin) {
                             markerCounts.merge(category, 1, Int::plus)
                             markers.add(PrefabMarker(category, x, y, z))
                             replacementMaterial = markerMaterials.spawnReplacement
-                        } else if (material == Material.LIGHT_GRAY_WOOL && declaration.type == PrefabType.SPAWN) {
+                        } else if (material == Material.LIGHT_GRAY_WOOL && declaration.pool == "spawn") {
                             markerCounts.merge("incorrect-player-spawn-light-gray", 1, Int::plus)
                             problems.add("Player-spawn marker at $x,$y,$z" +
                                 " uses LIGHT_GRAY_WOOL; use GRAY_WOOL instead.")
@@ -560,11 +471,11 @@ class NormalRoomLibrary(private val plugin: DungeonPlugin) {
                 if (legacyPurpleFound) {
                     problems.add("Found purple wool left from an older doorway convention; it is ignored as a spawn marker. Resave this room with red doorway markers.")
                 }
-                reportBounds(width, height, depth, contentBounds, structuralBounds, doorwayMarkers, problems)
+                reportBounds(width, height, depth, contentBounds, problems)
                 val markerOffsets = verticalOffsets(doorwayMarkers, structuralBounds)
                 if (contentBounds == null) {
-                    return result(file, width, height, depth, contentBounds, structuralBounds, markerOffsets, false,
-                        declaration.type, declaration.role, NormalRoomShape.UNKNOWN, false, markerCounts, problems, null)
+                    return result(file, width, height, depth, contentBounds, structuralBounds, markerOffsets,
+                        false, declaration, null, markerCounts, problems, null)
                 }
 
                 // WorldEdit selections often include an empty border. Rebase
@@ -596,6 +507,19 @@ class NormalRoomLibrary(private val plugin: DungeonPlugin) {
                     PrefabPoint(point.x - content.minX, point.y - content.minY, point.z - content.minZ)
                 }
 
+                // Validation is per size class now: a room file must exactly
+                // match its pool's class dimensions, loudly otherwise.
+                val sizeClass = declaration.pool?.let { poolClasses[it] }
+                if (declaration.parsed && sizeClass == null && declaration.pool !in setOf("spawn", "boss")) {
+                    problems.add("Pool '${declaration.pool}' is not used by the generation template" +
+                        "; the file can never be selected.")
+                }
+                if (sizeClass != null &&
+                    (prefabWidth != sizeClass.x || prefabHeight != sizeClass.y || prefabDepth != sizeClass.z)) {
+                    problems.add("Size ${prefabWidth}x${prefabHeight}x$prefabDepth does not match class " +
+                        "${sizeClass.name} (${sizeClass.dimensions()}) required for pool '${declaration.pool}'.")
+                }
+
                 val doorwayGroups = doorwayGroupDescriptions(doorwayMarkers, prefabWidth, prefabDepth)
                 if (doorwayMarkers.isEmpty()) {
                     problems.add("No red doorway marker blocks were found.")
@@ -606,16 +530,11 @@ class NormalRoomLibrary(private val plugin: DungeonPlugin) {
                     problems.none { it.startsWith("Doorway") }) {
                     problems.add("No valid doorway marker group could be created from the red doorway markers.")
                 }
-                val placementYOffset = placementYOffset(doors, problems)
                 val faces = HashSet<BlockFace>()
                 for (door in doors) {
                     if (!faces.add(door.facing)) problems.add("Doorway markers produce more than one doorway on the ${door.facing} wall.")
                 }
-                val shape = shape(faces)
-                val nameMatches = declaration.parsed && (!declaration.shapeDeclared || declaration.shape == shape)
-                if (declaration.parsed && declaration.shapeDeclared && !nameMatches) problems.add("Filename declares ${declaration.label}" +
-                    " but the markers detect ${shape.configName()}.")
-                validateSpecialMarkers(declaration.type, specialMarkers, clipboard, contentMinimum, problems)
+                validateSpecialMarkers(declaration.pool, specialMarkers, clipboard, contentMinimum, problems)
                 if (trapColumns.isNotEmpty()) {
                     // Counted with the runtime's own rule, so the number here
                     // is what will actually vanish - the point is spotting a
@@ -632,34 +551,40 @@ class NormalRoomLibrary(private val plugin: DungeonPlugin) {
                     it.startsWith("Spawn room") || it.startsWith("Boss room") ||
                         it.startsWith("Player-spawn") || it.startsWith("Boss-spawn")
                 }
+                val sizeError = problems.any { it.startsWith("Size ") || it.startsWith("Pool '") }
                 val valid = declaration.parsed && doors.isNotEmpty() && doors.size == faces.size &&
-                    !specialMarkerError && problems.none { it.startsWith("Doorway") }
-                val prefab = if (valid) Prefab(file.name, prefabWidth, prefabHeight, prefabDepth, placementYOffset,
-                    blocks, markers, specialMarkers, doors, trapColumns, pressurePlates,
-                    declaration.type, declaration.role, shape) else null
-                return result(file, width, height, depth, contentBounds, structuralBounds, markerOffsets, valid,
-                    declaration.type, declaration.role, shape, nameMatches, markerCounts, doorwayGroups,
-                    specialMarkers, problems, prefab)
+                    !specialMarkerError && !sizeError && problems.none { it.startsWith("Doorway") }
+                val floors = doors.map { it.opening.minY }.distinct()
+                val prefab = if (valid) Prefab(file.name, declaration.pool!!, declaration.variant,
+                    prefabWidth, prefabHeight, prefabDepth, blocks, markers, specialMarkers, doors,
+                    trapColumns, pressurePlates) else null
+                if (valid && declaration.variant == "stairs" && floors.size < 2) {
+                    problems.add("Filename declares a stairs variant but every doorway floor sits at one height.")
+                }
+                return result(file, prefabWidth, prefabHeight, prefabDepth, contentBounds, structuralBounds,
+                    markerOffsets, valid, declaration, sizeClass?.name, markerCounts, problems, prefab,
+                    doorwayGroups, specialMarkers)
             }
         } catch (exception: IOException) {
             problems.add("Could not read schematic: ${exception.message}")
             plugin.logger.warning("Could not load room prefab ${file.name}: ${exception.message}")
-            return result(file, 0, 0, 0, null, null, emptyList(), false, declaration.type, declaration.role,
-                NormalRoomShape.UNKNOWN, false, emptyMap(), problems, null)
+            return result(file, 0, 0, 0, null, null, emptyList(), false, declaration, null,
+                emptyMap(), problems, null)
         } catch (exception: RuntimeException) {
             problems.add("Could not read schematic: ${exception.message}")
             plugin.logger.warning("Could not load room prefab ${file.name}: ${exception.message}")
-            return result(file, 0, 0, 0, null, null, emptyList(), false, declaration.type, declaration.role,
-                NormalRoomShape.UNKNOWN, false, emptyMap(), problems, null)
+            return result(file, 0, 0, 0, null, null, emptyList(), false, declaration, null,
+                emptyMap(), problems, null)
         }
     }
 
     /**
      * Treats one red block or a contiguous red strip as one doorway
-     * declaration. The marker need only identify the wall: the actual air
-     * opening is found below it. That accepts both a traditional marker
-     * directly above the opening and a marker embedded in a ceiling band,
-     * without ever guessing a passage that is not present.
+     * declaration. The marker identifies the wall and the position along it;
+     * the actual air opening is found below the strip's own centre. Strips no
+     * longer need to be centred on their wall - doors align on their own
+     * markers now - and doorways on one room may sit at different floor
+     * heights, which is exactly what a stairs room does.
      */
     private fun parseDoorways(clipboard: Clipboard, minimum: BlockVector3, width: Int, height: Int, depth: Int,
                               markerBlocks: List<DoorMarker>, config: FileConfiguration,
@@ -693,19 +618,15 @@ class NormalRoomLibrary(private val plugin: DungeonPlugin) {
             val maximumCross = cross(group.last(), face)
             val sameRow = group.all { it.y == markerY }
             val contiguous = group.size == maximumCross - minimumCross + 1
-            val expectedCentre = expectedCentre(face, width, depth)
-            if (!sameRow || !contiguous || minimumCross + maximumCross != expectedCentre * 2) {
+            if (!sameRow || !contiguous) {
                 val issues = ArrayList<String>()
                 if (!sameRow) issues.add("they are on more than one height")
                 if (!contiguous) issues.add("there is a gap in the strip")
-                if (minimumCross + maximumCross != expectedCentre * 2) {
-                    issues.add("the strip is off-centre (centre ${(minimumCross + maximumCross) / 2}" +
-                        ", expected $expectedCentre)")
-                }
                 problems.add("Doorway markers on the $face wall are invalid: ${issues.joinToString(", ")}.")
                 continue
             }
-            val opening = findOpening(clipboard, minimum, width, height, depth, face, expectedCentre, markerY,
+            val centre = (minimumCross + maximumCross) / 2
+            val opening = findOpening(clipboard, minimum, width, height, depth, face, centre, markerY,
                 minimumOpeningWidth, minimumOpeningHeight)
             if (opening == null) {
                 problems.add("Doorway markers on the $face wall have no air opening below them that is at least " +
@@ -723,42 +644,6 @@ class NormalRoomLibrary(private val plugin: DungeonPlugin) {
             problems.add("Doorway markers declare a green entrance but no red exit doorway.")
         }
         return doors.toList()
-    }
-
-    /**
-     * A roled slot prefers prefabs carrying its role token and falls back to
-     * the generic pool; roled prefabs never serve any other slot, so an
-     * authored guardian lair cannot appear as an ordinary side room.
-     */
-    private fun candidates(room: DungeonLayout.Room, required: Set<BlockFace>, arrivalFace: BlockFace?): List<Candidate> {
-        val wantedType = PrefabType.from(room.type)
-        if (room.role != null) {
-            val roled = candidates(wantedType, room.role, required, arrivalFace)
-            if (roled.isNotEmpty()) return roled
-        }
-        return candidates(wantedType, null, required, arrivalFace)
-    }
-
-    private fun candidates(wantedType: PrefabType, role: String?, required: Set<BlockFace>,
-                           arrivalFace: BlockFace?): List<Candidate> {
-        val candidates = ArrayList<Candidate>()
-        for (prefab in prefabs) {
-            if (prefab.type != wantedType || prefab.role != role) continue
-            val pinnedEntrance = prefab.entranceFace()
-            for (rotation in intArrayOf(0, 90, 180, 270)) {
-                val faces = HashSet<BlockFace>()
-                for (doorway in prefab.doorways) faces.add(rotate(doorway.facing, rotation))
-                if (faces != required) continue
-                // A green entrance restricts the exact-match rotations further:
-                // players must arrive through that specific opening.
-                if (pinnedEntrance != null && arrivalFace != null &&
-                    rotate(pinnedEntrance, rotation) != arrivalFace) continue
-                candidates.add(Candidate(prefab, rotation))
-            }
-        }
-        candidates.sortWith(compareBy<Candidate, String>(String.CASE_INSENSITIVE_ORDER) { it.prefab.fileName }
-            .thenBy { it.rotation })
-        return candidates
     }
 
     /**
@@ -789,48 +674,11 @@ class NormalRoomLibrary(private val plugin: DungeonPlugin) {
         return total
     }
 
-    /** Every loaded file for one role with the doorways each rotation offers. */
-    private fun rolePoolDescription(type: PrefabType, role: String): String {
-        val pool = prefabs.filter { it.type == type && role == it.role }
-        if (pool.isEmpty()) return "no file with that role is loaded (check /dungeon rooms for a rejected one)"
-        val descriptions = ArrayList<String>()
-        for (prefab in pool) {
-            val rotations = ArrayList<String>()
-            for (rotation in intArrayOf(0, 90, 180, 270)) {
-                val rotated = HashSet<BlockFace>()
-                for (doorway in prefab.doorways) rotated.add(rotate(doorway.facing, rotation))
-                rotations.add("$rotation° ${faces(rotated)}")
-            }
-            descriptions.add("${prefab.fileName} [${rotations.joinToString(", ")}]")
-        }
-        return descriptions.joinToString("; ")
-    }
-
-    /** Detailed, deterministic report emitted only when an exact door match is missing. */
-    private fun candidateDiagnostics(room: DungeonLayout.Room, required: Set<BlockFace>): String {
-        val wantedType = PrefabType.from(room.type)
-        val matchingType = prefabs.filter { it.type == wantedType }
-        if (matchingType.isEmpty()) return "no valid ${wantedType.configName()} prefabs are loaded"
-        val descriptions = ArrayList<String>()
-        for (prefab in matchingType) {
-            val rotations = ArrayList<String>()
-            for (rotation in intArrayOf(0, 90, 180, 270)) {
-                val rotatedFaces = HashSet<BlockFace>()
-                for (doorway in prefab.doorways) rotatedFaces.add(rotate(doorway.facing, rotation))
-                val entrance = prefab.entranceFace()
-                rotations.add("$rotation° doors ${faces(rotatedFaces)}" +
-                    (entrance?.let { " entrance ${rotate(it, rotation)}" } ?: ""))
-            }
-            descriptions.add("${prefab.fileName} [${rotations.joinToString(", ")}]")
-        }
-        return descriptions.joinToString("; ")
-    }
-
-    private fun blocks(candidate: Candidate, origin: PlacementOrigin): BuildOperation {
-        val transform = AffineTransform().rotateY(-candidate.rotation.toDouble())
-        val entries = ArrayList<BlockListOperation.Entry>(candidate.prefab.blocks.size)
-        for (block in candidate.prefab.blocks) {
-            val point = rotate(block.x, block.z, candidate.prefab.width, candidate.prefab.depth, candidate.rotation)
+    private fun blocks(prefab: Prefab, rotation: Int, origin: PlacementOrigin): BuildOperation {
+        val transform = AffineTransform().rotateY(-rotation.toDouble())
+        val entries = ArrayList<BlockListOperation.Entry>(prefab.blocks.size)
+        for (block in prefab.blocks) {
+            val point = rotate(block.x, block.z, prefab.width, prefab.depth, rotation)
             val data = when {
                 block.replacementState != null ->
                     BukkitAdapter.adapt(BlockTransformExtent.transform(block.replacementState, transform))
@@ -843,11 +691,57 @@ class NormalRoomLibrary(private val plugin: DungeonPlugin) {
         return BlockListOperation(entries)
     }
 
+    /**
+     * Fills an unused doorway with the wall block its marker sampled, so a
+     * room with more doors than its slot needs presents a plain wall instead
+     * of an opening into the void.
+     */
+    private fun sealDoorway(prefab: Prefab, doorway: PrefabDoorway, rotation: Int,
+                            origin: PlacementOrigin): BuildOperation {
+        val sample = prefab.blocks.firstOrNull {
+            it.replacementState != null && doorway.marker.contains(it.x, it.y, it.z)
+        }?.replacementState
+        val transform = AffineTransform().rotateY(-rotation.toDouble())
+        val data = if (sample != null) BukkitAdapter.adapt(BlockTransformExtent.transform(sample, transform))
+            else Material.STONE_BRICKS.createBlockData()
+        val entries = ArrayList<BlockListOperation.Entry>()
+        val opening = doorway.opening
+        for (y in opening.minY..opening.maxY) {
+            for (z in opening.minZ..opening.maxZ) {
+                for (x in opening.minX..opening.maxX) {
+                    val point = rotate(x, z, prefab.width, prefab.depth, rotation)
+                    entries.add(BlockListOperation.Entry(origin.x + point.x, origin.y + y,
+                        origin.z + point.z, data))
+                }
+            }
+        }
+        return BlockListOperation(entries)
+    }
+
+    private fun shellMaterials(): List<Material> {
+        val configured = plugin.config.getStringList("generation.template.placeholder.materials")
+            .mapNotNull { Material.matchMaterial(it.trim().uppercase(Locale.ROOT)) }
+            .filter { it.isBlock }
+        return configured.ifEmpty { listOf(Material.MAGENTA_CONCRETE, Material.BLACK_CONCRETE) }
+    }
+
+    private fun shellOpeningWidth(): Int {
+        val value = maxOf(3, plugin.config.getInt("generation.rooms.markers.doorway.minimum-opening-width", 3))
+        return if ((value and 1) == 0) value + 1 else value
+    }
+
+    private fun shellOpeningHeight(): Int =
+        maxOf(3, plugin.config.getInt("generation.rooms.markers.doorway.minimum-opening-height", 3))
+
+    // ------------------------------------------------------------------
+    // Data
+    // ------------------------------------------------------------------
+
     private class Prefab(
-        val fileName: String, val width: Int, val height: Int, val depth: Int, val placementYOffset: Int,
+        val fileName: String, val pool: String, val variant: String?,
+        val width: Int, val height: Int, val depth: Int,
         blocks: List<PrefabBlock>, markers: List<PrefabMarker>, specialMarkers: List<PrefabSpecialMarker>,
-        doorways: List<PrefabDoorway>, trapColumns: List<PrefabPoint>, pressurePlates: List<PrefabPoint>,
-        val type: PrefabType, val role: String?, val shape: NormalRoomShape
+        doorways: List<PrefabDoorway>, trapColumns: List<PrefabPoint>, pressurePlates: List<PrefabPoint>
     ) {
         val blocks: List<PrefabBlock> = blocks.toList()
         val markers: List<PrefabMarker> = markers.toList()
@@ -855,9 +749,6 @@ class NormalRoomLibrary(private val plugin: DungeonPlugin) {
         val doorways: List<PrefabDoorway> = doorways.toList()
         val trapColumns: List<PrefabPoint> = trapColumns.toList()
         val pressurePlates: List<PrefabPoint> = pressurePlates.toList()
-
-        /** The green-pinned entrance face, or null when the room is free to rotate. */
-        fun entranceFace(): BlockFace? = doorways.firstOrNull { it.entrance }?.facing
     }
 
     private class PrefabBlock(val x: Int, val y: Int, val z: Int, val state: BlockState,
@@ -880,6 +771,17 @@ class NormalRoomLibrary(private val plugin: DungeonPlugin) {
     }
 
     private data class DoorMarkerGroup(val centreX: Int, val y: Int, val centreZ: Int, val facing: BlockFace, val width: Int) {
+        /** The marker centre along its wall: an x on north/south walls, a z on east/west. */
+        fun cross(): Int = if (facing == BlockFace.NORTH || facing == BlockFace.SOUTH) centreX else centreZ
+
+        fun contains(x: Int, y: Int, z: Int): Boolean {
+            if (y != this.y) return false
+            val half = (width - 1) / 2
+            return if (facing == BlockFace.NORTH || facing == BlockFace.SOUTH)
+                z == centreZ && x in centreX - half..centreX + half
+            else x == centreX && z in centreZ - half..centreZ + half
+        }
+
         companion object {
             fun of(face: BlockFace, y: Int, minimumCross: Int, maximumCross: Int, width: Int, depth: Int): DoorMarkerGroup {
                 val centre = (minimumCross + maximumCross) / 2
@@ -898,14 +800,12 @@ class NormalRoomLibrary(private val plugin: DungeonPlugin) {
 
     private class RoomPortal(val doorway: Bounds, val facing: BlockFace)
 
-    private class Candidate(val prefab: Prefab, val rotation: Int)
-
     private class PlacementOrigin(val x: Int, val y: Int, val z: Int)
 
     private data class Point(val x: Int, val z: Int)
 
-    private class NameDeclaration(val parsed: Boolean, val type: PrefabType, val role: String?,
-                                  val shape: NormalRoomShape, val label: String, val shapeDeclared: Boolean)
+    private class NameDeclaration(val parsed: Boolean, val pool: String?, val variant: String?,
+                                  val renameHint: String?)
 
     private class LoadResult(val prefab: Prefab?, val inspection: Inspection)
 
@@ -914,12 +814,8 @@ class NormalRoomLibrary(private val plugin: DungeonPlugin) {
         val entrance: Material, val wallMatchEntrance: Boolean, val entranceReplacement: Material,
         val trapFloor: Material, val wallMatchTrapFloor: Boolean, val trapFloorReplacement: Material,
         val spawnReplacement: Material, val legacyPurpleReplacement: Material,
-        val spawnCategories: Map<Material, String>, val specialMarkers: Map<Material, SpecialMarkerKind>,
-        val specialReplacements: Map<SpecialMarkerKind, Material>
+        val spawnCategories: Map<Material, String>, val specialMarkers: Map<Material, SpecialMarkerKind>
     ) {
-        fun specialReplacement(kind: SpecialMarkerKind): Material =
-            specialReplacements.getOrDefault(kind, Material.AIR)
-
         companion object {
             private fun wallMatching(config: FileConfiguration, path: String): Boolean {
                 val raw = config.getString(path, "WALL_MATCHING")
@@ -952,12 +848,10 @@ class NormalRoomLibrary(private val plugin: DungeonPlugin) {
                 categories.remove(trapFloor)
                 categories.remove(Material.PURPLE_WOOL)
                 val specialMarkers = HashMap<Material, SpecialMarkerKind>()
-                val specialReplacements = EnumMap<SpecialMarkerKind, Material>(SpecialMarkerKind::class.java)
                 for (kind in SpecialMarkerKind.entries) {
                     val marker = material(config, "generation.rooms.markers.${kind.configName}.material",
                         if (kind == SpecialMarkerKind.PLAYER_SPAWN) Material.GRAY_WOOL else Material.LIGHT_BLUE_WOOL)
                     specialMarkers[marker] = kind
-                    specialReplacements[kind] = material(config, "generation.rooms.markers.replacements.${kind.configName}", Material.AIR)
                 }
                 specialMarkers.remove(doorway)
                 specialMarkers.remove(entrance)
@@ -967,47 +861,16 @@ class NormalRoomLibrary(private val plugin: DungeonPlugin) {
                 return MarkerMaterials(doorway, wallMatchDoorway, doorwayReplacement,
                     entrance, wallMatchEntrance, entranceReplacement,
                     trapFloor, wallMatchTrapFloor, trapFloorReplacement, spawnReplacement,
-                    legacyPurpleReplacement, categories.toMap(), specialMarkers.toMap(), specialReplacements.toMap())
+                    legacyPurpleReplacement, categories.toMap(), specialMarkers.toMap())
             }
         }
     }
-
-    /** The filename-declared pool a prefab may serve. */
-    enum class PrefabType(private val configName: String) {
-        NORMAL("normal"),
-        BRANCH("branch"),
-        SPAWN("spawn"),
-        BOSS("boss"),
-        UNKNOWN("unknown");
-
-        fun configName(): String = configName
-
-        companion object {
-            fun fromPrefix(prefix: String): PrefabType = when (prefix.lowercase(Locale.ROOT)) {
-                "normal" -> NORMAL
-                "branch" -> BRANCH
-                "spawn" -> SPAWN
-                "boss" -> BOSS
-                else -> UNKNOWN
-            }
-
-            fun from(type: DungeonLayout.RoomType): PrefabType = when (type) {
-                DungeonLayout.RoomType.NORMAL -> NORMAL
-                DungeonLayout.RoomType.BRANCH -> BRANCH
-                DungeonLayout.RoomType.SPAWN -> SPAWN
-                DungeonLayout.RoomType.BOSS -> BOSS
-            }
-        }
-    }
-
-    /** Maximum envelope used only while the generator keeps rooms apart. */
-    data class PlanningDimensions(val width: Int, val height: Int, val depth: Int)
 
     /** Immutable data used by /dungeon rooms. */
     class Inspection(
         val fileName: String, val width: Int, val height: Int, val depth: Int, val actualDimensions: String,
-        val trimmedDimensions: String, markerVerticalOffsets: List<Int>, val valid: Boolean, val type: PrefabType,
-        val role: String?, val shape: NormalRoomShape, val filenameMatch: String, markerCounts: Map<String, Int>,
+        val trimmedDimensions: String, markerVerticalOffsets: List<Int>, val valid: Boolean, val pool: String,
+        val variant: String?, val sizeClassName: String?, val renameHint: String?, markerCounts: Map<String, Int>,
         doorwayGroups: List<String>, specialMarkers: List<String>, problems: List<String>
     ) {
         val markerVerticalOffsets: List<Int> = markerVerticalOffsets.toList()
@@ -1018,8 +881,9 @@ class NormalRoomLibrary(private val plugin: DungeonPlugin) {
 
         fun dimensions(): String = "${width}x${height}x$depth"
 
-        /** The pool label shown by /dungeon rooms: the type plus any role token. */
-        fun displayType(): String = if (role == null) type.configName() else "${type.configName()} $role"
+        /** The pool label shown by /dungeon rooms, with any variant token. */
+        fun displayType(): String = pool + (variant?.let { " $it" } ?: "") +
+            (sizeClassName?.let { " [class $it]" } ?: "")
 
         fun markers(): String = markerCounts.entries.sortedBy { it.key }
             .joinToString(", ") { "${it.key}=${it.value}" }.ifEmpty { "none" }
@@ -1043,14 +907,14 @@ class NormalRoomLibrary(private val plugin: DungeonPlugin) {
         fun displayProblems(): String = if (problems.isEmpty()) "none" else problems.joinToString(" | ")
     }
 
-    /** Tick-spread blocks plus marker metadata for selected prefab rooms. */
+    /** Tick-spread blocks plus marker metadata for the planned rooms. */
     class RoomPlan(
         prefabRoomIds: Set<String>, operations: List<BuildOperation>,
         markers: Map<String, List<DungeonMarker>>, doorways: Map<String, List<DungeonDoorway>>,
         doorwayMarkers: Map<String, List<DungeonDoorMarker>>, playableBounds: Map<String, Bounds>,
         playerSpawns: Map<String, DungeonSpecialMarker>, bossSpawns: Map<String, DungeonSpecialMarker>,
         traps: Map<String, DungeonTrap>, prefabFiles: Map<String, String>,
-        requiredPrefabFailures: List<String>
+        placeholderSigns: List<PlaceholderShell.Sign>
     ) {
         val prefabRoomIds: Set<String> = prefabRoomIds.toSet()
         val operations: List<BuildOperation> = operations.toList()
@@ -1062,18 +926,7 @@ class NormalRoomLibrary(private val plugin: DungeonPlugin) {
         val bossSpawns: Map<String, DungeonSpecialMarker> = bossSpawns.toMap()
         val traps: Map<String, DungeonTrap> = traps.toMap()
         val prefabFiles: Map<String, String> = prefabFiles.toMap()
-        val requiredPrefabFailures: List<String> = requiredPrefabFailures.toList()
-
-        fun hasRequiredPrefabFailures(): Boolean = requiredPrefabFailures.isNotEmpty()
-
-        companion object {
-            fun empty(): RoomPlan = RoomPlan(emptySet(), emptyList(), emptyMap(), emptyMap(), emptyMap(),
-                emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyList())
-
-            fun withRequiredFailures(failures: List<String>): RoomPlan =
-                RoomPlan(emptySet(), emptyList(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(),
-                    emptyMap(), emptyMap(), emptyMap(), failures.toList())
-        }
+        val placeholderSigns: List<PlaceholderShell.Sign> = placeholderSigns.toList()
     }
 
     private data class LocalBounds(val minX: Int, val minY: Int, val minZ: Int, val maxX: Int, val maxY: Int, val maxZ: Int) {
@@ -1092,9 +945,6 @@ class NormalRoomLibrary(private val plugin: DungeonPlugin) {
     companion object {
         private val SPECIAL_FILE_NAME = Pattern.compile("^(spawn|boss)(?:_\\d+)?$", Pattern.CASE_INSENSITIVE)
 
-        private fun usesPrefabSlot(room: DungeonLayout.Room): Boolean =
-            PrefabType.from(room.type) != PrefabType.UNKNOWN && room.variant != DungeonLayout.RoomVariant.PARKOUR
-
         private fun portals(room: DungeonLayout.Room, tunnels: List<DungeonLayout.Tunnel>): List<RoomPortal> {
             val portals = ArrayList<RoomPortal>()
             for (tunnel in tunnels) {
@@ -1109,15 +959,15 @@ class NormalRoomLibrary(private val plugin: DungeonPlugin) {
 
         private fun position(x: Int, y: Int, z: Int): String = "$x,$y,$z"
 
-        private fun validateSpecialMarkers(type: PrefabType, markers: List<PrefabSpecialMarker>, clipboard: Clipboard,
+        private fun validateSpecialMarkers(pool: String?, markers: List<PrefabSpecialMarker>, clipboard: Clipboard,
                                            minimum: BlockVector3, problems: MutableList<String>) {
             val playerSpawns = markers.count { it.kind == SpecialMarkerKind.PLAYER_SPAWN }
             val bossSpawns = markers.count { it.kind == SpecialMarkerKind.BOSS_SPAWN }
-            if (type == PrefabType.SPAWN) {
+            if (pool == "spawn") {
                 if (playerSpawns == 0) problems.add("Spawn room requires exactly one player-spawn marker, but found none.")
                 if (playerSpawns > 1) problems.add("Spawn room requires exactly one player-spawn marker, but found $playerSpawns.")
             }
-            if (type == PrefabType.BOSS) {
+            if (pool == "boss") {
                 if (bossSpawns > 1) problems.add("Boss room may contain at most one optional boss-spawn marker, but found $bossSpawns.")
             }
             for (marker in markers) {
@@ -1156,8 +1006,6 @@ class NormalRoomLibrary(private val plugin: DungeonPlugin) {
                 val maximumCross = cross(group.last(), face)
                 val sameRow = group.all { it.y == markerY }
                 val contiguous = group.size == maximumCross - minimumCross + 1
-                val expectedCentre = expectedCentre(face, width, depth)
-                val centred = minimumCross + maximumCross == expectedCentre * 2
                 val centre = (minimumCross + maximumCross) / 2
                 val centreX = if (face == BlockFace.NORTH || face == BlockFace.SOUTH) centre
                     else if (face == BlockFace.WEST) 0 else width - 1
@@ -1168,7 +1016,6 @@ class NormalRoomLibrary(private val plugin: DungeonPlugin) {
                 else if (greens > 0) status.add("MIXED red/green")
                 status.add(if (sameRow) "one height" else "mixed heights")
                 status.add(if (contiguous) "contiguous" else "gap in strip")
-                status.add(if (centred) "centred" else "off-centre (expected $expectedCentre)")
                 descriptions.add("$face width=${group.size} centre=$centreX," +
                     (if (sameRow) markerY.toString() else "mixed") + ",$centreZ" +
                     " facing=$face (${status.joinToString(", ")})")
@@ -1187,9 +1034,6 @@ class NormalRoomLibrary(private val plugin: DungeonPlugin) {
 
         private fun cross(marker: DoorMarker, face: BlockFace): Int =
             if (face == BlockFace.NORTH || face == BlockFace.SOUTH) marker.x else marker.z
-
-        private fun expectedCentre(face: BlockFace, width: Int, depth: Int): Int =
-            if (face == BlockFace.NORTH || face == BlockFace.SOUTH) (width - 1) / 2 else (depth - 1) / 2
 
         private fun findOpening(clipboard: Clipboard, minimum: BlockVector3, width: Int, height: Int, depth: Int,
                                 face: BlockFace, centre: Int, markerY: Int, minimumWidth: Int, minimumHeight: Int): Bounds? {
@@ -1278,15 +1122,12 @@ class NormalRoomLibrary(private val plugin: DungeonPlugin) {
             bounds?.include(x, y, z) ?: LocalBounds(x, y, z, x, y, z)
 
         /** Adds validation information without rejecting a room prefab merely for harmless padding. */
-        private fun reportBounds(width: Int, height: Int, depth: Int, content: LocalBounds?, structural: LocalBounds?,
-                                 markerBlocks: List<DoorMarker>, problems: MutableList<String>) {
+        private fun reportBounds(width: Int, height: Int, depth: Int, content: LocalBounds?,
+                                 problems: MutableList<String>) {
             if (content == null) {
                 problems.add("The schematic contains no non-air blocks.")
                 return
             }
-            // Doorway markers may deliberately live in a separate authoring
-            // layer. Their vertical convention is reported separately and
-            // never makes a room invalid.
             if (content.sizeX() != width || content.sizeY() != height || content.sizeZ() != depth) {
                 problems.add("Empty outer padding will be trimmed: content is ${content.dimensions()}" +
                     " inside the stated ${width}x${height}x$depth selection.")
@@ -1298,58 +1139,8 @@ class NormalRoomLibrary(private val plugin: DungeonPlugin) {
             return markers.map { it.y - structural.maxY }.distinct().sorted()
         }
 
-        private fun placementYOffset(doors: List<PrefabDoorway>, problems: MutableList<String>): Int {
-            if (doors.isEmpty()) return 0
-            val openingBottom = doors.first().opening.minY
-            if (doors.any { it.opening.minY != openingBottom }) {
-                problems.add("Doorway openings do not share one floor height, so a flat dungeon corridor cannot align them.")
-            }
-            // DungeonLayout corridors enter at one block above a room's layout floor.
-            return 1 - openingBottom
-        }
-
         private fun packed(x: Int, y: Int, z: Int): Long =
             (x.toLong() and 0xFFFFF) shl 40 or ((y.toLong() and 0xFFFFF) shl 20) or (z.toLong() and 0xFFFFF)
-
-        /** The face this room is entered through: the doorway towards its parent. */
-        private fun arrivalFace(room: DungeonLayout.Room, tunnels: List<DungeonLayout.Tunnel>): BlockFace? {
-            for (tunnel in tunnels) {
-                if (tunnel.secondRoomId == room.id) {
-                    return face(room.bounds, tunnel.secondDoorway)
-                }
-            }
-            return null
-        }
-
-        private fun origin(room: DungeonLayout.Room, candidate: Candidate): PlacementOrigin {
-            val dimensions = rotatedDimensions(candidate.prefab.width, candidate.prefab.depth, candidate.rotation)
-            return PlacementOrigin(room.bounds.centreX() - (dimensions.x - 1) / 2,
-                room.bounds.minY + candidate.prefab.placementYOffset,
-                room.bounds.centreZ() - (dimensions.z - 1) / 2)
-        }
-
-        /**
-         * Runtime containment begins at the logical corridor floor, not at a
-         * decorative foundation below it. Its ceiling is the prefab's real
-         * ceiling after the doorway-alignment offset, so constrained endermen
-         * cannot teleport into the empty space above a raised prefab roof.
-         */
-        private fun playableBounds(candidate: Candidate, origin: PlacementOrigin): Bounds {
-            val dimensions = rotatedDimensions(candidate.prefab.width, candidate.prefab.depth, candidate.rotation)
-            val physicalMinimumY = origin.y
-            val physicalMaximumY = physicalMinimumY + candidate.prefab.height - 1
-            return Bounds(origin.x, physicalMinimumY, origin.z,
-                origin.x + dimensions.x - 1, physicalMaximumY, origin.z + dimensions.z - 1)
-        }
-
-        private fun requiredFaces(room: DungeonLayout.Room, tunnels: List<DungeonLayout.Tunnel>): EnumSet<BlockFace> {
-            val faces = EnumSet.noneOf(BlockFace::class.java)
-            for (tunnel in tunnels) {
-                if (tunnel.firstRoomId == room.id) faces.add(face(room.bounds, tunnel.firstDoorway))
-                if (tunnel.secondRoomId == room.id) faces.add(face(room.bounds, tunnel.secondDoorway))
-            }
-            return faces
-        }
 
         private fun face(room: Bounds, doorway: Bounds): BlockFace {
             if (doorway.minX == room.minX) return BlockFace.WEST
@@ -1359,17 +1150,31 @@ class NormalRoomLibrary(private val plugin: DungeonPlugin) {
             throw IllegalArgumentException("Doorway does not lie on its room boundary.")
         }
 
-        private fun shape(faces: Set<BlockFace>): NormalRoomShape = when (faces.size) {
-            1 -> NormalRoomShape.DEAD_END
-            2 -> if (opposite(faces)) NormalRoomShape.STRAIGHT else NormalRoomShape.CORNER
-            3 -> NormalRoomShape.TJUNCTION
-            4 -> NormalRoomShape.CROSS
-            else -> NormalRoomShape.UNKNOWN
+        private fun direction(face: BlockFace): TemplateGeometry.Dir = when (face) {
+            BlockFace.NORTH -> TemplateGeometry.Dir.NORTH
+            BlockFace.SOUTH -> TemplateGeometry.Dir.SOUTH
+            BlockFace.EAST -> TemplateGeometry.Dir.EAST
+            BlockFace.WEST -> TemplateGeometry.Dir.WEST
+            else -> throw IllegalArgumentException("Doorways must face a cardinal direction.")
         }
 
-        private fun opposite(faces: Set<BlockFace>): Boolean =
-            (BlockFace.NORTH in faces && BlockFace.SOUTH in faces) ||
-                (BlockFace.EAST in faces && BlockFace.WEST in faces)
+        private fun blockFace(direction: TemplateGeometry.Dir): BlockFace = when (direction) {
+            TemplateGeometry.Dir.NORTH -> BlockFace.NORTH
+            TemplateGeometry.Dir.SOUTH -> BlockFace.SOUTH
+            TemplateGeometry.Dir.EAST -> BlockFace.EAST
+            TemplateGeometry.Dir.WEST -> BlockFace.WEST
+        }
+
+        private fun doorwayCentreX(door: TemplateGeometry.WorldDoor): Int =
+            if (door.face == TemplateGeometry.Dir.EAST || door.face == TemplateGeometry.Dir.WEST)
+                door.wallPlane else door.cross
+
+        private fun doorwayCentreZ(door: TemplateGeometry.WorldDoor): Int =
+            if (door.face == TemplateGeometry.Dir.EAST || door.face == TemplateGeometry.Dir.WEST)
+                door.cross else door.wallPlane
+
+        private fun crossSize(opening: Bounds, face: BlockFace): Int =
+            if (face == BlockFace.NORTH || face == BlockFace.SOUTH) opening.sizeX() else opening.sizeZ()
 
         private fun rotate(face: BlockFace, rotation: Int): BlockFace = when (Math.floorMod(rotation, 360)) {
             0 -> face
@@ -1408,15 +1213,6 @@ class NormalRoomLibrary(private val plugin: DungeonPlugin) {
         private fun rotatedDimensions(width: Int, depth: Int, rotation: Int): Point =
             if (Math.floorMod(rotation, 180) == 0) Point(width, depth) else Point(depth, width)
 
-        private fun faces(faces: Set<BlockFace>): String =
-            faces.map { it.name }.sorted().joinToString(", ").ifEmpty { "none" }
-
-        private fun material(config: FileConfiguration, path: String, fallback: Material): Material {
-            val raw = config.getString(path, fallback.name)
-            val material = raw?.let { Material.matchMaterial(it.uppercase(Locale.ROOT)) }
-            return if (material == null || !material.isBlock) fallback else material
-        }
-
         private fun <T> immutable(input: Map<String, List<T>>): Map<String, List<T>> {
             val result = HashMap<String, List<T>>()
             input.forEach { (key, value) -> result[key] = value.toList() }
@@ -1424,88 +1220,81 @@ class NormalRoomLibrary(private val plugin: DungeonPlugin) {
         }
 
         /**
-         * Reads `(normal|branch)[_role][_shape][_number]`.
+         * Reads `<pool>[_<variant>][_<number>]`.
          *
-         * Both middle parts are optional, so `branch_straight` keeps its old
-         * meaning while `branch_parkour` and `branch_parkour_straight` both
-         * bind to the parkour role. The shape is only ever a declaration: it
-         * is checked against the doorways actually found, and a file that
-         * omits it is validated purely on its markers.
+         * Pool names come from the template (spawn and boss always count).
+         * Legacy names keep working: `normal_*` and generic `branch_*` files
+         * land in the combat pool and `branch_parkour*` in the parkour pool,
+         * with a rename hint logged - the old shape suffix means nothing now.
          */
-        private fun declaration(fileName: String): NameDeclaration {
+        private fun declaration(fileName: String, templatePools: Set<String>): NameDeclaration {
             val extension = fileName.lastIndexOf('.')
-            val stem = if (extension < 0) fileName else fileName.substring(0, extension)
+            val stem = (if (extension < 0) fileName else fileName.substring(0, extension)).lowercase(Locale.ROOT)
             val special = SPECIAL_FILE_NAME.matcher(stem)
             if (special.matches()) {
-                return NameDeclaration(true, PrefabType.fromPrefix(special.group(1)), null,
-                    NormalRoomShape.UNKNOWN, special.group(1).lowercase(Locale.ROOT), false)
+                return NameDeclaration(true, special.group(1).lowercase(Locale.ROOT), null, null)
             }
-            val tokens = stem.lowercase(Locale.ROOT).split("_").toMutableList()
-            val type = if (tokens.isEmpty()) PrefabType.UNKNOWN else PrefabType.fromPrefix(tokens.removeFirst())
-            if (type != PrefabType.NORMAL && type != PrefabType.BRANCH) {
-                return NameDeclaration(false, PrefabType.UNKNOWN, null, NormalRoomShape.UNKNOWN, "unparsed", false)
+            val tokens = stem.split("_").toMutableList()
+            if (tokens.isEmpty()) return NameDeclaration(false, null, null, null)
+
+            // Legacy prefixes map onto the new pools; the file keeps working.
+            if (tokens.first() == "normal" || tokens.first() == "branch") {
+                val legacy = tokens.removeFirst()
+                val pool = if (legacy == "branch" && tokens.firstOrNull() == "parkour") {
+                    tokens.removeFirst()
+                    "parkour"
+                } else "combat"
+                val variant = variantOf(tokens)
+                val hint = "Room prefab $fileName uses the legacy ${legacy}_ naming; it now serves the " +
+                    "$pool pool and its shape suffix no longer means anything. Consider renaming it to " +
+                    "$pool${variant?.let { "_$it" } ?: ""}.schem."
+                return NameDeclaration(true, pool, variant, hint)
             }
+
+            val pools = templatePools + setOf("spawn", "boss")
+            // Multi-word pool names (great_hall) match greedily, longest first.
+            for (take in minOf(3, tokens.size) downTo 1) {
+                val name = tokens.subList(0, take).joinToString("_")
+                if (name in pools) {
+                    val rest = tokens.subList(take, tokens.size).toMutableList()
+                    return NameDeclaration(true, name, variantOf(rest), null)
+                }
+            }
+            return NameDeclaration(false, null, null, null)
+        }
+
+        private fun variantOf(tokens: MutableList<String>): String? {
             if (tokens.isNotEmpty() && tokens.last().all { it.isDigit() }) {
-                tokens.removeLast()
+                tokens.removeAt(tokens.size - 1)
             }
-            var shape = NormalRoomShape.UNKNOWN
-            // Two shape words are spelled with an underscore, so they are
-            // matched before the single-token ones.
-            if (tokens.size >= 2) {
-                val paired = shape(tokens[tokens.size - 2] + "_" + tokens.last())
-                if (paired != NormalRoomShape.UNKNOWN) {
-                    shape = paired
-                    tokens.removeLast()
-                    tokens.removeLast()
-                }
-            }
-            if (shape == NormalRoomShape.UNKNOWN && tokens.isNotEmpty()) {
-                val single = shape(tokens.last())
-                if (single != NormalRoomShape.UNKNOWN) {
-                    shape = single
-                    tokens.removeLast()
-                }
-            }
-            val role = if (tokens.isEmpty()) null else tokens.joinToString("_")
-            val label = (role ?: "") + (if (shape == NormalRoomShape.UNKNOWN) "" else
-                (if (role == null) "" else "_") + shape.configName())
-            return NameDeclaration(true, type, role, shape, label.ifEmpty { type.configName() },
-                shape != NormalRoomShape.UNKNOWN)
+            return tokens.joinToString("_").ifEmpty { null }
         }
 
-        private fun shape(declared: String): NormalRoomShape = when (declared) {
-            "straight" -> NormalRoomShape.STRAIGHT
-            "corner_r", "corner_l", "corner" -> NormalRoomShape.CORNER
-            "tjunction" -> NormalRoomShape.TJUNCTION
-            "cross" -> NormalRoomShape.CROSS
-            "dead_end" -> NormalRoomShape.DEAD_END
-            else -> NormalRoomShape.UNKNOWN
-        }
-
-        private fun result(file: File, width: Int, height: Int, depth: Int, content: LocalBounds?, structural: LocalBounds?,
-                           markerOffsets: List<Int>, valid: Boolean, type: PrefabType, role: String?, shape: NormalRoomShape,
-                           nameMatches: Boolean, markers: Map<String, Int>, problems: List<String>, prefab: Prefab?): LoadResult =
-            result(file, width, height, depth, content, structural, markerOffsets, valid, type, role, shape, nameMatches,
-                markers, emptyList(), emptyList(), problems, prefab)
-
-        private fun result(file: File, width: Int, height: Int, depth: Int, content: LocalBounds?, structural: LocalBounds?,
-                           markerOffsets: List<Int>, valid: Boolean, type: PrefabType, role: String?, shape: NormalRoomShape,
-                           nameMatches: Boolean, markers: Map<String, Int>, doorwayGroups: List<String>,
-                           specialMarkers: List<PrefabSpecialMarker>, problems: List<String>, prefab: Prefab?): LoadResult {
+        private fun result(file: File, width: Int, height: Int, depth: Int, content: LocalBounds?,
+                           structural: LocalBounds?, markerOffsets: List<Int>, valid: Boolean,
+                           declaration: NameDeclaration, sizeClassName: String?, markers: Map<String, Int>,
+                           problems: List<String>, prefab: Prefab?,
+                           doorwayGroups: List<String> = emptyList(),
+                           specialMarkers: List<PrefabSpecialMarker> = emptyList()): LoadResult {
             val actual = content?.dimensions() ?: "none"
             val trimmed = structural?.trimDescription(width, height, depth) ?: "none"
-            val filenameMatch = if (type == PrefabType.SPAWN || type == PrefabType.BOSS)
-                "not checked" else if (nameMatches) "matches" else "does not match"
             val reportedProblems = ArrayList(problems)
             if (!valid && reportedProblems.isEmpty()) {
                 reportedProblems.add("Rejected without a recorded validation reason; this is a reporting bug.")
             }
             return LoadResult(prefab, Inspection(file.name, width, height, depth, actual, trimmed,
-                markerOffsets.toList(), valid, type, role, shape, filenameMatch, markers.toMap(),
-                doorwayGroups.toList(), specialMarkerPositions(specialMarkers), reportedProblems.toList()))
+                markerOffsets.toList(), valid, declaration.pool ?: "unknown", declaration.variant, sizeClassName,
+                declaration.renameHint, markers.toMap(), doorwayGroups.toList(),
+                specialMarkerPositions(specialMarkers), reportedProblems.toList()))
         }
 
         private fun specialMarkerPositions(markers: List<PrefabSpecialMarker>): List<String> =
             markers.map { "${it.kind.configName}=${it.x},${it.y},${it.z}" }
+
+        private fun material(config: FileConfiguration, path: String, fallback: Material): Material {
+            val raw = config.getString(path, fallback.name)
+            val material = raw?.let { Material.matchMaterial(it.uppercase(Locale.ROOT)) }
+            return if (material == null || !material.isBlock) fallback else material
+        }
     }
 }

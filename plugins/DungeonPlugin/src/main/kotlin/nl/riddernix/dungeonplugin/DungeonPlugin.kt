@@ -42,6 +42,7 @@ import nl.riddernix.dungeonplugin.quest.QuestObjectiveListener
 import nl.riddernix.dungeonplugin.room.CorridorLibrary
 import nl.riddernix.dungeonplugin.room.DungeonRoomRegistry
 import nl.riddernix.dungeonplugin.room.NormalRoomLibrary
+import nl.riddernix.dungeonplugin.generation.TemplateConfig
 import nl.riddernix.dungeonplugin.settings.DungeonSettingsDialog
 import nl.riddernix.dungeonplugin.skills.SkillPanelListener
 import nl.riddernix.dungeonplugin.skills.SkillPanelManager
@@ -88,6 +89,8 @@ class DungeonPlugin : JavaPlugin() {
     lateinit var dungeonLordKey: NamespacedKey
         private set
     lateinit var rooms: DungeonRoomRegistry
+        private set
+    lateinit var templates: TemplateConfig
         private set
     lateinit var normalRooms: NormalRoomLibrary
         private set
@@ -189,10 +192,14 @@ class DungeonPlugin : JavaPlugin() {
 
         messages = Messages(this)
         // Before the libraries read their folders, so a fresh install has
-        // rooms to load rather than falling back to procedural stone.
+        // rooms to load rather than starting on placeholder shells alone.
         extractBundledSchematics()
         worlds = DungeonWorldManager(this)
         rooms = DungeonRoomRegistry(this)
+        // The template maps pools to size classes, which room validation
+        // needs, so it loads before the room folder is read.
+        templates = TemplateConfig(config, logger)
+        reportTemplateProblems()
         normalRooms = NormalRoomLibrary(this)
         normalRooms.reload()
         corridors = CorridorLibrary(this)
@@ -403,6 +410,8 @@ class DungeonPlugin : JavaPlugin() {
         worlds.reload()
         parties.reload(config)
         dungeonLords.reload()
+        templates = TemplateConfig(config, logger)
+        reportTemplateProblems()
         normalRooms.reload()
         corridors.reload()
         reportPrefabMarkerConventions()
@@ -459,6 +468,14 @@ class DungeonPlugin : JavaPlugin() {
             ". All groups: " + filesByOffset.entries.joinToString("; ") { (offset, files) ->
                 "y${signed(offset)}=${files.joinToString(", ")}"
             })
+    }
+
+    /** A broken template is a config bug; it should be loud at enable, not at first /dungeon start. */
+    private fun reportTemplateProblems() {
+        templates.poolClasses()
+        for (problem in templates.report()) {
+            logger.severe("Generation template: $problem")
+        }
     }
 
     private fun startRoomScanTask() {
@@ -543,12 +560,12 @@ class DungeonPlugin : JavaPlugin() {
 
     companion object {
         /**
-         * DungeonPlugin restarts the config lineage at 1: its bundled
-         * config.yml is the merge of DungeonForge's v76 content, so an old
-         * DungeonForge file dropped into this folder would be replaced on the
-         * spot either way.
+         * DungeonPlugin restarted the config lineage at 1 (the merge of
+         * DungeonForge's v76 content); 2 replaced free-form generation with
+         * the template system: size classes, the slot flow, and per-difficulty
+         * combat-rooms/keys/minibosses numbers.
          */
-        private const val CONFIG_VERSION = 1
+        private const val CONFIG_VERSION = 2
 
         private fun signed(value: Int): String = if (value >= 0) "+$value" else value.toString()
     }

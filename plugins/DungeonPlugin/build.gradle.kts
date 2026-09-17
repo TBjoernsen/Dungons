@@ -15,12 +15,22 @@ dependencies {
     compileOnly("io.papermc.paper:paper-api:${providers.gradleProperty("paperApiVersion").get()}")
     compileOnly("com.sk89q.worldedit:worldedit-bukkit:7.3.19")
     compileOnly("io.github.toxicity188:bettermodel-bukkit-api:3.3.0")
+    // The template geometry is deliberately Bukkit-free so the alignment
+    // rules - the floor-transition case above all - are provable off-server.
+    // The planner test loads the bundled config.yml through Bukkit's
+    // YamlConfiguration, which needs no running server.
+    testImplementation(kotlin("test"))
+    testImplementation("io.papermc.paper:paper-api:${providers.gradleProperty("paperApiVersion").get()}")
 }
 
 kotlin {
     compilerOptions {
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_25)
     }
+}
+
+tasks.test {
+    useJUnitPlatform()
 }
 
 // The Kotlin stdlib is not shaded: plugin.yml declares it under `libraries:`,

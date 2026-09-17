@@ -83,6 +83,8 @@ class DungeonRoom(
     val depth: Int,
     val variant: DungeonLayout.RoomVariant,
     val role: String?,
+    /** A combat room whose strongest champion arrives through the boss summoning sequence. */
+    val miniboss: Boolean,
     markers: List<DungeonMarker>,
     doorways: List<DungeonDoorway>,
     val dungeonId: String

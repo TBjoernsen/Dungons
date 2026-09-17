@@ -104,7 +104,7 @@ class DungeonDoorManager(private val plugin: DungeonPlugin) : Listener {
         else
             Location(world, doorway.centreX() + 0.5, centreY, doorway.minZ + 0.5)
         val displayId = spawnLabel(world, centre, axisX, step)
-        doors[world.name] = DoorState(dungeon.id, world.name, gate.guardianRoomId,
+        doors[world.name] = DoorState(dungeon.id, world.name, gate.guardianRoomIds,
             blocks, displayId, centre, material)
     }
 
@@ -131,15 +131,18 @@ class DungeonDoorManager(private val plugin: DungeonPlugin) : Listener {
         return display.uniqueId
     }
 
-    /** The key moment: grant, announce, and open - in that order. */
-    fun onGuardianDeath(dungeon: DungeonInstance, guardianLocation: Location?) {
-        if (!dungeon.obtainKey()) return
-        val gate = dungeon.keyGate
-        plugin.events.fireKeyObtained(plugin.snapshots.of(dungeon), gate?.guardianRoomId ?: "")
+    /** The key moment: grant, announce, and - with the last key - open, in that order. */
+    fun onGuardianDeath(dungeon: DungeonInstance, guardianRoomId: String, guardianLocation: Location?) {
+        if (!dungeon.obtainKey(guardianRoomId)) return
+        plugin.events.fireKeyObtained(plugin.snapshots.of(dungeon), guardianRoomId)
+        val complete = dungeon.isKeyObtained
         for (player in dungeon.world.players) {
-            plugin.messages.send(player, "door-key-obtained")
+            plugin.messages.send(player, if (complete) "door-key-obtained" else "door-key-progress",
+                nl.riddernix.dungeonplugin.util.Messages.ph("obtained", dungeon.keysObtained()),
+                nl.riddernix.dungeonplugin.util.Messages.ph("required", dungeon.keysRequired()))
         }
         playKeyVisual(dungeon.world, guardianLocation)
+        if (!complete) return
         val state = doors[dungeon.world.name]
         if (state != null && state.dungeonId == dungeon.id) {
             open(dungeon, state, false)
@@ -249,33 +252,46 @@ class DungeonDoorManager(private val plugin: DungeonPlugin) : Listener {
                 continue
             }
             if (state.open || dungeon.isKeyObtained || dungeon.isCompleted) continue
-            if (!plugin.mobs.isRoomVisited(state.dungeonId, state.guardianRoomId)) continue
-            if (plugin.mobs.livingCount(state.dungeonId, state.guardianRoomId) > 0) {
-                state.quietChecks = 0
-                continue
-            }
-            // Two consecutive quiet checks, so one glance mid-respawn or
-            // mid-recount can never trigger a revival.
-            if (++state.quietChecks < 2) continue
-            state.quietChecks = 0
-            val maxRevivals = maxOf(0, plugin.config.getInt("door.watchdog.max-revivals", 2))
-            val room = dungeon.room(state.guardianRoomId)
-            if (room != null && state.revivals < maxRevivals) {
-                state.revivals++
-                plugin.logger.warning("Key guardian of dungeon ${dungeon.id} stopped existing without" +
-                    " granting the key; reviving it (attempt ${state.revivals} of $maxRevivals).")
-                plugin.mobs.reviveRoleRoom(dungeon, room)
-                for (player in dungeon.world.players) {
-                    plugin.messages.send(player, "door-guardian-revived")
+            // Every key room is watched on its own: one vanished guardian
+            // must not depend on another branch having been visited.
+            var lost = false
+            for (guardianRoomId in state.guardianRoomIds) {
+                if (dungeon.hasKeyFrom(guardianRoomId)) continue
+                if (!plugin.mobs.isRoomVisited(state.dungeonId, guardianRoomId)) continue
+                if (plugin.mobs.livingCount(state.dungeonId, guardianRoomId) > 0) {
+                    state.quietChecks[guardianRoomId] = 0
+                    continue
                 }
-                continue
+                // Two consecutive quiet checks, so one glance mid-respawn or
+                // mid-recount can never trigger a revival.
+                val quiet = (state.quietChecks[guardianRoomId] ?: 0) + 1
+                state.quietChecks[guardianRoomId] = quiet
+                if (quiet < 2) continue
+                state.quietChecks[guardianRoomId] = 0
+                val maxRevivals = maxOf(0, plugin.config.getInt("door.watchdog.max-revivals", 2))
+                val room = dungeon.room(guardianRoomId)
+                val revivals = state.revivals[guardianRoomId] ?: 0
+                if (room != null && revivals < maxRevivals) {
+                    state.revivals[guardianRoomId] = revivals + 1
+                    plugin.logger.warning("Key guardian of room $guardianRoomId in dungeon ${dungeon.id}" +
+                        " stopped existing without granting its key; reviving it (attempt ${revivals + 1}" +
+                        " of $maxRevivals).")
+                    plugin.mobs.reviveRoleRoom(dungeon, room)
+                    for (player in dungeon.world.players) {
+                        plugin.messages.send(player, "door-guardian-revived")
+                    }
+                    continue
+                }
+                lost = true
             }
-            plugin.logger.severe("Key guardian of dungeon ${dungeon.id} could not be revived; opening" +
-                " the sealed door so the run can continue.")
-            for (player in dungeon.world.players) {
-                plugin.messages.send(player, "door-guardian-lost")
+            if (lost) {
+                plugin.logger.severe("A key guardian of dungeon ${dungeon.id} could not be revived; opening" +
+                    " the sealed door so the run can continue.")
+                for (player in dungeon.world.players) {
+                    plugin.messages.send(player, "door-guardian-lost")
+                }
+                open(dungeon, state, true)
             }
-            open(dungeon, state, true)
         }
     }
 
@@ -288,17 +304,18 @@ class DungeonDoorManager(private val plugin: DungeonPlugin) : Listener {
     private class DoorState(
         val dungeonId: String,
         val worldName: String,
-        val guardianRoomId: String,
+        guardianRoomIds: List<String>,
         blocks: Set<BlockVector>,
         val displayId: UUID?,
         val centre: Location,
         val material: Material
     ) {
+        val guardianRoomIds: List<String> = guardianRoomIds.toList()
         val blocks: Set<BlockVector> = blocks.toSet()
         val lastDeny = HashMap<UUID, Long>()
         var open = false
-        var revivals = 0
-        var quietChecks = 0
+        val revivals = HashMap<String, Int>()
+        val quietChecks = HashMap<String, Int>()
     }
 
     companion object {

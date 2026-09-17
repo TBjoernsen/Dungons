@@ -86,13 +86,15 @@ class DungeonLayout(
     enum class RoomVariant { PLAIN, PARKOUR }
 
     /**
-     * The mandatory detour of a composed difficulty: the named tunnel stays
-     * sealed until the guardian room's guardian dies. Both values are stable
+     * The template's sealed door: the named tunnel stays closed until every
+     * listed key room has given up its key. All values are stable
      * identifiers, so translation never touches them.
      */
-    data class KeyGate(val lockedTunnelId: String, val guardianRoomId: String)
+    class KeyGate(val lockedTunnelId: String, guardianRoomIds: List<String>) {
+        val guardianRoomIds: List<String> = guardianRoomIds.toList()
+    }
 
-    /** [role] names a composed room-role recipe, or null outside compositions. */
+    /** [role] names a mobs.room-roles recipe, or null for a quiet room. */
     class Room(
         val id: String,
         val type: RoomType,
@@ -100,7 +102,17 @@ class DungeonLayout(
         val depth: Int,
         val variant: RoomVariant,
         val role: String? = null,
-        markers: List<DungeonMarker> = emptyList()
+        markers: List<DungeonMarker> = emptyList(),
+        /**
+         * World y of this room's walkable entry floor. Doors align on their
+         * own floors now, so a room's standing height can no longer be
+         * derived from its box; null falls back to bounds.minY + 1 for
+         * layouts that predate the template system.
+         */
+        val floorY: Int? = null,
+        val sizeClass: String? = null,
+        /** A combat room whose strongest champion arrives through the boss summoning sequence. */
+        val miniboss: Boolean = false
     ) {
         constructor(id: String, type: RoomType, bounds: Bounds, depth: Int, variant: RoomVariant,
                     markers: List<DungeonMarker>) : this(id, type, bounds, depth, variant, null, markers)
@@ -108,7 +120,8 @@ class DungeonLayout(
         val markers: List<DungeonMarker> = markers.toList()
 
         fun translate(x: Int, y: Int, z: Int): Room = Room(id, type, bounds.translate(x, y, z), depth, variant, role,
-            markers.map { DungeonMarker(it.category, it.x + x, it.y + y, it.z + z) })
+            markers.map { DungeonMarker(it.category, it.x + x, it.y + y, it.z + z) },
+            floorY?.plus(y), sizeClass, miniboss)
     }
 
     /** A flat corridor platform with optional safety lips and its walkable volume. */
