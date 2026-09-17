@@ -15,6 +15,8 @@ class ItemService(private val plugin: DungeonPlugin) {
     private val itemKindKey = NamespacedKey(plugin, "item_kind")
     private val focusShotKey = NamespacedKey(plugin, "focus_shot")
     private val skyfallArrowKey = NamespacedKey(plugin, "skyfall_arrow")
+    private val deadeyeShotKey = NamespacedKey(plugin, "deadeye_shot")
+    private val tempestArrowKey = NamespacedKey(plugin, "tempest_arrow")
 
     fun skillShard(): ItemStack = taggedItem(
         Material.PRISMARINE_CRYSTALS,
@@ -63,6 +65,22 @@ class ItemService(private val plugin: DungeonPlugin) {
 
     fun isSkyfallArrow(projectile: Projectile): Boolean =
         projectile.persistentDataContainer.has(skyfallArrowKey, PersistentDataType.BYTE)
+
+    /** Sharpshooter's Deadeye: an instant guaranteed-crit shot, independent of the Focus bar. */
+    fun markDeadeyeShot(projectile: Projectile) {
+        projectile.persistentDataContainer.set(deadeyeShotKey, PersistentDataType.BYTE, 1)
+    }
+
+    fun isDeadeyeShot(projectile: Projectile): Boolean =
+        projectile.persistentDataContainer.has(deadeyeShotKey, PersistentDataType.BYTE)
+
+    /** Stormcaller's Tempest Volley: one of a ground-usable fan of arrows. */
+    fun markTempestArrow(projectile: Projectile) {
+        projectile.persistentDataContainer.set(tempestArrowKey, PersistentDataType.BYTE, 1)
+    }
+
+    fun isTempestArrow(projectile: Projectile): Boolean =
+        projectile.persistentDataContainer.has(tempestArrowKey, PersistentDataType.BYTE)
 
     fun isAllowedWeapon(classType: ClassType, item: ItemStack?): Boolean {
         if (item == null || item.type.isAir) return false

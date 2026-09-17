@@ -259,6 +259,14 @@ class CoreListener(private val plugin: DungeonPlugin) : Listener {
             plugin.classPassives.handleFocusShotDamage(event, player, projectile)
             return
         }
+        if (plugin.classItems.isDeadeyeShot(projectile)) {
+            plugin.classPassives.handleDeadeyeDamage(event, player, projectile)
+            return
+        }
+        if (plugin.classItems.isTempestArrow(projectile)) {
+            plugin.classPassives.handleTempestDamage(event, player)
+            return
+        }
         if (projectile.uniqueId !in permittedProjectiles) {
             event.isCancelled = true
             return
@@ -279,6 +287,8 @@ class CoreListener(private val plugin: DungeonPlugin) : Listener {
             return
         }
         if (plugin.classItems.isFocusShot(projectile)) return
+        if (plugin.classItems.isDeadeyeShot(projectile)) return
+        if (plugin.classItems.isTempestArrow(projectile)) return
         if (projectile.uniqueId !in permittedProjectiles) return
         val player = projectile.shooter as? Player ?: return
         plugin.classPassives.handleProjectileMiss(event, player)

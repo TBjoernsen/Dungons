@@ -12,6 +12,7 @@ import org.bukkit.Particle
 import org.bukkit.Sound
 import org.bukkit.attribute.Attribute
 import org.bukkit.attribute.AttributeModifier
+import org.bukkit.entity.Arrow
 import org.bukkit.entity.LivingEntity
 import org.bukkit.entity.Monster
 import org.bukkit.entity.Player
@@ -65,6 +66,8 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
     private val mageHealCooldownUntil = HashMap<UUID, Long>()
     private val blessingCooldownUntil = HashMap<UUID, Long>()
     private val meteorCooldownUntil = HashMap<UUID, Long>()
+    private val deadeyeCooldownUntil = HashMap<UUID, Long>()
+    private val tempestCooldownUntil = HashMap<UUID, Long>()
     private val shieldExpiry = HashMap<UUID, Long>()
 
     /** Per Archer: the wall-clock ms until which a Wind Jump still counts for a Skyfall shot. */
@@ -94,6 +97,8 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         mageHealCooldownUntil.clear()
         blessingCooldownUntil.clear()
         meteorCooldownUntil.clear()
+        deadeyeCooldownUntil.clear()
+        tempestCooldownUntil.clear()
     }
 
     /**
@@ -105,11 +110,21 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
     fun isWindJumping(player: Player): Boolean =
         (windJumpUntil[player.uniqueId] ?: 0L) > System.currentTimeMillis() && !player.isOnGround
 
+    /** Stormcaller only: a landed Skyfall buys extra time in the Wind Jump window - never shortens it. */
+    fun extendWindJumpWindow(player: Player, seconds: Double) {
+        if (seconds <= 0.0) return
+        val extra = (seconds * 1000).toLong()
+        val current = windJumpUntil[player.uniqueId] ?: 0L
+        windJumpUntil[player.uniqueId] = maxOf(current, System.currentTimeMillis()) + extra
+    }
+
     fun remove(player: Player) {
         cooldownUntil.remove(player.uniqueId)
         mageHealCooldownUntil.remove(player.uniqueId)
         blessingCooldownUntil.remove(player.uniqueId)
         meteorCooldownUntil.remove(player.uniqueId)
+        deadeyeCooldownUntil.remove(player.uniqueId)
+        tempestCooldownUntil.remove(player.uniqueId)
         windJumpUntil.remove(player.uniqueId)
         windDashChargeUntil.remove(player.uniqueId)
         updateHoveredHealTarget(player, null)
@@ -247,6 +262,11 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         if (forward) {
             val push = cfg.getDouble("abilities.archer.wind-dash-forward-multiplier", 1.7)
             player.velocity = horizontalDirection(player).multiply(power * push).setY(0.3)
+            // Stormcaller only: the dash itself shoves nearby enemies aside -
+            // mobility that also buys room, not just repositioning.
+            if (plugin.classes.subclass(player.uniqueId) == "stormcaller") {
+                windDashGust(player)
+            }
         } else {
             player.velocity = player.velocity.clone().setY(power)
         }
@@ -268,6 +288,24 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
                 (if (focused) " §b§lSkyfall armed" else "") + chargeNote,
             NamedTextColor.GREEN))
         return true
+    }
+
+    /** Stormcaller's Wind Dash gust: a shove, not damage - the point is room to breathe/reposition, not a weapon. */
+    private fun windDashGust(player: Player) {
+        val cfg = plugin.classesConfig
+        val radius = cfg.getDouble("abilities.archer.wind-dash-knockback-radius", 3.0).coerceAtLeast(0.5)
+        val knockback = cfg.getDouble("abilities.archer.wind-dash-knockback", 0.5).coerceAtLeast(0.0)
+        val knockUp = cfg.getDouble("abilities.archer.wind-dash-knockup", 0.2).coerceAtLeast(0.0)
+        val origin = player.location
+        player.getNearbyEntities(radius, radius, radius)
+            .filterIsInstance<LivingEntity>()
+            .filter { it != player && it !is Player && (plugin.queries.isDungeonMob(it) || it is Monster) }
+            .forEach { mob ->
+                val away = mob.location.toVector().subtract(origin.toVector())
+                if (away.lengthSquared() > 1e-6) away.normalize() else away.zero()
+                mob.velocity = mob.velocity.add(away.multiply(knockback)).setY(knockUp)
+            }
+        plugin.classFeedback.windDashGust(origin, radius)
     }
 
     private fun paladinShield(player: Player): Boolean {
@@ -431,17 +469,32 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         1 -> "I"; 2 -> "II"; 3 -> "III"; 4 -> "IV"; 5 -> "V"; 6 -> "VI"; 7 -> "VII"; else -> "VIII"
     }
 
-    /** Shift + Right-click with the staff: the mastery-specific ability, gated on having chosen one. */
+    /** Shift + Right-click with the class weapon: the mastery-specific ability, gated on having chosen one. */
     private fun castMasteryAbility(caster: Player) {
         if (!plugin.queries.isInDungeon(caster)) return
-        if (plugin.classes.activeClass(caster.uniqueId) != ClassType.MAGE) return
-        if (!plugin.classItems.isStaff(caster.inventory.itemInMainHand)) return
-        when (plugin.classes.subclass(caster.uniqueId)) {
-            "support" -> castBlessing(caster)
-            "attack" -> castMeteor(caster)
-            else -> caster.sendActionBar(Component.text("Requires a mastery - visit your skill tree at Level 100.", NamedTextColor.GRAY))
+        when (plugin.classes.activeClass(caster.uniqueId)) {
+            ClassType.MAGE -> {
+                if (!plugin.classItems.isStaff(caster.inventory.itemInMainHand)) return
+                when (plugin.classes.subclass(caster.uniqueId)) {
+                    "support" -> castBlessing(caster)
+                    "attack" -> castMeteor(caster)
+                    else -> noMasteryYet(caster)
+                }
+            }
+            ClassType.ARCHER -> {
+                if (!plugin.classItems.isAllowedWeapon(ClassType.ARCHER, caster.inventory.itemInMainHand)) return
+                when (plugin.classes.subclass(caster.uniqueId)) {
+                    "precision" -> castDeadeye(caster)
+                    "stormcaller" -> castTempestVolley(caster)
+                    else -> noMasteryYet(caster)
+                }
+            }
+            else -> {}
         }
     }
+
+    private fun noMasteryYet(caster: Player) =
+        caster.sendActionBar(Component.text("Requires a mastery - visit your skill tree at Level 100.", NamedTextColor.GRAY))
 
     private val blessingPool = listOf(
         PotionEffectType.STRENGTH, PotionEffectType.SPEED, PotionEffectType.RESISTANCE,
@@ -515,6 +568,66 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         MeteorSequence.launch(plugin, caster, impact)
         caster.sendActionBar(Component.text("Meteor! (-${cost.toInt()} Mana)", NamedTextColor.GOLD))
         plugin.refreshClassPlayer(caster)
+    }
+
+    /** Sharpshooter's Deadeye: an instant guaranteed-crit shot independent of the Focus bar - always marks its target on hit. */
+    private fun castDeadeye(caster: Player) {
+        val cfg = plugin.classesConfig
+        val now = System.currentTimeMillis()
+        val remaining = (deadeyeCooldownUntil[caster.uniqueId] ?: 0L) - now
+        if (remaining > 0) {
+            caster.sendActionBar(Component.text("Deadeye ready in ${ceil(remaining / 1000.0).toInt()}s.", NamedTextColor.GRAY))
+            return
+        }
+        val cooldownMillis = (cfg.getDouble("abilities.archer.deadeye-cooldown-seconds", 12.0).coerceAtLeast(0.0) * 1000).toLong()
+        deadeyeCooldownUntil[caster.uniqueId] = now + cooldownMillis
+        val arrow = caster.launchProjectile(Arrow::class.java)
+        arrow.velocity = caster.eyeLocation.direction.normalize()
+            .multiply(cfg.getDouble("abilities.archer.deadeye-speed", 3.6))
+        arrow.isCritical = true
+        arrow.isGlowing = true
+        plugin.classItems.markDeadeyeShot(arrow)
+        plugin.classFeedback.deadeyeFired(caster, arrow)
+        caster.sendActionBar(Component.text("§6§lDEADEYE"))
+    }
+
+    /** Stormcaller's Tempest Volley: a ground-usable fan of arrows - unlike Skyfall, no airborne or spent-Focus requirement. */
+    private fun castTempestVolley(caster: Player) {
+        val cfg = plugin.classesConfig
+        val now = System.currentTimeMillis()
+        val remaining = (tempestCooldownUntil[caster.uniqueId] ?: 0L) - now
+        if (remaining > 0) {
+            caster.sendActionBar(Component.text("Tempest Volley ready in ${ceil(remaining / 1000.0).toInt()}s.", NamedTextColor.GRAY))
+            return
+        }
+        val cooldownMillis = (cfg.getDouble("abilities.archer.tempest-cooldown-seconds", 10.0).coerceAtLeast(0.0) * 1000).toLong()
+        tempestCooldownUntil[caster.uniqueId] = now + cooldownMillis
+
+        val masteryLevel = plugin.classes.masteryLevelFor(caster.uniqueId, "stormcaller")
+        val levelsPerArrow = cfg.getInt("abilities.archer.tempest-arrow-count-per-mastery-levels", 5).coerceAtLeast(1)
+        val count = (cfg.getInt("abilities.archer.tempest-arrow-count", 5) + masteryLevel / levelsPerArrow).coerceAtLeast(1)
+        val spreadDegrees = cfg.getDouble("abilities.archer.tempest-spread-degrees", 30.0).coerceAtLeast(0.0)
+        val speed = cfg.getDouble("archer.focus-shot-speed", 3.4)
+
+        val baseDirection = caster.eyeLocation.direction.normalize()
+        // A reference axis to fan around - fall back to world X when aiming
+        // near-vertical, where crossing with world-up would degenerate to zero.
+        val worldUp = Vector(0.0, 1.0, 0.0)
+        val right = (if (kotlin.math.abs(baseDirection.dot(worldUp)) > 0.999)
+            baseDirection.clone().crossProduct(Vector(1.0, 0.0, 0.0))
+        else baseDirection.clone().crossProduct(worldUp)).normalize()
+
+        plugin.classFeedback.tempestCast(caster)
+        for (i in 0 until count) {
+            val t = if (count == 1) 0.0 else (i.toDouble() / (count - 1)) - 0.5
+            val angle = Math.toRadians(t * spreadDegrees)
+            val direction = baseDirection.clone().add(right.clone().multiply(kotlin.math.sin(angle))).normalize()
+            val arrow = caster.launchProjectile(Arrow::class.java)
+            arrow.velocity = direction.multiply(speed)
+            plugin.classItems.markTempestArrow(arrow)
+            plugin.classFeedback.tempestFired(arrow)
+        }
+        caster.sendActionBar(Component.text("§b§lTEMPEST VOLLEY"))
     }
 
     private fun safeBlinkDestination(player: Player, maxDistance: Double, vertical: Boolean): Location? {

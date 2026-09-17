@@ -3,6 +3,7 @@ package nl.riddernix.dungeonplugin.classes
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.format.NamedTextColor
 import nl.riddernix.dungeonplugin.DungeonPlugin
+import org.bukkit.Bukkit
 import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.NamespacedKey
@@ -47,6 +48,13 @@ class PassiveService(private val plugin: DungeonPlugin) {
     /** Per Archer: wall-clock ms before Scope can trigger again. */
     private val scopeReadyAt = HashMap<UUID, Long>()
 
+    /** Sharpshooter only: wall-clock ms until Scope's extra damage window closes. */
+    private val scopeDamageBonusUntil = HashMap<UUID, Long>()
+
+    /** Sharpshooter only: mob UUID -> (wall-clock ms the mark expires, the one shooter it rewards). */
+    private val markedUntil = HashMap<UUID, Long>()
+    private val markedBy = HashMap<UUID, UUID>()
+
     /** Warriors currently inside a Berserk window - so [tick] can fire the "started/fading/ended" cues once each. */
     private val berserkActive = HashSet<UUID>()
     private val berserkFadeWarned = HashSet<UUID>()
@@ -54,6 +62,7 @@ class PassiveService(private val plugin: DungeonPlugin) {
     fun tick() {
         maintainTaunt()
         val now = System.currentTimeMillis()
+        pulseMarks(now)
         for (player in plugin.server.onlinePlayers) {
             val data = plugin.classes.data(player.uniqueId)
             val rank = plugin.classes.signatureRank(player.uniqueId)
@@ -467,7 +476,14 @@ class PassiveService(private val plugin: DungeonPlugin) {
         player.addPotionEffect(PotionEffect(PotionEffectType.SLOW_FALLING, durationTicks, 0, true, false, true))
         player.playSound(player.location, Sound.ITEM_SPYGLASS_USE, 0.7f, 1.25f)
         player.world.spawnParticle(Particle.END_ROD, player.location.clone().add(0.0, 1.0, 0.0), 6, 0.25, 0.3, 0.25, 0.01)
-        player.sendActionBar(Component.text("§bScope §7- steady your shot"))
+        // Sharpshooter only: the same window also arms bonus shot damage, on
+        // top of the Slow Falling every Archer gets at this rank.
+        var message = "§bScope §7- steady your shot"
+        if (plugin.classes.subclass(player.uniqueId) == "precision") {
+            scopeDamageBonusUntil[player.uniqueId] = now + durationTicks * 50L
+            message += " §6(+damage)"
+        }
+        player.sendActionBar(Component.text(message))
     }
 
     /**
@@ -476,10 +492,16 @@ class PassiveService(private val plugin: DungeonPlugin) {
      * scaled by `archer.skyfall-damage-multiplier`, within `archer.skyfall-radius`.
      */
     fun detonateSkyfall(where: Location, shooter: Player) {
-        val radius = plugin.classesConfig.getDouble("archer.skyfall-radius", 4.0).coerceIn(1.0, 16.0)
-        val damage = archerAttackBonus(shooter) *
-            plugin.classesConfig.getDouble("archer.skyfall-damage-multiplier", 1.5).coerceAtLeast(0.0)
-        val knockUp = plugin.classesConfig.getDouble("archer.skyfall-knockup", 0.35).coerceIn(0.0, 2.0)
+        val cfg = plugin.classesConfig
+        val stormcaller = plugin.classes.subclass(shooter.uniqueId) == "stormcaller"
+        var radius = cfg.getDouble("archer.skyfall-radius", 4.0).coerceIn(1.0, 16.0)
+        if (stormcaller) {
+            val masteryLevel = plugin.classes.masteryLevelFor(shooter.uniqueId, "stormcaller")
+            radius += cfg.getDouble("archer.skyfall-radius-bonus-stormcaller", 1.5) +
+                cfg.getDouble("archer.skyfall-radius-bonus-per-mastery-level", 0.15) * masteryLevel
+        }
+        val damage = archerAttackBonus(shooter) * cfg.getDouble("archer.skyfall-damage-multiplier", 1.5).coerceAtLeast(0.0)
+        val knockUp = cfg.getDouble("archer.skyfall-knockup", 0.35).coerceIn(0.0, 2.0)
         val world = where.world ?: return
         for (entity in world.getNearbyEntities(where, radius, radius, radius)) {
             val mob = entity as? LivingEntity ?: continue
@@ -490,6 +512,12 @@ class PassiveService(private val plugin: DungeonPlugin) {
             mob.velocity = mob.velocity.add(away.multiply(0.35)).setY(knockUp)
         }
         plugin.classFeedback.skyfallDetonate(where)
+        // Landing a Skyfall buys another Wind Dash while still descending -
+        // the dash-shoot-dash loop that is Stormcaller's whole identity.
+        if (stormcaller) {
+            val refundSeconds = cfg.getDouble("archer.skyfall-dash-refund-seconds", 2.5).coerceAtLeast(0.0)
+            plugin.classAbilities.extendWindJumpWindow(shooter, refundSeconds)
+        }
     }
 
     fun handleProjectileDamage(event: EntityDamageByEntityEvent, shooter: Player) {
@@ -497,6 +525,10 @@ class PassiveService(private val plugin: DungeonPlugin) {
         val rank = plugin.classes.signatureRank(shooter.uniqueId)
         if (plugin.classes.activeClass(shooter.uniqueId) != ClassType.ARCHER || rank == 0) return
         event.damage += archerAttackBonus(shooter)
+        (event.entity as? LivingEntity)?.let { target ->
+            event.damage *= markDamageMultiplier(target, shooter)
+            event.damage *= scopeDamageMultiplier(shooter)
+        }
         val currentFocus = data.focus
         val requiredHits = focusThreshold(rank)
         if (currentFocus > 0) {
@@ -547,7 +579,40 @@ class PassiveService(private val plugin: DungeonPlugin) {
         }
         val rank = plugin.classes.signatureRank(shooter.uniqueId)
         event.damage = (event.damage + archerAttackBonus(shooter)) * focusShotDamageMultiplier(rank)
+        (event.entity as? LivingEntity)?.let { target ->
+            event.damage *= markDamageMultiplier(target, shooter)
+            event.damage *= scopeDamageMultiplier(shooter)
+            if (plugin.classes.subclass(shooter.uniqueId) == "precision") applyMark(target, shooter)
+        }
         plugin.classFeedback.focusShotImpact(projectile.location)
+    }
+
+    /** Deadeye connecting: its own multiplier (independent of Focus Shot's), and it always applies the mark on hit. */
+    fun handleDeadeyeDamage(event: EntityDamageByEntityEvent, shooter: Player, projectile: Projectile) {
+        if (plugin.classes.activeClass(shooter.uniqueId) != ClassType.ARCHER) {
+            event.isCancelled = true
+            return
+        }
+        val cfg = plugin.classesConfig
+        val masteryLevel = plugin.classes.masteryLevelFor(shooter.uniqueId, "precision")
+        val multiplier = cfg.getDouble("archer.deadeye-damage-multiplier", 2.2) +
+            cfg.getDouble("archer.deadeye-damage-multiplier-per-mastery-level", 0.08) * masteryLevel
+        event.damage = (event.damage + archerAttackBonus(shooter)) * multiplier
+        (event.entity as? LivingEntity)?.let { target ->
+            event.damage *= scopeDamageMultiplier(shooter)
+            applyMark(target, shooter)
+        }
+        plugin.classFeedback.deadeyeImpact(projectile.location)
+    }
+
+    /** One Tempest Volley arrow connecting - a flat reduced multiplier per arrow, no Focus interaction and no mark. */
+    fun handleTempestDamage(event: EntityDamageByEntityEvent, shooter: Player) {
+        if (plugin.classes.activeClass(shooter.uniqueId) != ClassType.ARCHER) {
+            event.isCancelled = true
+            return
+        }
+        val multiplier = plugin.classesConfig.getDouble("archer.tempest-damage-multiplier", 0.6).coerceAtLeast(0.0)
+        event.damage = (event.damage + archerAttackBonus(shooter)) * multiplier
     }
 
     fun handleProjectileMiss(event: ProjectileHitEvent, shooter: Player) {
@@ -977,6 +1042,53 @@ class PassiveService(private val plugin: DungeonPlugin) {
         val base = plugin.classesConfig.getDouble("archer.focus-shot-base-multiplier", 2.0)
         val perRank = plugin.classesConfig.getDouble("archer.focus-shot-multiplier-per-rank", 0.25)
         return (base + (rank - 1).coerceAtLeast(0) * perRank).coerceAtLeast(1.0)
+    }
+
+    /** Sharpshooter only: marks `target`, crediting `shooter` - only their own plain arrows benefit. */
+    private fun applyMark(target: LivingEntity, shooter: Player) {
+        val cfg = plugin.classesConfig
+        val durationMs = (cfg.getDouble("archer.mark-duration-seconds", 5.0).coerceAtLeast(0.0) * 1000L).toLong()
+        markedUntil[target.uniqueId] = System.currentTimeMillis() + durationMs
+        markedBy[target.uniqueId] = shooter.uniqueId
+        plugin.classFeedback.markApplied(target)
+    }
+
+    /** The multiplier a hit on `target` gets from Sharpshooter's mark - 1.0 if not applicable, not marked, expired, or someone else's mark. */
+    private fun markDamageMultiplier(target: LivingEntity, shooter: Player): Double {
+        if (plugin.classes.subclass(shooter.uniqueId) != "precision") return 1.0
+        val expires = markedUntil[target.uniqueId] ?: return 1.0
+        if (expires < System.currentTimeMillis() || markedBy[target.uniqueId] != shooter.uniqueId) return 1.0
+        val cfg = plugin.classesConfig
+        val percent = cfg.getDouble("archer.mark-bonus-damage-percent", 30.0) +
+            cfg.getDouble("archer.mark-bonus-per-mastery-level", 3.0) *
+                plugin.classes.masteryLevelFor(shooter.uniqueId, "precision")
+        return 1.0 + (percent / 100.0).coerceAtLeast(0.0)
+    }
+
+    /** The multiplier Sharpshooter's Scope damage window gives a shot - 1.0 outside the window or for the other branch. */
+    private fun scopeDamageMultiplier(shooter: Player): Double {
+        if (plugin.classes.subclass(shooter.uniqueId) != "precision") return 1.0
+        val until = scopeDamageBonusUntil[shooter.uniqueId] ?: return 1.0
+        if (until < System.currentTimeMillis()) return 1.0
+        val cfg = plugin.classesConfig
+        val percent = cfg.getDouble("archer.scope-damage-bonus-percent", 20.0) +
+            cfg.getDouble("archer.scope-damage-bonus-per-mastery-level", 2.0) *
+                plugin.classes.masteryLevelFor(shooter.uniqueId, "precision")
+        return 1.0 + (percent / 100.0).coerceAtLeast(0.0)
+    }
+
+    /** Once a second: a quiet pulse on every still-marked target, and drops expired/invalid marks. */
+    private fun pulseMarks(now: Long) {
+        val expired = ArrayList<UUID>()
+        for ((entityId, expiresAt) in markedUntil) {
+            val entity = Bukkit.getEntity(entityId) as? LivingEntity
+            if (expiresAt < now || entity == null || entity.isDead || !entity.isValid) {
+                expired.add(entityId)
+                continue
+            }
+            plugin.classFeedback.markPulse(entity)
+        }
+        expired.forEach { markedUntil.remove(it); markedBy.remove(it) }
     }
 
     private fun archerAttackBonus(player: Player): Double =

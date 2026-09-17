@@ -47,18 +47,24 @@ class MasteryQuestLibrary(private val plugin: DungeonPlugin) {
             yaml.options().copyDefaults(true)
         }
         lines.clear()
-        val mage = yaml.getConfigurationSection("mage") ?: return
-        for (subclassId in mage.getKeys(false)) {
-            val path = "mage.$subclassId."
-            val objective = MasteryObjective.fromId(yaml.getString(path + "objective")) ?: continue
-            val rewardXp = yaml.getInt(path + "reward-xp", 0)
-            val ladder = yaml.getMapList(path + "ladder").mapNotNull { raw ->
-                val required = (raw["required"] as? Number)?.toInt() ?: return@mapNotNull null
-                val title = raw["title"] as? String ?: subclassId
-                val description = raw["description"] as? String ?: ""
-                MasteryQuestStep(required, title, description)
+        // Every class may define its own subclasses' ladders - not just Mage.
+        // Subclass ids are the only key (not "<class>.<subclass>"), so two
+        // classes' subclasses must not share an id; ClassProgressionService's
+        // mastery progress storage has the same constraint.
+        for (classType in ClassType.entries) {
+            val classSection = yaml.getConfigurationSection(classType.id) ?: continue
+            for (subclassId in classSection.getKeys(false)) {
+                val path = "${classType.id}.$subclassId."
+                val objective = MasteryObjective.fromId(yaml.getString(path + "objective")) ?: continue
+                val rewardXp = yaml.getInt(path + "reward-xp", 0)
+                val ladder = yaml.getMapList(path + "ladder").mapNotNull { raw ->
+                    val required = (raw["required"] as? Number)?.toInt() ?: return@mapNotNull null
+                    val title = raw["title"] as? String ?: subclassId
+                    val description = raw["description"] as? String ?: ""
+                    MasteryQuestStep(required, title, description)
+                }
+                if (ladder.isNotEmpty()) lines[subclassId.lowercase()] = MasteryQuestLine(objective, rewardXp, ladder)
             }
-            if (ladder.isNotEmpty()) lines[subclassId.lowercase()] = MasteryQuestLine(objective, rewardXp, ladder)
         }
     }
 

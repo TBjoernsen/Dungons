@@ -12,6 +12,7 @@ import org.bukkit.Sound
 import org.bukkit.attribute.Attribute
 import org.bukkit.entity.AbstractArrow
 import org.bukkit.entity.Arrow
+import org.bukkit.entity.LivingEntity
 import org.bukkit.entity.Player
 import org.bukkit.entity.Projectile
 import org.bukkit.scheduler.BukkitRunnable
@@ -197,9 +198,9 @@ class FeedbackService(private val plugin: DungeonPlugin) {
         arrowTrail(arrow, Color.fromRGB(60, 220, 235))
     }
 
-    /** A sparse coloured dust trail that rides a fired arrow until it lands or expires. */
-    private fun arrowTrail(arrow: Projectile, color: Color) {
-        val dust = Particle.DustOptions(color, 1.0f)
+    /** A sparse coloured dust trail that rides a fired arrow until it lands or expires; `dense` doubles the size and adds a spark for a showier shot. */
+    private fun arrowTrail(arrow: Projectile, color: Color, dense: Boolean = false) {
+        val dust = Particle.DustOptions(color, if (dense) 1.6f else 1.0f)
         object : BukkitRunnable() {
             private var ticks = 0
             override fun run() {
@@ -208,6 +209,7 @@ class FeedbackService(private val plugin: DungeonPlugin) {
                     cancel(); return
                 }
                 arrow.world.spawnParticle(Particle.DUST, arrow.location, 1, 0.0, 0.0, 0.0, 0.0, dust)
+                if (dense) arrow.world.spawnParticle(Particle.END_ROD, arrow.location, 1, 0.02, 0.02, 0.02, 0.0)
             }
         }.runTaskTimer(plugin, 1L, 1L)
     }
@@ -241,6 +243,76 @@ class FeedbackService(private val plugin: DungeonPlugin) {
         world.spawnParticle(Particle.END_ROD, where, 8, 0.5, 0.15, 0.5, 0.05)
         world.playSound(where, Sound.ENTITY_WIND_CHARGE_WIND_BURST, 0.9f, 1.35f)
         world.playSound(where, Sound.BLOCK_AMETHYST_BLOCK_CHIME, 0.7f, 0.8f)
+    }
+
+    /** Sharpshooter's mark landing on a target - deliberately louder/brighter than a normal hit, the whole point is that it stands out. */
+    fun markApplied(target: LivingEntity) {
+        val at = target.location.clone().add(0.0, target.height + 0.3, 0.0)
+        val gold = Particle.DustOptions(Color.fromRGB(255, 200, 60), 1.6f)
+        target.world.spawnParticle(Particle.DUST, at, 20, 0.3, 0.2, 0.3, 0.0, gold)
+        target.world.spawnParticle(Particle.CRIT, at, 16, 0.3, 0.25, 0.3, 0.3)
+        target.world.spawnParticle(Particle.FLASH, at, 1, 0.0, 0.0, 0.0, 0.0)
+        target.world.playSound(target.location, Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 0.8f, 0.6f)
+        target.world.playSound(target.location, Sound.BLOCK_AMETHYST_BLOCK_CHIME, 0.7f, 1.8f)
+    }
+
+    /** A quiet, periodic pulse on a still-marked target - so a mark is visible from a distance, not just at the moment it lands. */
+    fun markPulse(target: LivingEntity) {
+        val at = target.location.clone().add(0.0, target.height + 0.3, 0.0)
+        val gold = Particle.DustOptions(Color.fromRGB(255, 210, 90), 1.1f)
+        target.world.spawnParticle(Particle.DUST, at, 3, 0.22, 0.12, 0.22, 0.0, gold)
+    }
+
+    /**
+     * Deadeye leaving the bow: this is Sharpshooter's showpiece, so it is
+     * built up more than any other shot in the kit - a charging crackle, a
+     * sharper release, and a denser gold trail than Focus Shot's cyan one.
+     */
+    fun deadeyeFired(player: Player, arrow: Arrow) {
+        player.playSound(player.location, Sound.ITEM_CROSSBOW_LOADING_END, 1.0f, 0.6f)
+        player.playSound(player.location, Sound.ENTITY_ARROW_SHOOT, 1.0f, 0.5f)
+        player.playSound(player.location, Sound.ENTITY_PLAYER_ATTACK_CRIT, 1.0f, 1.6f)
+        player.playSound(player.location, Sound.BLOCK_BEACON_ACTIVATE, 0.5f, 1.9f)
+        val muzzle = player.eyeLocation.clone().add(player.eyeLocation.direction.multiply(0.6))
+        val gold = Particle.DustOptions(Color.fromRGB(255, 205, 70), 1.4f)
+        player.world.spawnParticle(Particle.DUST, muzzle, 16, 0.15, 0.15, 0.15, 0.0, gold)
+        player.world.spawnParticle(Particle.FLASH, muzzle, 1, 0.0, 0.0, 0.0, 0.0)
+        arrowTrail(arrow, Color.fromRGB(255, 205, 70), dense = true)
+    }
+
+    /** Deadeye connecting: a bigger, brighter payoff than Focus Shot's impact - a triumphant crit, not just a hit. */
+    fun deadeyeImpact(where: Location) {
+        val world = where.world ?: return
+        val gold = Particle.DustOptions(Color.fromRGB(255, 205, 70), 1.8f)
+        world.spawnParticle(Particle.DUST, where, 26, 0.3, 0.3, 0.3, 0.0, gold)
+        world.spawnParticle(Particle.CRIT, where, 40, 0.3, 0.3, 0.3, 0.45)
+        world.spawnParticle(Particle.FIREWORK, where, 16, 0.25, 0.25, 0.25, 0.1)
+        world.spawnParticle(Particle.FLASH, where, 1, 0.0, 0.0, 0.0, 0.0)
+        world.spawnParticle(Particle.TOTEM_OF_UNDYING, where, 10, 0.3, 0.3, 0.3, 0.15)
+        world.playSound(where, Sound.ENTITY_ARROW_HIT_PLAYER, 1.0f, 0.6f)
+        world.playSound(where, Sound.ENTITY_GENERIC_EXPLODE, 0.4f, 1.8f)
+        world.playSound(where, Sound.ITEM_TOTEM_USE, 0.5f, 1.7f)
+    }
+
+    /** Stormcaller's Wind Dash shoving nearby enemies aside as it fires off. */
+    fun windDashGust(centre: Location, radius: Double) {
+        val world = centre.world ?: return
+        world.spawnParticle(Particle.CLOUD, centre, 24, radius * 0.4, 0.3, radius * 0.4, 0.05)
+        world.spawnParticle(Particle.SWEEP_ATTACK, centre, 3, radius * 0.3, 0.1, radius * 0.3, 0.0)
+        world.playSound(centre, Sound.ENTITY_WIND_CHARGE_WIND_BURST, 0.8f, 0.9f)
+    }
+
+    /** One Tempest Volley arrow leaving the bow - a teal trail, distinct from Focus Shot's cyan and Skyfall's lime. */
+    fun tempestFired(arrow: Arrow) {
+        arrowTrail(arrow, Color.fromRGB(45, 200, 190))
+    }
+
+    fun tempestCast(player: Player) {
+        player.playSound(player.location, Sound.ENTITY_ARROW_SHOOT, 1.0f, 1.3f)
+        player.playSound(player.location, Sound.ENTITY_WIND_CHARGE_THROW, 0.7f, 1.2f)
+        val muzzle = player.eyeLocation.clone().add(player.eyeLocation.direction.multiply(0.5))
+        val teal = Particle.DustOptions(Color.fromRGB(45, 200, 190), 1.2f)
+        player.world.spawnParticle(Particle.DUST, muzzle, 14, 0.25, 0.15, 0.25, 0.0, teal)
     }
 
     /** Holy Nova: a golden burst that damages mobs and mends allies around the Paladin. */
