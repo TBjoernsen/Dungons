@@ -323,31 +323,39 @@ class ClassCommands(private val plugin: DungeonPlugin) : CommandExecutor, TabCom
             }
             return
         }
+        val progress = plugin.classes.masteryProgress(player.uniqueId, subclassId)
         if (sub == "progress") {
             if (!player.hasPermission("dungeonplugin.admin")) { noPermission(player); return }
+            if (progress.level >= line.ladder.size) {
+                player.sendMessage("§eAlready at max level - nothing to progress.")
+                return
+            }
             val amount = args.getOrNull(3)?.toIntOrNull()
             if (amount == null || amount <= 0) {
                 usage(player, "/skills mastery quests progress <amount>")
                 return
             }
-            plugin.classes.addMasteryProgress(player, line.objective, amount)
-            player.sendMessage("§7Added §f$amount §7to your §f${line.objective.id}§7 mastery progress.")
+            val objective = line.ladder[progress.level].objective
+            plugin.classes.addMasteryProgress(player, objective, amount)
+            player.sendMessage("§7Added §f$amount §7to your §f${objective.id}§7 mastery progress (current step).")
             return
         }
-        val progress = plugin.classes.masteryProgress(player.uniqueId, subclassId)
         if (progress.level >= line.ladder.size) {
             player.sendMessage("§6§lMastery: §eMax level (${line.ladder.size}/${line.ladder.size}).")
             return
         }
         player.sendMessage("§6§lMastery Quests §7- Level ${progress.level}/${line.ladder.size}")
         val current = line.ladder[progress.level]
+        val currentCount = progress.counters.getOrDefault(current.objective, 0)
         player.sendMessage("§e${current.title} §7- ${current.description} " +
-            "§f(${progress.counter.coerceAtMost(current.required)}/${current.required})")
+            "§f(${currentCount.coerceAtMost(current.required)}/${current.required})")
         if (progress.level + 1 < line.ladder.size) {
             val next = line.ladder[progress.level + 1]
-            player.sendMessage("§7Next: §f${next.title} §7- ${next.description} §8(${next.required})")
+            val nextCount = progress.counters.getOrDefault(next.objective, 0)
+            player.sendMessage("§7Next: §f${next.title} §7- ${next.description} " +
+                "§8(${nextCount.coerceAtMost(next.required)}/${next.required})")
         }
-        if (progress.counter >= current.required) {
+        if (currentCount >= current.required) {
             player.sendMessage("§a§lReady to claim! §7Run §f/skills mastery quests claim§7.")
         }
     }

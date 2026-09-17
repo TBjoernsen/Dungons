@@ -362,35 +362,38 @@ class ClassProgressionService(private val plugin: DungeonPlugin) {
     }
 
     /**
-     * Cumulative-counter contribution from real gameplay (damage dealt,
-     * healing done) toward the active subclass's mastery ladder. A no-op for
-     * a class/subclass with no matching line, or once every step is claimed.
+     * Lifetime-counter contribution from real gameplay toward one objective
+     * type, for the active subclass. Keeps accumulating regardless of which
+     * step is currently "active" - a ladder can freely interleave objectives
+     * (Sharpshooter's does) without losing progress made on the others in
+     * the meantime. A no-op for a class/subclass with no matching line.
      */
     fun addMasteryProgress(player: Player, objective: MasteryObjective, amount: Int) {
         if (amount <= 0) return
         val subclassId = subclass(player.uniqueId) ?: return
         val line = plugin.masteryQuests.line(subclassId) ?: return
-        if (line.objective != objective) return
         val progress = masteryProgress(player.uniqueId, subclassId)
-        if (progress.level >= line.ladder.size) return
-        val before = progress.counter
-        progress.counter += amount
-        val step = line.ladder[progress.level]
-        if (before < step.required && progress.counter >= step.required) {
-            player.sendMessage("§6§lMastery quest ready: §e${step.title} §7- claim it with §f/skills mastery quests claim§7.")
-            player.playSound(player.location, Sound.ENTITY_PLAYER_LEVELUP, 0.6f, 1.3f)
+        val before = progress.counters.getOrDefault(objective, 0)
+        val after = before + amount
+        progress.counters[objective] = after
+        if (progress.level < line.ladder.size) {
+            val step = line.ladder[progress.level]
+            if (step.objective == objective && before < step.required && after >= step.required) {
+                player.sendMessage("§6§lMastery quest ready: §e${step.title} §7- claim it with §f/skills mastery quests claim§7.")
+                player.playSound(player.location, Sound.ENTITY_PLAYER_LEVELUP, 0.6f, 1.3f)
+            }
         }
         save()
     }
 
-    /** Claims the active subclass's next unclaimed ladder step, if its threshold has been reached. */
+    /** Claims the active subclass's next unclaimed ladder step, if its own objective's counter has reached its requirement. */
     fun claimMasteryQuest(player: Player): MasteryClaimResult {
         val subclassId = subclass(player.uniqueId) ?: return MasteryClaimResult.NO_LINE
         val line = plugin.masteryQuests.line(subclassId) ?: return MasteryClaimResult.NO_LINE
         val progress = masteryProgress(player.uniqueId, subclassId)
         if (progress.level >= line.ladder.size) return MasteryClaimResult.MAX_LEVEL
         val step = line.ladder[progress.level]
-        if (progress.counter < step.required) return MasteryClaimResult.NOT_READY
+        if (progress.counters.getOrDefault(step.objective, 0) < step.required) return MasteryClaimResult.NOT_READY
         progress.level++
         save()
         if (line.rewardXp > 0) grantSkillExperience(player, line.rewardXp)
@@ -525,8 +528,14 @@ class ClassProgressionService(private val plugin: DungeonPlugin) {
             yaml.getConfigurationSection("$path.mastery-progress")?.let { section ->
                 for (subclassId in section.getKeys(false)) {
                     val entry = "$path.mastery-progress.$subclassId"
-                    data.masteryProgress[subclassId.lowercase()] = MasteryProgress(
-                        maxOf(0, yaml.getInt("$entry.level", 0)), maxOf(0, yaml.getInt("$entry.counter", 0)))
+                    val progress = MasteryProgress(maxOf(0, yaml.getInt("$entry.level", 0)))
+                    yaml.getConfigurationSection("$entry.counters")?.let { counters ->
+                        for (objectiveId in counters.getKeys(false)) {
+                            val objective = MasteryObjective.fromId(objectiveId) ?: continue
+                            progress.counters[objective] = maxOf(0, yaml.getInt("$entry.counters.$objectiveId", 0))
+                        }
+                    }
+                    data.masteryProgress[subclassId.lowercase()] = progress
                 }
             }
             yaml.getConfigurationSection("$path.class-profiles")?.let { profiles ->
@@ -557,7 +566,9 @@ class ClassProgressionService(private val plugin: DungeonPlugin) {
             yaml.set("$path.subclass", data.subclassId)
             for ((subclassId, progress) in data.masteryProgress) {
                 yaml.set("$path.mastery-progress.$subclassId.level", progress.level)
-                yaml.set("$path.mastery-progress.$subclassId.counter", progress.counter)
+                for ((objective, count) in progress.counters) {
+                    yaml.set("$path.mastery-progress.$subclassId.counters.${objective.id}", count)
+                }
             }
             for ((classId, progress) in data.classProfiles) {
                 val profile = "$path.class-profiles.$classId"
@@ -665,6 +676,7 @@ enum class SubclassResult {
 }
 
 /** One subclass's mastery ladder progress: how many steps claimed, and the cumulative counter toward the next one. */
-class MasteryProgress(var level: Int = 0, var counter: Int = 0)
+/** One subclass's mastery ladder progress: steps claimed, and a lifetime counter per objective type. */
+class MasteryProgress(var level: Int = 0, val counters: MutableMap<MasteryObjective, Int> = HashMap())
 
 enum class MasteryClaimResult { CLAIMED, NOT_READY, NO_LINE, MAX_LEVEL }

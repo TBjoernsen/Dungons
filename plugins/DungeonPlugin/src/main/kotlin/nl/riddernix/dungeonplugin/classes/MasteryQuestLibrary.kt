@@ -6,27 +6,40 @@ import java.io.File
 import java.io.InputStreamReader
 import java.nio.charset.StandardCharsets
 
-/** What a cumulative counter toward a mastery ladder step actually counts. */
+/**
+ * What a counter toward a mastery ladder step actually counts. Each is its
+ * own lifetime counter per player per subclass (see
+ * [ClassProgressionService.MasteryProgress]) - it never resets, and it keeps
+ * accumulating even while a different objective's step is the "current" one,
+ * so a ladder can freely interleave objectives (Sharpshooter's does) without
+ * losing progress made on the others in the meantime.
+ */
 enum class MasteryObjective(val id: String) {
     DEAL_DAMAGE("deal_damage"),
-    HEAL_AMOUNT("heal_amount");
+    HEAL_AMOUNT("heal_amount"),
+    DEADEYE_MARKS("deadeye_marks"),
+    FOCUS_SHOT_KILLS("focus_shot_kills"),
+    SCOPE_SECONDS("scope_seconds"),
+    TEMPEST_HITS("tempest_hits"),
+    SKYFALL_KILLS("skyfall_kills"),
+    WIND_DASH_USES("wind_dash_uses");
 
     companion object {
         fun fromId(raw: String?): MasteryObjective? = entries.firstOrNull { it.id.equals(raw, ignoreCase = true) }
     }
 }
 
-data class MasteryQuestStep(val required: Int, val title: String, val description: String)
+/** One ladder rung - its own objective now, not shared across the whole line. */
+data class MasteryQuestStep(val objective: MasteryObjective, val required: Int, val title: String, val description: String)
 
-data class MasteryQuestLine(val objective: MasteryObjective, val rewardXp: Int, val ladder: List<MasteryQuestStep>)
+data class MasteryQuestLine(val rewardXp: Int, val ladder: List<MasteryQuestStep>)
 
 /**
  * The fixed ten-step mastery quest ladder per subclass, from
  * `mastery-quests.yml` - deliberately separate from the random-rolled
  * Daily/Weekly/General system in [nl.riddernix.dungeonplugin.quest.QuestManager].
- * A line is one cumulative objective checked against ten increasing
- * thresholds; [ClassProgressionService] owns the per-player progress and
- * claiming against these definitions.
+ * [ClassProgressionService] owns the per-player progress and claiming
+ * against these definitions.
  */
 class MasteryQuestLibrary(private val plugin: DungeonPlugin) {
 
@@ -55,15 +68,15 @@ class MasteryQuestLibrary(private val plugin: DungeonPlugin) {
             val classSection = yaml.getConfigurationSection(classType.id) ?: continue
             for (subclassId in classSection.getKeys(false)) {
                 val path = "${classType.id}.$subclassId."
-                val objective = MasteryObjective.fromId(yaml.getString(path + "objective")) ?: continue
                 val rewardXp = yaml.getInt(path + "reward-xp", 0)
                 val ladder = yaml.getMapList(path + "ladder").mapNotNull { raw ->
+                    val objective = MasteryObjective.fromId(raw["objective"] as? String) ?: return@mapNotNull null
                     val required = (raw["required"] as? Number)?.toInt() ?: return@mapNotNull null
                     val title = raw["title"] as? String ?: subclassId
                     val description = raw["description"] as? String ?: ""
-                    MasteryQuestStep(required, title, description)
+                    MasteryQuestStep(objective, required, title, description)
                 }
-                if (ladder.isNotEmpty()) lines[subclassId.lowercase()] = MasteryQuestLine(objective, rewardXp, ladder)
+                if (ladder.isNotEmpty()) lines[subclassId.lowercase()] = MasteryQuestLine(rewardXp, ladder)
             }
         }
     }

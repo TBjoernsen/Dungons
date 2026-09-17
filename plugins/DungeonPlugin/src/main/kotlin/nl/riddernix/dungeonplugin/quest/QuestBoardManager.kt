@@ -561,8 +561,9 @@ class QuestBoardManager(private val plugin: DungeonPlugin) {
         val yNudge = yaml.getDouble("board.hitboxes.y-nudge", 0.3)
 
         val current = questLine.ladder[progress.level]
-        val ready = progress.counter >= current.required
-        val currentLines = masteryStepLines(current, progress.counter, ready, isNext = false)
+        val currentCount = progress.counters.getOrDefault(current.objective, 0)
+        val ready = currentCount >= current.required
+        val currentLines = masteryStepLines(current, currentCount, ready, isNext = false)
         val (cw, ch) = measureCard(currentLines, scale)
         val currentPaper = if (ready) argb(yaml.getString("board.notes.paper-complete"), 0xE6D9A441.toInt())
             else argb(yaml.getString("board.notes.paper"), 0xD8C89A6B.toInt())
@@ -574,7 +575,7 @@ class QuestBoardManager(private val plugin: DungeonPlugin) {
 
         if (progress.level + 1 < questLine.ladder.size) {
             val next = questLine.ladder[progress.level + 1]
-            val nextLines = masteryStepLines(next, 0, false, isNext = true)
+            val nextLines = masteryStepLines(next, progress.counters.getOrDefault(next.objective, 0), false, isNext = true)
             ids.add(spawnText(placement, boardId, "ov-mastery-next", columnX(), noteTopY(0), frontZ(),
                 line(nextLines.joinToString("<newline>")), scale.toFloat(), TextDisplay.TextAlignment.LEFT,
                 Color.fromARGB(argb(yaml.getString("board.notes.paper"), 0xD8C89A6B.toInt())), perViewer = true))
