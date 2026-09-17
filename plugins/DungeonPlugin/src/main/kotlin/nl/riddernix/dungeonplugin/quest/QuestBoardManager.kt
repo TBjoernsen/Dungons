@@ -519,13 +519,24 @@ class QuestBoardManager(private val plugin: DungeonPlugin) {
     private fun renderMasteryPage(player: Player, boardId: String, placement: Placement, ids: MutableList<UUID>) {
         val headerScale = yaml.getDouble("board.mastery.header-scale", 0.55).toFloat()
         val headerY = yaml.getDouble("board.mastery.header-y", 4.6)
+        // Generic across every class - not Mage-specific. A class with no
+        // subclasses configured yet (still Warrior/Paladin today) and a class
+        // whose subclass has no quest ladder written yet (Archer today) are
+        // two different, honestly-worded states, not the same blank message.
         val classType = plugin.classes.activeClass(player.uniqueId)
         val subclassId = classType?.let { plugin.classes.subclass(player.uniqueId) }
-        val questLine = subclassId?.let { plugin.masteryQuests.line(it) }
-        if (classType != ClassType.MAGE || subclassId == null || questLine == null) {
+        if (classType == null || subclassId == null) {
             ids.add(spawnText(placement, boardId, "ov-mastery-empty", 0.0, headerY, frontZ(),
                 line(yaml.getString("board.mastery.empty-text")
-                    ?: "<color:#7a2d2d>Choose a Mage mastery to unlock this page."),
+                    ?: "<color:#7a2d2d>Choose a mastery first to unlock this page."),
+                headerScale, TextDisplay.TextAlignment.CENTER, null, perViewer = true))
+            return
+        }
+        val questLine = plugin.masteryQuests.line(subclassId)
+        if (questLine == null) {
+            ids.add(spawnText(placement, boardId, "ov-mastery-no-ladder", 0.0, headerY, frontZ(),
+                line(yaml.getString("board.mastery.no-ladder-text")
+                    ?: "<color:#7a2d2d>No mastery quests are set up for this branch yet."),
                 headerScale, TextDisplay.TextAlignment.CENTER, null, perViewer = true))
             return
         }
