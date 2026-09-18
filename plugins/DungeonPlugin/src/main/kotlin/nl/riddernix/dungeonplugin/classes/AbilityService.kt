@@ -193,11 +193,14 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         event.isCancelled = true
 
         // A max-Focus Archer's banked charges: a forward Wind Dash spendable
-        // any time they're airborne, ahead of (and ignoring) the normal
-        // cooldown. Players start with a full bank; mastery raises the cap
+        // ahead of (and ignoring) the normal cooldown. Priority always goes
+        // to the updraft first - a charge is only spendable inside an
+        // active Wind Jump window (isWindJumping), so merely falling or
+        // jumping off a ledge never lets you dash; you have to Wind Jump
+        // first. Players start with a full bank; mastery raises the cap
         // (see maxWindDashCharges), and spent charges recharge automatically
         // over time (see tickWindDashRecharge) - no manual "banking" needed.
-        if (classType == ClassType.ARCHER && !player.isOnGround) {
+        if (classType == ClassType.ARCHER && isWindJumping(player)) {
             val charges = currentWindDashCharges(player)
             if (charges > 0) {
                 val remaining = charges - 1
