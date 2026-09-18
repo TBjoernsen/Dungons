@@ -402,6 +402,32 @@ class SkillProgressManager(private val plugin: DungeonPlugin) {
         save()
     }
 
+    /**
+     * Admin testing lever: unlocks every node in [classId]'s tree in one go,
+     * the same free/no-veto backdoor as [unlockWithoutCost] applied to the
+     * whole tree - no reachability or requires-difficulty checks, since this
+     * is a deliberate bypass, not a purchase. Works whether or not [classId]
+     * is the player's currently active class, so every class can be pre-
+     * maxed ahead of switching between them with `/class`. Returns how many
+     * nodes were newly unlocked (already-held ones are left alone).
+     */
+    fun maxOutTree(player: Player, classId: String): Int {
+        val key = classId.lowercase(Locale.ROOT)
+        val tree = plugin.skillTrees.tree(key) ?: return 0
+        val held = progress(player.uniqueId).unlocked.getOrPut(key) { HashMap() }
+        var granted = 0
+        for (node in tree.nodes.values) {
+            if (node.id in held) continue
+            held[node.id] = Held(1, 0)
+            granted++
+        }
+        if (granted > 0) {
+            save()
+            refreshPanels(player)
+        }
+        return granted
+    }
+
     /** Wipes one player's unlocks in every class; points are kept. */
     fun clearUnlocks(playerId: UUID) {
         val progress = byPlayer[playerId] ?: return
