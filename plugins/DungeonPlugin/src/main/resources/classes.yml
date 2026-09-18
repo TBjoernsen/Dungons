@@ -6,7 +6,7 @@
 # replaced with this bundled copy on the next load - the balance numbers
 # here move often and are meant to be tuned in the plugin, not held on the
 # server across updates. (Raised whenever the bundled defaults change.)
-config-version: 13
+config-version: 14
 
 classes:
   # Turning this off leaves a dungeons-only server: no classes, no kits, no
@@ -448,7 +448,7 @@ abilities:
     # horizontal speed.
     wind-jump-double-charge-min-rank: 4
     wind-dash-forward-multiplier: 1.7
-    wind-dash-charge-recharge-seconds: 20.0
+    wind-dash-charge-recharge-seconds: 8.0
     # How many charges can be banked at once - a per-subclass cap that grows
     # with mastery. Stormcaller (mobility-focused) grows every
     # wind-dash-charge-per-mastery-levels levels, reaching +2 at full
