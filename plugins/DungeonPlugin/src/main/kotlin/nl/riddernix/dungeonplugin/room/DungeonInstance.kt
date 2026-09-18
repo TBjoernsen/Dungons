@@ -41,19 +41,10 @@ class DungeonInstance @JvmOverloads constructor(
 
     var isCompleted: Boolean = false
         private set
-    private val obtainedKeys = LinkedHashSet<String>()
+    var isKeyObtained: Boolean = false
+        private set
     var mobKillCount: Int = 0
         private set
-
-    /** True once every key room has given up its key (or no door exists at all). */
-    val isKeyObtained: Boolean
-        get() = keyGate == null || obtainedKeys.containsAll(keyGate.guardianRoomIds)
-
-    fun keysRequired(): Int = keyGate?.guardianRoomIds?.size ?: 0
-
-    fun keysObtained(): Int = obtainedKeys.size
-
-    fun hasKeyFrom(guardianRoomId: String): Boolean = guardianRoomId in obtainedKeys
 
     /**
      * How many players the mob numbers are balanced for, fixed when the
@@ -76,11 +67,8 @@ class DungeonInstance @JvmOverloads constructor(
             val markers = scannedMarkers[room.id] ?: room.markers
             val doorways = prefabDoorways[room.id] ?: emptyList()
             val bounds = playableBounds[room.id] ?: room.bounds
-            // Doors carry their own floors now, so the entry floor comes from
-            // the layout; the old minY+1 rule only covers legacy layouts.
-            indexedRooms[room.id] = DungeonRoom(room.id, room.type, bounds,
-                room.floorY ?: (room.bounds.minY + 1),
-                room.depth, room.variant, room.role, room.miniboss, markers, doorways, id)
+            indexedRooms[room.id] = DungeonRoom(room.id, room.type, bounds, room.bounds.minY + 1,
+                room.depth, room.variant, room.role, markers, doorways, id)
         }
         this.roomsById = indexedRooms.toMap()
         this.tunnels = layout.tunnels.toList()
@@ -129,11 +117,11 @@ class DungeonInstance @JvmOverloads constructor(
     /** The schematic a room was built from, or null when it fell back to procedural stone. */
     fun prefabFile(roomId: String): String? = prefabFiles[roomId]
 
-    /** Grants one key room's key; returns false when that key was already held. */
-    fun obtainKey(guardianRoomId: String): Boolean {
-        val gate = keyGate ?: return false
-        if (guardianRoomId !in gate.guardianRoomIds) return false
-        return obtainedKeys.add(guardianRoomId)
+    /** Grants the party's key once; returns false when it was already held. */
+    fun obtainKey(): Boolean {
+        if (isKeyObtained) return false
+        isKeyObtained = true
+        return true
     }
 
     /** Marks this disposable instance complete once; returns false on duplicates. */

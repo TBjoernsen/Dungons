@@ -11,9 +11,13 @@ import nl.riddernix.dungeonplugin.classes.DungeonKitService
 import nl.riddernix.dungeonplugin.classes.FeedbackService
 import nl.riddernix.dungeonplugin.classes.HolographicClassSelection
 import nl.riddernix.dungeonplugin.classes.ItemService
+import nl.riddernix.dungeonplugin.classes.MasteryQuestLibrary
+import nl.riddernix.dungeonplugin.classes.MasteryQuestListener
+import nl.riddernix.dungeonplugin.classes.MasterySelectionUI
 import nl.riddernix.dungeonplugin.classes.PassiveService
 import nl.riddernix.dungeonplugin.command.DungeonCommand
 import nl.riddernix.dungeonplugin.completion.DungeonCompletionManager
+import nl.riddernix.dungeonplugin.completion.DungeonLivesListener
 import nl.riddernix.dungeonplugin.door.DungeonDoorManager
 import nl.riddernix.dungeonplugin.door.DungeonRoomGateManager
 import nl.riddernix.dungeonplugin.fx.AnimationPreview
@@ -33,6 +37,8 @@ import nl.riddernix.dungeonplugin.party.PartyManager
 import nl.riddernix.dungeonplugin.player.DungeonHungerListener
 import nl.riddernix.dungeonplugin.player.DungeonPvpListener
 import nl.riddernix.dungeonplugin.player.DungeonRespawnListener
+import nl.riddernix.dungeonplugin.quest.QuestBoardListener
+import nl.riddernix.dungeonplugin.quest.QuestBoardManager
 import nl.riddernix.dungeonplugin.quest.QuestCommand
 import nl.riddernix.dungeonplugin.quest.QuestConfig
 import nl.riddernix.dungeonplugin.quest.QuestManager
@@ -134,6 +140,12 @@ class DungeonPlugin : JavaPlugin() {
         private set
     lateinit var questMenu: QuestMenu
         private set
+    lateinit var questBoards: QuestBoardManager
+        private set
+    lateinit var questBoardIdKey: NamespacedKey
+        private set
+    lateinit var questBoardRoleKey: NamespacedKey
+        private set
 
     lateinit var dungeonMobDungeonKey: NamespacedKey
         private set
@@ -163,6 +175,8 @@ class DungeonPlugin : JavaPlugin() {
     // --- class side ---------------------------------------------------
     lateinit var classesConfig: ClassesConfig
         private set
+    lateinit var masteryQuests: MasteryQuestLibrary
+        private set
     lateinit var classes: ClassProgressionService
         private set
     lateinit var classItems: ItemService
@@ -178,6 +192,8 @@ class DungeonPlugin : JavaPlugin() {
     lateinit var classFeedback: FeedbackService
         private set
     lateinit var classPicker: HolographicClassSelection
+        private set
+    lateinit var masterySelection: MasterySelectionUI
         private set
 
     private var coreListener: CoreListener? = null
@@ -244,6 +260,7 @@ class DungeonPlugin : JavaPlugin() {
         // The class layer, built before the skill progress manager starts
         // answering point queries: available points derive from its budget.
         classesConfig = ClassesConfig(this)
+        masteryQuests = MasteryQuestLibrary(this)
         classItems = ItemService(this)
         classes = ClassProgressionService(this)
         skillProgress = SkillProgressManager(this)
@@ -253,16 +270,23 @@ class DungeonPlugin : JavaPlugin() {
         classAbilities = AbilityService(this)
         classFeedback = FeedbackService(this)
         classPicker = HolographicClassSelection(this)
+        masterySelection = MasterySelectionUI(this)
 
         skillPanels = SkillPanelManager(this)
         skillPanels.load()
 
-        // The quest layer. The menu is built before the manager so a /reload
-        // with players online can redraw an open quest screen during the
-        // manager's start-up catch-up refresh.
+        // The quest layer. The menu and board are built before the manager so
+        // a /reload with players online (and the manager's start-up catch-up
+        // refresh) can redraw an open screen or board without hitting an
+        // uninitialised field. The board is only rendered once the manager is
+        // up, via load().
         questConfig = QuestConfig(this)
         questMenu = QuestMenu(this)
+        questBoardIdKey = NamespacedKey(this, "dungeon_quest_board")
+        questBoardRoleKey = NamespacedKey(this, "dungeon_quest_board_role")
+        questBoards = QuestBoardManager(this)
         quests = QuestManager(this)
+        questBoards.load()
 
         // Clean up anything left behind by a crash or a /stop while inside a
         // dungeon, so old world folders don't pile up.
@@ -286,6 +310,7 @@ class DungeonPlugin : JavaPlugin() {
         server.pluginManager.registerEvents(doors, this)
         server.pluginManager.registerEvents(gates, this)
         server.pluginManager.registerEvents(traps, this)
+        server.pluginManager.registerEvents(DungeonLivesListener(this), this)
         // Built after the mob manager so it can listen to its spawn event,
         // and registered unconditionally: it simply does nothing without an
         // engine.
@@ -299,6 +324,7 @@ class DungeonPlugin : JavaPlugin() {
         server.pluginManager.registerEvents(SkillPanelListener(this), this)
         server.pluginManager.registerEvents(QuestMenuListener(this), this)
         server.pluginManager.registerEvents(QuestObjectiveListener(this), this)
+        server.pluginManager.registerEvents(QuestBoardListener(this), this)
         getCommand("quests")?.let {
             val questCommand = QuestCommand(this)
             it.setExecutor(questCommand)
@@ -313,6 +339,8 @@ class DungeonPlugin : JavaPlugin() {
             server.pluginManager.registerEvents(core, this)
             server.pluginManager.registerEvents(classAbilities, this)
             server.pluginManager.registerEvents(classPicker, this)
+            server.pluginManager.registerEvents(masterySelection, this)
+            server.pluginManager.registerEvents(MasteryQuestListener(this), this)
             server.pluginManager.registerEvents(ClassDungeonListener(this), this)
             val classCommands = ClassCommands(this)
             for (name in listOf("class", "skills", "skillshard", "soulshard")) {
@@ -326,12 +354,14 @@ class DungeonPlugin : JavaPlugin() {
             }
             server.scheduler.runTaskTimer(this, Runnable {
                 classPassives.tick()
-                classAbilities.tick()
                 for (player in server.onlinePlayers) {
                     coreListener?.stripArmor(player)
                     refreshClassPlayer(player)
                 }
             }, 20L, 20L)
+            // The Mage heal-target highlight runs several times a second so the
+            // glow you see is the ally a click will actually commit to.
+            server.scheduler.runTaskTimer(this, Runnable { classAbilities.tickHealHover() }, 4L, 4L)
         }
 
         server.scheduler.runTaskTimer(this, Runnable {
@@ -358,6 +388,9 @@ class DungeonPlugin : JavaPlugin() {
             quests.checkScheduledRefresh()
             quests.flushIfDirty()
         }, questCheckTicks, questCheckTicks)
+        // Quest board overlays follow players in and out of range, like the
+        // other in-world panels.
+        server.scheduler.runTaskTimer(this, Runnable { questBoards.tick() }, 10L, 10L)
 
         logger.info("DungeonPlugin enabled with ${events.eventTypes().size} internal event type(s); " +
             "classes ${if (classes.enabled) "enabled" else "disabled"}.")
@@ -378,6 +411,9 @@ class DungeonPlugin : JavaPlugin() {
         if (this::skillPanels.isInitialized) {
             skillPanels.despawnAll()
         }
+        if (this::questBoards.isInitialized) {
+            questBoards.despawnAll()
+        }
         if (this::mobs.isInitialized) {
             mobs.saveTestingMobLocations()
         }
@@ -390,8 +426,14 @@ class DungeonPlugin : JavaPlugin() {
         if (this::classAbilities.isInitialized) {
             classAbilities.shutdown()
         }
+        if (this::classFeedback.isInitialized) {
+            classFeedback.shutdown()
+        }
         if (this::classPicker.isInitialized) {
             classPicker.shutdown()
+        }
+        if (this::masterySelection.isInitialized) {
+            masterySelection.shutdown()
         }
         if (this::classes.isInitialized) {
             classes.save()
@@ -420,12 +462,22 @@ class DungeonPlugin : JavaPlugin() {
         skillTrees.reload()
         skillPanels.reload()
         classesConfig.reload()
+        masteryQuests.reload()
         questConfig.reload()
         // Pool or timezone may have changed; catch up any boundary that now
         // counts as passed.
         quests.checkScheduledRefresh()
+        questBoards.reload()
         startRoomScanTask()
     }
+
+    /**
+     * The player's current dungeon-XP multiplier from fully-cleared quest
+     * tracks, or 1.0 before the quest layer is up. The class layer's XP
+     * grant multiplies every gain by this.
+     */
+    fun questXpMultiplier(playerId: java.util.UUID): Double =
+        if (this::quests.isInitialized) quests.xpMultiplier(playerId) else 1.0
 
     /** One refresh path for the class layer: attributes, sidebar, tab name. */
     fun refreshClassPlayer(player: Player) {

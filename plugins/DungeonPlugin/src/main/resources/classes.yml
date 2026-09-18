@@ -1,9 +1,12 @@
 # =====================================================================
 #  Class layer configuration
 # =====================================================================
-# This file follows the class layer's own update model: missing keys are
-# merged in from the bundled defaults without overwriting your changes -
-# unlike config.yml, which is replaced wholesale on a version bump.
+# Missing keys merge in from the bundled defaults. BUT when config-version
+# below is raised past the value in your server copy, the whole file is
+# replaced with this bundled copy on the next load - the balance numbers
+# here move often and are meant to be tuned in the plugin, not held on the
+# server across updates. (Raised whenever the bundled defaults change.)
+config-version: 12
 
 classes:
   # Turning this off leaves a dungeons-only server: no classes, no kits, no
@@ -41,6 +44,22 @@ completion-xp-per-difficulty:
 # amounts.
 dungeon-xp-multiplier: 0.22
 
+# A failed run (life pool exhausted) still pays out: the banked mob XP only
+# - no completion bonus, no shards - times this fraction. 0 turns the
+# consolation payout off; 1.0 pays the full mob XP a win would have.
+dungeon-loss-xp-fraction: 0.35
+
+# The party's shared respawn pool for a run. Each death inside the dungeon
+# spends one life; at zero the run fails, everyone is returned to spawn, and
+# the consolation XP above is paid. lives.enabled: false restores the old
+# infinite-respawn behaviour.
+lives:
+  enabled: true
+  # Base pool, plus per-player-bonus for every party member past the first
+  # (a 3-player party at these values gets 3 + 2*2 = 7).
+  count: 3
+  per-player-bonus: 2
+
 # Linear placeholder curve; replace only after dungeon pacing has been
 # play-tested.
 xp-to-next-level:
@@ -68,6 +87,12 @@ shared-drop-table:
 # scale with a build's investment.
 bulk-reset-shard-rate: 0.60
 
+# Shared across every class's mastery/subclass step (see e.g. mage.subclasses
+# below). How close a player must stand to one of their own class's skill
+# tree panels to open /skills mastery.
+mastery:
+  select-radius: 6.0
+
 # Archer Focus: applied only at full Focus. This is the effective reduction
 # in the draw time needed to reach a given bow force; 25 means 25% faster
 # effective draw.
@@ -77,16 +102,202 @@ focus:
 # Each arrow adds the Archer's Attack stat, then this multiplier is applied.
 archer:
   attack-stat-damage-multiplier: 1.0
+  # Added to every arrow hit, flat, per mastery level - either branch, on
+  # top of whatever that branch's own more specific scaling adds.
+  mastery-damage-per-level: 0.5
+  # Focus break rules. Taking a hit of at least focus-break-damage-threshold
+  # final damage shatters the whole bar; a smaller hit only drops
+  # focus-chip-penalty stacks. A missed arrow costs focus-miss-penalty
+  # stacks rather than the whole bar.
+  focus-break-damage-threshold: 4.0
+  focus-chip-penalty: 1
+  focus-miss-penalty: 2
+  # The spent Focus Shot: launch speed, and an on-hit multiplier that starts
+  # at focus-shot-base-multiplier (Rank I) and adds
+  # focus-shot-multiplier-per-rank each rank. From focus-shot-pierce-from-rank
+  # the arrow also pierces (rank - that + 1 targets, capped at 4).
+  focus-shot-speed: 3.4
+  focus-shot-base-multiplier: 2.0
+  focus-shot-multiplier-per-rank: 0.25
+  focus-shot-pierce-from-rank: 4
+  # Sharpshooter's mastery ladder adds further to Focus Shot's multiplier,
+  # on top of the per-rank growth above.
+  focus-shot-multiplier-per-mastery-level: 0.05
+  # "Skyfall": loosing a drawn bow shot while airborne from Wind Jump with a
+  # full Focus bar spends the bar and makes that arrow detonate on impact
+  # (ground or enemy). Every dungeon mob within skyfall-radius takes
+  # archerAttackBonus * skyfall-damage-multiplier and is knocked up by
+  # skyfall-knockup. Purely an entity AoE - no terrain damage.
+  skyfall-radius: 4.0
+  skyfall-damage-multiplier: 1.5
+  skyfall-knockup: 0.35
+  # "Scope" (Focus rank scope-min-rank+): crouching in mid-air grants Slow
+  # Falling for scope-duration-ticks to steady a shot, then rests for
+  # scope-cooldown-seconds before it can trigger again.
+  scope-min-rank: 5
+  scope-duration-ticks: 24
+  scope-cooldown-seconds: 3.0
+  # --- Mastery subclass ------------------------------------------------
+  # Sharpshooter deepens Focus Shot/Scope into single-target precision;
+  # Stormcaller deepens Wind Dash/Skyfall into a mobility/AoE loop. Same
+  # unlock gate and reset economy as the Mage's, but its own ids - mastery
+  # progress is keyed by subclass id alone, so these must not collide with
+  # "attack"/"support".
+  subclasses:
+    unlock-level: 100
+    reset-soul-shard-cost: 20
+    options:
+      precision:
+        name: "Sharpshooter"
+        description: "Focus Shot marks its target; follow-up arrows punish the mark."
+      stormcaller:
+        name: "Stormcaller"
+        description: "Wind Dash hits harder, and a landed Skyfall feeds back into it."
+  # --- Sharpshooter: the mark ------------------------------------------
+  # Focus Shot and Deadeye (Shift+Right-click) mark their target for
+  # mark-duration-seconds; the SAME shooter's plain arrows deal bonus
+  # damage to a target they marked. mark-bonus-per-mastery-level is the
+  # mastery quest ladder's reward - see mastery-quests.yml (not written yet).
+  mark-duration-seconds: 5.0
+  mark-bonus-damage-percent: 30.0
+  mark-bonus-per-mastery-level: 3.0
+  # How many marks the same shooter can have active at once. Applying a new
+  # mark past capacity evicts the oldest one. Capacity grows every
+  # mark-capacity-per-mastery-levels mastery levels.
+  mark-capacity: 1
+  mark-capacity-per-mastery-levels: 4
+  # Scope's Slow Falling stays universal (everyone at rank scope-min-rank+);
+  # Sharpshooter additionally arms a damage window on top of it, and its
+  # mastery ladder extends how long that window (and the Slow Falling
+  # float) lasts.
+  scope-damage-bonus-percent: 20.0
+  scope-damage-bonus-per-mastery-level: 2.0
+  scope-duration-per-mastery-level: 4.0
+  # --- Stormcaller: Skyfall feeding Wind Dash --------------------------
+  # A landed Skyfall extends the Wind Jump window by skyfall-dash-refund-
+  # seconds (enough to Wind Dash again while still descending) and its
+  # radius grows by skyfall-radius-bonus-stormcaller. Its mastery ladder
+  # also adds flat damage per level.
+  skyfall-radius-bonus-stormcaller: 1.5
+  skyfall-radius-bonus-per-mastery-level: 0.15
+  skyfall-dash-refund-seconds: 2.5
+  skyfall-damage-per-mastery-level: 1.5
+  # Wind Dash itself gives nearby enemies a shove - mobility doubles as an
+  # escape/reposition tool that also buys you room.
+  wind-dash-knockback: 0.5
+  wind-dash-knockup: 0.2
+  wind-dash-knockback-radius: 3.0
 
-# Rage is retained while a Warrior remains in combat. After 15 seconds
-# without damage dealt or received, it drains at this rate each second.
+# Rage builds from melee damage dealt and taken. It no longer auto-erupts:
+# a full bar is a banked Berserk you unleash with Sneak (and a full bar
+# does not decay). A partial bar drains rage-decay-per-second after
+# rage-decay-delay-seconds without combat.
 warrior:
   rage-decay-delay-seconds: 15.0
   rage-decay-per-second: 10.0
+  # Rage needed to bank a Berserk at Rank I; each rank past I lowers it by
+  # rage-threshold-per-rank (Rank V at the defaults needs 200 - 4*8 = 168).
+  rage-threshold-base: 200.0
+  rage-threshold-per-rank: 8.0
+  # Rage the Dash adds when it connects with at least one enemy. Shares
+  # Rage's guards (nothing below Rank I or while Berserk runs). 0 = off.
+  dash-rage-on-hit: 25.0
 
-# Mage baseline: Mana and Arcane Bolt are usable from Difficulty 1.
-# Difficulty 3 unlocks Arcane Charge, which makes each bolt stronger and
-# expands the Mana pool.
+  # --- Berserk (Sneak to unleash a full bar) ---------------------------
+  # Duration in ticks = berserk-base-ticks + rank * berserk-ticks-per-rank
+  # (3s at Rank I, 8s at Rank V), never past berserk-max-seconds once
+  # Bloodlust starts stretching it. After Berserk ends you cannot go
+  # Berserk again for berserk-cooldown-seconds (the bar can refill during
+  # that rest).
+  berserk-base-ticks: 60
+  berserk-ticks-per-rank: 20
+  berserk-max-seconds: 10.0
+  berserk-cooldown-seconds: 7.5
+  # Strength I / Speed I from Rank I; they step to level II at these ranks.
+  berserk-strength-2-min-rank: 4
+  berserk-speed-2-min-rank: 5
+  # While Berserk: from berserk-lifesteal-min-rank, heal
+  # berserk-lifesteal-fraction of the melee damage you deal; from
+  # berserk-resistance-min-rank, take berserk-damage-reduction less damage.
+  berserk-lifesteal-min-rank: 2
+  berserk-lifesteal-fraction: 0.25
+  berserk-resistance-min-rank: 3
+  berserk-damage-reduction: 0.25
+  # Bloodlust: from bloodlust-min-rank, every KILL during Berserk stretches
+  # it by bloodlust-ticks-per-kill (never past berserk-max-seconds total).
+  bloodlust-min-rank: 4
+  bloodlust-ticks-per-kill: 20
+  # Seismic Slam - the AoE stomp on Berserk activation.
+  slam-radius: 4.0
+  slam-damage: 8.0
+  slam-knockback: 0.6
+  slam-knockup: 0.28
+  slam-stagger-ticks: 40
+  # From berserk-shockwave-min-rank the slam's radius grows by this factor.
+  berserk-shockwave-min-rank: 5
+  slam-shockwave-radius-multiplier: 1.6
+
+# Paladin Taunt builds from axe damage, then Sneak to unleash a tank stance
+# you can still fight in: it pulls nearby mobs, drops Consecrated Ground,
+# and turns the damage you soak into a Holy Nova (Zeal).
+paladin:
+  # Axe damage needed to charge a Taunt at Rank I, minus
+  # taunt-threshold-per-rank for each rank past I. Judgment does NOT build
+  # while a Taunt is already active.
+  taunt-damage-threshold: 250.0
+  taunt-threshold-per-rank: 15.0
+  taunt-duration-seconds: 8.0
+  # Judgment (the pre-Taunt charge) bleeds out of combat like Rage / Focus.
+  judgment-decay-delay-seconds: 15.0
+  judgment-decay-per-second: 5.0
+  # Taunt now re-pulls every mob within taunt-radius each tick instead of
+  # every mob in the world.
+  taunt-radius: 32.0
+  # --- Taunt stance (fightable, but a tank's) ------------------------
+  taunt-slowness-amplifier: 0        # 0 = Slowness I (keep it light)
+  taunt-resistance-amplifier: 1      # 1 = Resistance II; stacks with the flat cut below
+  taunt-damage-reduction: 0.30       # flat, on top of Resistance
+  taunt-knockback-resistance: 1.0    # 1.0 = nothing can shove you off the point
+  # --- Zeal -> Holy Nova + armed Smite ------------------------------
+  # Damage soaked during Taunt banks Zeal (no mid-fight auto-fire). When
+  # Taunt ends the banked fraction (zeal / zeal-threshold) does two things:
+  #   - fires a one-shot Holy Nova (mob damage + ally heal/regen in
+  #     nova-radius, per-rank scaled), and
+  #   - ARMS one Smite: the Paladin's next axe hit after Taunt is over
+  #     carries smite-base (+ per-rank) + retribution-bonus * fraction holy
+  #     damage, then it is spent. smite-armed-timeout-seconds is only a
+  #     safety cap so a stored strike does not linger across a dungeon.
+  zeal-threshold: 90.0
+  zeal-per-damage: 1.0
+  retribution-bonus: 12.0
+  smite-armed-timeout-seconds: 20.0
+  smite-base: 2.0
+  smite-per-rank: 1.5
+  nova-radius: 6.0
+  nova-damage: 6.0
+  nova-damage-per-rank: 2.0
+  nova-heal: 4.0
+  nova-heal-per-rank: 1.0
+  nova-regen-seconds: 4.0
+  # --- Consecrated Ground -----------------------------------------------
+  # A ring of light dropped where you activate Taunt, lasting its duration.
+  # It is a buff zone: anyone (Paladin or ally) standing in it takes
+  # consecration-damage-reduction less damage and heals 1 health per
+  # consecration-heal-per-damage damage they deal. Mobs inside are slowed
+  # (consecration-slow-amplifier, -1 = off) and burn for consecration-dot
+  # per pulse (sourceless - no knockback). Deliberately large - shrink to
+  # taste.
+  consecration-radius: 8.0
+  consecration-tick-interval: 10
+  consecration-damage-reduction: 0.20
+  consecration-heal-per-damage: 5.0
+  consecration-slow-amplifier: 0
+  consecration-dot: 1.0
+
+# Mage Mana + Arcane Bolt (the baseline staff attack, left-click). Mana and
+# the bolt are usable from Difficulty 1; Difficulty 3 unlocks Arcane Charge,
+# which makes each bolt stronger and expands the Mana pool. Signature-rank
+# scaling adds damage-per-rank on top of the base.
 mage:
   base-max-mana: 200.0
   mana-regeneration-per-second: 10.0
@@ -96,17 +307,118 @@ mage:
   arcane-bolt-cooldown-ticks: 8
   # On impact, nearby dungeon mobs take this fraction of the bolt's direct
   # damage.
-  arcane-bolt-splash-radius: 1.5
-  arcane-bolt-splash-damage-percent: 50.0
-
-# Paladin Taunt builds from axe damage. The newest Taunt owner has aggro from
-# all loaded mobs in their current world.
-paladin:
-  taunt-damage-threshold: 75.0
-  taunt-duration-seconds: 8.0
-  # Mirrors the Turtle Master trade-off: high resistance with heavy slowness.
-  turtle-master-resistance-amplifier: 2
-  turtle-master-slowness-amplifier: 3
+  arcane-bolt-splash-radius: 2
+  arcane-bolt-splash-damage-percent: 35.0
+  # The bolt is a raycast, not a thrown entity: fast and straight, no gravity,
+  # with a glowing BlockDisplay orb and a dust trail. The numbers here are
+  # the mechanics every wand shares; the LOOK (held item, orb, trail,
+  # sounds) is the chosen wand-preset below.
+  bolt:
+    speed: 3.0                 # blocks per tick (~60 blocks/s)
+    max-range: 40.0
+    ray-size: 0.3              # entity-hitbox inflation for the sweep
+    direct-knockback: true     # false = damage-only on the direct hit too
+    # Spawn the bolt this far in front of the caster's eyes so the trail
+    # does not fill the screen when you fire standing still.
+    muzzle-offset: 1.4
+    splash-particles: 16       # burst at the delayed area splash
+    orb:
+      scale: 0.35
+      glow: true               # full emissive, visible in the dark
+      spin-degrees-per-tick: 22.0
+      view-range: 2.0
+    trail:
+      start-gap: 1.0           # blocks of trail skipped past the muzzle
+  # ---------------------------------------------------------------------
+  #  Mage wand presets
+  # ---------------------------------------------------------------------
+  # wand-preset picks one named look for the staff. Each preset bundles the
+  # held item, the projectile orb block, the trail, the cast/impact sounds,
+  # and whether the impact reads as fire (impact-lava also swaps Blink /
+  # nova / Surge cues to a fiery set). Copy a block to add your own.
+  wand-preset: arcane-rod
+  # A subclass in here overrides wand-preset above for that player only -
+  # this is what actually hands Battlemage the Magma Wand on mastery.
+  subclass-wand-presets:
+    attack: magma-wand
+  wand-presets:
+    arcane-rod:
+      name: "The Arcane Rod"
+      staff-item: BREEZE_ROD
+      orb-block: AMETHYST_BLOCK
+      cast-sound: block_amethyst_block_chime
+      impact-sound: block_amethyst_block_hit
+      impact-particle: WITCH       # the main impact burst
+      impact-lava: false           # false = the arcane FX branch (WITCH + purple)
+      impact-particles: 12
+      # This is the original, denser trail: big DUST plus an END_ROD spark
+      # riding every 3rd point - two particle types, reads full and bright.
+      # LOCKED (2026-09-11): trail-size/-spacing/-accent/-accent-every are
+      # confirmed correct - do not retune these four unless explicitly asked.
+      trail-color: "B45AFF"        # mage purple
+      trail-size: 1.1
+      trail-spacing: 0.35          # lower = denser
+      trail-accent: end_rod
+      trail-accent-every: 3
+      trail-accent-2: none
+      surge-trail-color: "D8B4FF"
+    magma-wand:
+      name: "The Magma Wand"
+      staff-item: BLAZE_ROD
+      orb-block: MAGMA_BLOCK
+      cast-sound: item_firecharge_use
+      impact-sound: entity_generic_explode
+      impact-particle: FLAME
+      impact-lava: true
+      impact-particles: 20
+      trail-color: "FF6D00"       # ember orange
+      # Same density as arcane-rod's locked trail (Battlemage's ask: "exact
+      # same particles, just fiery colors") - only the colour/particle
+      # flavour differs, not the rhythm.
+      trail-size: 1.1
+      trail-spacing: 0.35         # lower = denser
+      trail-accent: flame
+      trail-accent-every: 3
+      trail-accent-2: small_flame
+      surge-trail-color: "FFC24D"
+  # --- Arcane Charge -> Arcane Surge --------------------------------
+  # Arcane Bolts that HIT a mob build Charge (charge-per-hit), plus a little
+  # per cast (charge-per-cast). At charge-threshold your next bolt fires as
+  # an Arcane Surge: surge-damage-multiplier damage, free (no mana), a
+  # fatter brighter trail, and it pierces from surge-pierce-from-rank
+  # (rank - that + 1 targets, cap 4). Its splash is surge-splash-multiplier
+  # stronger. From surge-mana-refund-min-rank a Surge that connects refunds
+  # surge-mana-refund mana; from surge-nova-min-rank it also detonates an
+  # Arcane Nova (surge-nova-radius, arcaneBoltDamage * surge-nova-damage
+  # -multiplier to mobs) at the impact point.
+  charge-threshold: 8.0
+  charge-per-hit: 3.0
+  charge-per-cast: 1.0
+  surge-damage-multiplier: 2.2
+  surge-splash-multiplier: 1.6
+  surge-pierce-from-rank: 3
+  surge-mana-refund-min-rank: 4
+  surge-mana-refund: 40.0
+  surge-nova-min-rank: 5
+  surge-nova-radius: 4.0
+  surge-nova-damage-multiplier: 1.0
+  # --- Mastery subclass ------------------------------------------------
+  # At unlock-level, within range of the skill tree (mastery.select-radius
+  # below), a Mage picks one branch. Attack gets the Magma Wand (see
+  # subclass-wand-presets above) and a harder/further Surge; support keeps
+  # the arcane-rod look and a mending Surge. Both get a Shift+Right-click
+  # ability (abilities.mage.blessing-*/meteor-* below). Swapping branches
+  # later costs reset-soul-shard-cost Soul Shards (see /skills mastery).
+  subclasses:
+    unlock-level: 100
+    reset-soul-shard-cost: 20
+    options:
+      attack:
+        name: "Battlemage"
+        description: "Arcane Surge hits harder and reaches further."
+      support:
+        name: "Enchanter"
+        description: "Arcane Surge mends allies instead of striking foes."
 
 # F-key (Swap Hands) abilities per class. Right-clicking the tagged Mage
 # staff casts Healing Spell.
@@ -115,18 +427,133 @@ abilities:
     cooldown-seconds: 5.0
     dash-speed: 1.5
     bonus-damage: 4.0
+    # Half-extent of the lunge's damage sweep (blocks).
+    dash-radius: 2.6
+    # While Berserk (a spent Rage bar), the Dash lunges further and hits
+    # harder - these multiply dash-speed and bonus-damage respectively.
+    berserk-speed-multiplier: 1.35
+    berserk-damage-multiplier: 1.8
   archer:
     cooldown-seconds: 2.5
     jump-velocity: 0.9
+    # How long after a Wind Jump a full-Focus drawn bow shot still counts as
+    # a Skyfall strike (you also have to still be off the ground).
+    wind-jump-window-seconds: 4.0
+    # At Focus rank wind-jump-double-charge-min-rank or higher, a Wind Jump
+    # also banks a charge - a forward Wind Dash (same air-only mechanics, no
+    # lift) usable any time you're next airborne. Banked charges do NOT
+    # expire on a timer; they sit ready until spent. wind-dash-forward-
+    # multiplier turns jump-velocity into that dash's horizontal speed.
+    wind-jump-double-charge-min-rank: 4
+    wind-dash-forward-multiplier: 1.7
+    # How many charges can be banked at once - a per-subclass cap that grows
+    # with mastery. Stormcaller (mobility-focused) grows every
+    # wind-dash-charge-per-mastery-levels levels, reaching +2 at full
+    # mastery (level 10) with the default of 4. Sharpshooter gets a smaller
+    # capstone perk via wind-dash-charge-per-mastery-levels-precision,
+    # reaching +1 at full mastery with the default of 10.
+    wind-dash-charge-per-mastery-levels: 4
+    wind-dash-charge-per-mastery-levels-precision: 10
+    # --- Mastery: Shift + Right-click ----------------------------------
+    # Sharpshooter's Deadeye: an instant, guaranteed-crit arrow independent
+    # of the Focus bar - always marks its target (see archer.mark-*).
+    deadeye-cooldown-seconds: 12.0
+    deadeye-speed: 3.6
+    deadeye-damage-multiplier: 2.2
+    deadeye-damage-multiplier-per-mastery-level: 0.08
+    # Stormcaller's Tempest: a ground-usable fan of arrows, unlike
+    # Skyfall which needs airborne + a spent Focus bar.
+    tempest-cooldown-seconds: 10.0
+    tempest-arrow-count: 5
+    tempest-spread-degrees: 30.0
+    tempest-damage-multiplier: 0.6
+    tempest-arrow-count-per-mastery-levels: 5   # +1 arrow every N levels
   paladin:
     cooldown-seconds: 7.5
     shield-seconds: 4.0
     absorption-amplifier: 1
     shield-hearts: 5.0
+    shield-hearts-per-rank: 1.0
+    # From shield-bless-min-rank the Shield also strips the ally's Slowness /
+    # Weakness and grants Resistance I for shield-bless-seconds.
+    shield-bless-min-rank: 3
+    shield-bless-seconds: 3.0
   mage:
     cooldown-seconds: 5.0
     blink-distance: 10.0
+    blink-distance-per-rank: 1.5
     blink-mana-cost: 35.0
+    # Blink follows your full look vector (onto ledges / down gaps) unless
+    # this is false, then it stays horizontal. Brief i-frames on arrival.
+    blink-vertical: true
+    blink-invuln-seconds: 0.4
+    # Departure blast: from blink-blast-min-rank the spot you left detonates
+    # for blink-blast-damage (+ per-rank) arcane damage and a shove, and
+    # feeds blink-blast-charge into Arcane Charge on a connect.
+    blink-blast-min-rank: 2
+    blink-blast-radius: 3.5
+    blink-blast-damage: 4.0
+    blink-blast-damage-per-rank: 1.5
+    blink-blast-charge: 2.0
     heal-cooldown-seconds: 30.0
     heal-mana-cost: 50.0
-    heal-range: 20.0
+    # How far the Healing Spell reaches to pick an ally. Targeting is
+    # cone-based (nearest player to your crosshair within this range and the
+    # cone below), so you do not need a pixel-perfect aim. Line of sight is
+    # still required unless heal-require-line-of-sight is off.
+    heal-range: 50.0
+    heal-aim-cone-degrees: 12.0
+    heal-require-line-of-sight: true
+    # Base Healing Spell numbers - now config-driven instead of hardcoded,
+    # since heal-*-per-mastery-level below scales them for an Enchanter.
+    heal-duration-ticks: 100
+    heal-amplifier: 1
+    # A flat "worth" reported to the mastery ladder per successful cast,
+    # rather than trying to measure the regen tick-by-tick (which would
+    # under-count healing an ally, since the tick lands on them, not the
+    # caster).
+    heal-mastery-points-per-cast: 40
+    # --- Mastery: Shift + Right-click ----------------------------------
+    # Enchanter's Blessing. Targets whoever Heal would target (ally under
+    # the crosshair, self if none) and applies one random positive effect
+    # from the pool. Base values below are level-0 (no mastery quests
+    # claimed yet); the *-per-mastery-level/-levels keys further down raise
+    # duration/amplifier/effect-count as the Enchanter's mastery quest
+    # ladder is claimed - see mastery-quests.yml.
+    blessing-cooldown-seconds: 12.0
+    blessing-mana-cost: 40.0
+    blessing-duration-seconds: 20.0
+    blessing-amplifier: 0
+    blessing-effect-count: 1
+    # Battlemage's Meteor. Aim anywhere - a pure block raycast along the look
+    # vector, no entity targeting and no melee-reach dependency - a telegraph
+    # ring shows where it will land, then it falls and explodes: full damage
+    # to mobs, meteor-ally-damage-fraction of it to players (self included),
+    # knockback to everyone, no block damage regardless of any gamerule
+    # (radius damage only, no vanilla explosion).
+    meteor-cooldown-seconds: 14.0
+    meteor-mana-cost: 80.0
+    # Generous, effectively unbounded for any real dungeon room - it only
+    # exists so the raycast has *some* finite distance to give up at.
+    meteor-max-range: 256.0
+    meteor-telegraph-ticks: 24
+    meteor-fall-height: 14.0
+    meteor-fall-ticks: 10
+    meteor-radius: 4.0
+    meteor-damage: 40.0
+    meteor-ally-damage-fraction: 0.25
+    meteor-knockback: 0.7
+    meteor-knockup: 0.35
+    # --- Mastery quest scaling ------------------------------------------
+    # Claiming a mastery-quests.yml ladder step raises the player's mastery
+    # level by 1 (0-10, one per claimed step). These per-level increments
+    # are what "expand the damage/healing potential" - the ability formulas
+    # above read masteryLevel * these and add it on top of the base values.
+    battlemage-damage-per-mastery-level: 0.4  # added to every Arcane Bolt/Surge/Meteor-splash hit
+    meteor-damage-per-mastery-level: 4.0
+    meteor-radius-per-mastery-level: 0.15
+    heal-duration-per-mastery-level: 10.0     # ticks, applies to base Heal only
+    heal-amplifier-per-mastery-levels: 5      # +1 Heal amplifier every N levels
+    blessing-duration-per-mastery-level: 1.5  # seconds
+    blessing-amplifier-per-mastery-levels: 3  # +1 Blessing amplifier every N levels
+    blessing-effect-count-per-mastery-levels: 4  # +1 simultaneous effect every N levels

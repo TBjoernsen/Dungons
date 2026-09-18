@@ -2,6 +2,7 @@ package nl.riddernix.dungeonplugin.classes
 
 import nl.riddernix.dungeonplugin.DungeonPlugin
 import nl.riddernix.dungeonplugin.event.DungeonEndEvent
+import nl.riddernix.dungeonplugin.event.DungeonEndReason
 import nl.riddernix.dungeonplugin.event.DungeonPlayerEnterEvent
 import nl.riddernix.dungeonplugin.event.DungeonPlayerLeaveEvent
 import nl.riddernix.dungeonplugin.event.DungeonSkillNodesGainedEvent
@@ -51,18 +52,25 @@ class ClassDungeonListener(private val plugin: DungeonPlugin) : Listener {
         plugin.classKits.updateDungeonState(event.player, false)
     }
 
-    /** Fires once per run; only COMPLETED runs pay out. */
+    /**
+     * Fires once per run. A completed run pays the full completion reward; a
+     * failed run (life pool exhausted) pays the reduced consolation XP so an
+     * attempt is never wasted. Abandoned / cleaned-up runs pay nothing.
+     */
     @EventHandler(priority = EventPriority.MONITOR)
     fun onDungeonEnd(event: DungeonEndEvent) {
         if (!plugin.classes.enabled) return
-        if (!event.isCompleted) return
+        val completed = event.reason == DungeonEndReason.COMPLETED
+        val failed = event.reason == DungeonEndReason.FAILED
+        if (!completed && !failed) return
         val dungeon = event.dungeon ?: return
         val difficulty = dungeon.difficulty.takeIf { it in 1..9 } ?: return
         val mobKills = dungeon.mobsKilled
         for (memberId in dungeon.partyMembers) {
             val player = Bukkit.getPlayer(memberId)?.takeIf { it.isOnline } ?: continue
             plugin.classes.syncDifficultyToLevel(player)
-            plugin.classes.awardDungeonCompletion(player, difficulty, mobKills)
+            if (completed) plugin.classes.awardDungeonCompletion(player, difficulty, mobKills)
+            else plugin.classes.awardDungeonLoss(player, difficulty, mobKills)
         }
     }
 

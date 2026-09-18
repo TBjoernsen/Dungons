@@ -6,11 +6,14 @@ import nl.riddernix.dungeonplugin.DungeonPlugin
 import org.bukkit.ChatColor
 import org.bukkit.FluidCollisionMode
 import org.bukkit.Location
+import org.bukkit.Material
 import org.bukkit.NamespacedKey
 import org.bukkit.Particle
 import org.bukkit.Sound
 import org.bukkit.attribute.Attribute
 import org.bukkit.attribute.AttributeModifier
+import org.bukkit.entity.Arrow
+import org.bukkit.entity.LivingEntity
 import org.bukkit.entity.Monster
 import org.bukkit.entity.Player
 import org.bukkit.event.EventHandler
@@ -24,8 +27,33 @@ import org.bukkit.inventory.EquipmentSlot
 import org.bukkit.potion.PotionEffect
 import org.bukkit.potion.PotionEffectType
 import org.bukkit.util.Vector
+import java.util.Locale
 import java.util.UUID
 import kotlin.math.ceil
+import kotlin.math.cos
+
+/**
+ * Blocks with a real menu or vanilla use worth preserving under a Heal cast.
+ * Deliberately narrower than the deprecated [Material.isInteractable], which
+ * also flags plain decoration (stairs, slabs, walls, fences) common
+ * throughout this plugin's dungeon architecture - that false-positive rate
+ * was silently swallowing casts near completely ordinary terrain.
+ */
+private val BLOCKS_WITH_REAL_INTERACTION = setOf(
+    Material.CHEST, Material.TRAPPED_CHEST, Material.BARREL, Material.ENDER_CHEST,
+    Material.CRAFTING_TABLE, Material.FURNACE, Material.BLAST_FURNACE, Material.SMOKER,
+    Material.ANVIL, Material.CHIPPED_ANVIL, Material.DAMAGED_ANVIL, Material.ENCHANTING_TABLE,
+    Material.BREWING_STAND, Material.GRINDSTONE, Material.SMITHING_TABLE, Material.STONECUTTER,
+    Material.LOOM, Material.CARTOGRAPHY_TABLE, Material.BEACON, Material.LEVER,
+    Material.LECTERN, Material.JUKEBOX, Material.NOTE_BLOCK, Material.COMPOSTER,
+    Material.CAULDRON, Material.RESPAWN_ANCHOR, Material.DRAGON_EGG, Material.COMPARATOR,
+    Material.REPEATER, Material.BELL
+)
+
+private fun hasRealInteraction(type: Material): Boolean =
+    type in BLOCKS_WITH_REAL_INTERACTION ||
+        type.name.endsWith("_DOOR") || type.name.endsWith("_TRAPDOOR") || type.name.endsWith("_FENCE_GATE") ||
+        type.name.endsWith("_BUTTON") || type.name.endsWith("_BED") || type.name.endsWith("SHULKER_BOX")
 
 /**
  * Vanilla-client ability keybind. Minecraft's Swap Hands key defaults to F
@@ -36,14 +64,29 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
 
     private val cooldownUntil = HashMap<UUID, Long>()
     private val mageHealCooldownUntil = HashMap<UUID, Long>()
+    private val blessingCooldownUntil = HashMap<UUID, Long>()
+    private val meteorCooldownUntil = HashMap<UUID, Long>()
+    private val deadeyeCooldownUntil = HashMap<UUID, Long>()
+    private val tempestCooldownUntil = HashMap<UUID, Long>()
     private val shieldExpiry = HashMap<UUID, Long>()
+
+    /** Per Archer: the wall-clock ms until which a Wind Jump still counts for a Skyfall shot. */
+    private val windJumpUntil = HashMap<UUID, Long>()
+
+    /**
+     * Per max-rank Archer: how many bonus forward Wind Dashes are currently
+     * banked - capped by [maxWindDashCharges]. Banked charges do NOT expire
+     * on a timer; they sit ready until spent (a forward Wind Dash) or the
+     * player leaves the dungeon/class ([remove]).
+     */
+    private val windDashCharges = HashMap<UUID, Int>()
     private val hoveredHealTargets = HashMap<UUID, HoveredHealTarget>()
     private val originalGlowStates = HashMap<UUID, Boolean>()
     private val shieldCapacityKey = NamespacedKey(plugin, "paladin_active_shield_capacity")
     private val healHighlightTeamName = "dp_heal_hover"
 
-    /** Called by the class layer's periodic task to maintain Mage heal targeting. */
-    fun tick() {
+    /** Refreshes the Mage's heal-target highlight. Runs several times a second so the glow tracks the crosshair. */
+    fun tickHealHover() {
         plugin.server.onlinePlayers.forEach { caster ->
             val canTarget = plugin.queries.isInDungeon(caster) &&
                 plugin.classes.activeClass(caster.uniqueId) == ClassType.MAGE &&
@@ -57,30 +100,84 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         hoveredHealTargets.clear()
         originalGlowStates.clear()
         mageHealCooldownUntil.clear()
+        blessingCooldownUntil.clear()
+        meteorCooldownUntil.clear()
+        deadeyeCooldownUntil.clear()
+        tempestCooldownUntil.clear()
+    }
+
+    /**
+     * True while an Archer is still inside the Wind Jump window and off the
+     * ground - the condition for a full-Focus bow shot to become a Skyfall
+     * AoE arrow.
+     */
+    @Suppress("DEPRECATION")
+    fun isWindJumping(player: Player): Boolean =
+        (windJumpUntil[player.uniqueId] ?: 0L) > System.currentTimeMillis() && !player.isOnGround
+
+    /** Stormcaller only: a landed Skyfall buys extra time in the Wind Jump window - never shortens it. */
+    fun extendWindJumpWindow(player: Player, seconds: Double) {
+        if (seconds <= 0.0) return
+        val extra = (seconds * 1000).toLong()
+        val current = windJumpUntil[player.uniqueId] ?: 0L
+        windJumpUntil[player.uniqueId] = maxOf(current, System.currentTimeMillis()) + extra
     }
 
     fun remove(player: Player) {
         cooldownUntil.remove(player.uniqueId)
         mageHealCooldownUntil.remove(player.uniqueId)
+        blessingCooldownUntil.remove(player.uniqueId)
+        meteorCooldownUntil.remove(player.uniqueId)
+        deadeyeCooldownUntil.remove(player.uniqueId)
+        tempestCooldownUntil.remove(player.uniqueId)
+        windJumpUntil.remove(player.uniqueId)
+        windDashCharges.remove(player.uniqueId)
         updateHoveredHealTarget(player, null)
     }
 
-    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    /**
+     * No ignoreCancelled here, deliberately: Bukkit/Paper delivers a plain
+     * RIGHT_CLICK_AIR as already cancelled by default whenever the held item
+     * has no vanilla "use" action (a Blaze/Breeze Rod does nothing in
+     * vanilla) - that is not another plugin or another listener, it is how
+     * the event is constructed for "nothing was targeted, nothing to do" the
+     * moment it exists, before any listener runs. ignoreCancelled=true was
+     * silently discarding every one of those casts. A real block click never
+     * has this problem (it arrives uncancelled), which is why this only ever
+     * broke aiming at open space.
+     */
+    @EventHandler(priority = EventPriority.HIGH)
     fun onMageHealAirClick(event: PlayerInteractEvent) {
         if (event.hand != EquipmentSlot.HAND || !event.action.isRightClick) return
-        // Right-clicking a normal dungeon wall or floor should still cast the
-        // heal, while buttons, containers, and similar usable blocks retain
-        // their normal interaction. Material.isInteractable is deprecated for
-        // being approximate, but approximate is exactly what this filter is.
-        @Suppress("DEPRECATION")
-        if (event.action == Action.RIGHT_CLICK_BLOCK && event.clickedBlock?.type?.isInteractable == true) return
+        // Shift is the caster deliberately overriding "interact with the
+        // block" (the same vanilla convention that lets a sneaking player
+        // place a block against a chest instead of opening it) - the mastery
+        // ability always fires, regardless of what is underfoot or in reach.
+        if (event.player.isSneaking) {
+            castMasteryAbility(event.player)
+            return
+        }
+        // Right-clicking a normal dungeon wall, floor, stair or slab should
+        // still cast the heal; only blocks with a real menu/use retain their
+        // normal interaction.
+        val clicked = event.clickedBlock?.type
+        if (event.action == Action.RIGHT_CLICK_BLOCK && clicked != null && hasRealInteraction(clicked)) return
         castMageHeal(event.player)
     }
 
+    /**
+     * A right-click resolves to THIS event, not [onMageHealAirClick], the
+     * instant any entity - a mob included - is within vanilla's short
+     * interact reach along the crosshair. Heal and the mastery ability both
+     * pick their own target independently (a player-only cone search, or a
+     * dedicated raycast) and never read [PlayerInteractEntityEvent.getRightClicked],
+     * so gating on "clicked a Player" was silently eating every cast made
+     * anywhere near a mob - a zombie horde in melee range being the worst of it.
+     */
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     fun onMageHealPlayerClick(event: PlayerInteractEntityEvent) {
-        if (event.hand != EquipmentSlot.HAND || event.rightClicked !is Player) return
-        castMageHeal(event.player)
+        if (event.hand != EquipmentSlot.HAND) return
+        if (event.player.isSneaking) castMasteryAbility(event.player) else castMageHeal(event.player)
     }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
@@ -90,6 +187,24 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         val classType = plugin.classes.activeClass(player.uniqueId) ?: return
         if (!plugin.classItems.isAllowedWeapon(classType, player.inventory.itemInMainHand)) return
         event.isCancelled = true
+
+        // A max-Focus Archer's banked charges: a forward Wind Dash spendable
+        // any time they're airborne, ahead of (and ignoring) the normal
+        // cooldown. Mastery raises how many can be banked at once (see
+        // maxWindDashCharges) - banked charges sit ready until spent, no
+        // separate expiry timer.
+        if (classType == ClassType.ARCHER && !player.isOnGround) {
+            val charges = windDashCharges[player.uniqueId] ?: 0
+            if (charges > 0) {
+                val remaining = charges - 1
+                if (remaining <= 0) windDashCharges.remove(player.uniqueId) else windDashCharges[player.uniqueId] = remaining
+                if (archerDoubleJump(player, forward = true, chargesRemaining = remaining)) {
+                    cooldownUntil[player.uniqueId] = System.currentTimeMillis() + cooldownMillis(classType)
+                }
+                return
+            }
+        }
+
         val remaining = (cooldownUntil[player.uniqueId] ?: 0L) - System.currentTimeMillis()
         if (remaining > 0) {
             player.sendActionBar(Component.text("Ability ready in ${ceil(remaining / 1000.0).toInt()}s.", NamedTextColor.GRAY))
@@ -97,7 +212,7 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         }
         val activated = when (classType) {
             ClassType.WARRIOR -> warriorDash(player)
-            ClassType.ARCHER -> archerDoubleJump(player)
+            ClassType.ARCHER -> archerDoubleJump(player, forward = false)
             ClassType.PALADIN -> paladinShield(player)
             ClassType.MAGE -> mageBlink(player)
         }
@@ -105,41 +220,180 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
     }
 
     private fun warriorDash(player: Player): Boolean {
+        val cfg = plugin.classesConfig
+        // Berserk (a spent Rage bar) empowers the lunge: further, harder, with
+        // a real knock-up. The Dash also feeds Rage on a connect, so the loop
+        // is sword -> dash to top off -> Berserk -> empowered dash.
+        val berserk = plugin.classPassives.isBerserk(player)
         val direction = horizontalDirection(player)
-        player.velocity = direction.multiply(plugin.classesConfig.getDouble("abilities.warrior.dash-speed", 1.5)).setY(0.16)
-        val damage = plugin.classesConfig.getDouble("abilities.warrior.bonus-damage", 4.0)
-        player.getNearbyEntities(2.4, 1.5, 2.4).filterIsInstance<Monster>().forEach { enemy ->
+
+        val speed = cfg.getDouble("abilities.warrior.dash-speed", 1.5) *
+            if (berserk) cfg.getDouble("abilities.warrior.berserk-speed-multiplier", 1.35) else 1.0
+        player.velocity = direction.clone().multiply(speed).setY(if (berserk) 0.22 else 0.16)
+
+        val damage = cfg.getDouble("abilities.warrior.bonus-damage", 4.0) *
+            if (berserk) cfg.getDouble("abilities.warrior.berserk-damage-multiplier", 1.8) else 1.0
+        val radius = cfg.getDouble("abilities.warrior.dash-radius", 2.6)
+
+        val hits = player.getNearbyEntities(radius, 1.6, radius)
+            .filterIsInstance<LivingEntity>()
+            .filter { it != player && it !is Player && (plugin.queries.isDungeonMob(it) || it is Monster) }
+        hits.forEach { enemy ->
             enemy.damage(damage, player)
-            enemy.velocity = enemy.velocity.add(direction.clone().multiply(0.35)).setY(0.16)
+            val push = direction.clone().multiply(if (berserk) 0.55 else 0.35)
+            enemy.velocity = enemy.velocity.add(push).setY(if (berserk) 0.42 else 0.16)
         }
-        player.sendActionBar(Component.text("Dash!", NamedTextColor.RED))
+
+        plugin.classFeedback.warriorDashCast(player, berserk)
+        if (hits.isNotEmpty()) {
+            plugin.classFeedback.warriorDashImpact(player, berserk)
+            plugin.classPassives.feedRage(player, cfg.getDouble("warrior.dash-rage-on-hit", 25.0))
+        }
+        player.sendActionBar(Component.text(if (berserk) "Berserk Dash!" else "Dash!", NamedTextColor.RED))
         return true
     }
 
-    private fun archerDoubleJump(player: Player): Boolean {
+    /**
+     * The Archer F-key. [forward] `false` is the vertical Wind Jump; `true` is
+     * the forward Wind Dash - same air-only mechanics and cues, horizontal
+     * launch instead of lift. A first Wind Jump at max Focus rank grants a
+     * short window in which the next press becomes a Wind Dash.
+     */
+    private fun archerDoubleJump(player: Player, forward: Boolean, chargesRemaining: Int? = null): Boolean {
         @Suppress("DEPRECATION")
         if (player.isOnGround) {
-            player.sendActionBar(Component.text("Double Jump can only be used in the air.", NamedTextColor.GRAY))
+            player.sendActionBar(Component.text(
+                if (forward) "Wind Dash needs you airborne." else "Double Jump can only be used in the air.",
+                NamedTextColor.GRAY))
             return false
         }
+        val cfg = plugin.classesConfig
+        val power = cfg.getDouble("abilities.archer.jump-velocity", 0.9)
         player.world.spawnParticle(Particle.CLOUD, player.location.clone().add(0.0, 0.12, 0.0), 20, 0.28, 0.05, 0.28, 0.08)
-        player.velocity = player.velocity.clone().setY(plugin.classesConfig.getDouble("abilities.archer.jump-velocity", 0.9))
-        player.sendActionBar(Component.text("Wind Jump!", NamedTextColor.GREEN))
+        if (forward) {
+            val push = cfg.getDouble("abilities.archer.wind-dash-forward-multiplier", 1.7)
+            player.velocity = horizontalDirection(player).multiply(power * push).setY(0.3)
+            plugin.classes.addMasteryProgress(player, MasteryObjective.WIND_DASH_USES, 1)
+            // Stormcaller only: the dash itself shoves nearby enemies aside -
+            // mobility that also buys room, not just repositioning.
+            if (plugin.classes.subclass(player.uniqueId) == "stormcaller") {
+                windDashGust(player)
+            }
+        } else {
+            player.velocity = player.velocity.clone().setY(power)
+        }
+        player.world.playSound(player.location, Sound.ENTITY_WIND_CHARGE_WIND_BURST, 1.0f, if (forward) 0.85f else 1.1f)
+
+        val windowSeconds = cfg.getDouble("abilities.archer.wind-jump-window-seconds", 4.0).coerceAtLeast(0.0)
+        windJumpUntil[player.uniqueId] = System.currentTimeMillis() + (windowSeconds * 1000).toLong()
+
+        var chargeNote = ""
+        if (forward) {
+            // Spending a banked charge - report what's left so the player
+            // always knows where they stand, not just when one is gained.
+            if (chargesRemaining != null) {
+                val cap = maxWindDashCharges(player)
+                chargeNote = if (chargesRemaining > 0) " §e(charges: $chargesRemaining/$cap)" else " §7(no charges left)"
+            }
+        } else if (plugin.classes.signatureRank(player.uniqueId) >=
+            cfg.getInt("abilities.archer.wind-jump-double-charge-min-rank", 4)) {
+            val cap = maxWindDashCharges(player)
+            val current = windDashCharges[player.uniqueId] ?: 0
+            if (current < cap) {
+                val banked = current + 1
+                windDashCharges[player.uniqueId] = banked
+                chargeNote = if (banked >= cap) " §e§lWind Dash charge banked! ($banked/$cap - full)"
+                    else " §eWind Dash charge banked! ($banked/$cap)"
+                player.world.playSound(player.location, Sound.ENTITY_WIND_CHARGE_THROW, 0.8f, 1.4f)
+            } else {
+                chargeNote = " §7Wind Dash charges full ($cap/$cap)"
+            }
+        }
+        val focused = plugin.classPassives.focusFull(player)
+        player.sendActionBar(Component.text(
+            (if (forward) "Wind Dash!" else "Wind Jump!") +
+                (if (focused) " §b§lSkyfall armed" else "") + chargeNote,
+            NamedTextColor.GREEN))
         return true
+    }
+
+    /**
+     * How many Wind Dash charges can be banked at once. Both Archer mastery
+     * ladders raise this cap as they're claimed - Stormcaller grows fastest
+     * since mobility is its focus (up to +2 at full mastery), Sharpshooter
+     * gets a smaller capstone perk (up to +1). No subclass, or subclass with
+     * no mastery yet, always caps at 1.
+     */
+    private fun maxWindDashCharges(player: Player): Int {
+        val cfg = plugin.classesConfig
+        return when (plugin.classes.subclass(player.uniqueId)) {
+            "stormcaller" -> {
+                val masteryLevel = plugin.classes.masteryLevelFor(player.uniqueId, "stormcaller")
+                val levelsPerCharge = cfg.getInt("abilities.archer.wind-dash-charge-per-mastery-levels", 4).coerceAtLeast(1)
+                1 + masteryLevel / levelsPerCharge
+            }
+            "precision" -> {
+                val masteryLevel = plugin.classes.masteryLevelFor(player.uniqueId, "precision")
+                val levelsPerCharge = cfg.getInt("abilities.archer.wind-dash-charge-per-mastery-levels-precision", 10).coerceAtLeast(1)
+                1 + masteryLevel / levelsPerCharge
+            }
+            else -> 1
+        }
+    }
+
+    /** Stormcaller's Wind Dash gust: a shove, not damage - the point is room to breathe/reposition, not a weapon. */
+    private fun windDashGust(player: Player) {
+        val cfg = plugin.classesConfig
+        val radius = cfg.getDouble("abilities.archer.wind-dash-knockback-radius", 3.0).coerceAtLeast(0.5)
+        val knockback = cfg.getDouble("abilities.archer.wind-dash-knockback", 0.5).coerceAtLeast(0.0)
+        val knockUp = cfg.getDouble("abilities.archer.wind-dash-knockup", 0.2).coerceAtLeast(0.0)
+        val origin = player.location
+        player.getNearbyEntities(radius, radius, radius)
+            .filterIsInstance<LivingEntity>()
+            .filter { it != player && it !is Player && (plugin.queries.isDungeonMob(it) || it is Monster) }
+            .forEach { mob ->
+                val away = mob.location.toVector().subtract(origin.toVector())
+                if (away.lengthSquared() > 1e-6) away.normalize() else away.zero()
+                mob.velocity = mob.velocity.add(away.multiply(knockback)).setY(knockUp)
+            }
+        plugin.classFeedback.windDashGust(origin, radius)
     }
 
     private fun paladinShield(player: Player): Boolean {
+        val cfg = plugin.classesConfig
+        val rank = plugin.classes.signatureRank(player.uniqueId).coerceAtLeast(1)
         val target = (player.getTargetEntity(12) as? Player)?.takeIf { it.world == player.world } ?: player
-        val seconds = plugin.classesConfig.getDouble("abilities.paladin.shield-seconds", 4.0)
-        val shieldHealth = plugin.classesConfig.getDouble("abilities.paladin.shield-hearts", 5.0) * 2.0
+        val seconds = cfg.getDouble("abilities.paladin.shield-seconds", 4.0)
+        val hearts = cfg.getDouble("abilities.paladin.shield-hearts", 5.0) +
+            cfg.getDouble("abilities.paladin.shield-hearts-per-rank", 1.0) * (rank - 1)
+        val shieldHealth = hearts * 2.0
+        val absorbAmp = cfg.getInt("abilities.paladin.absorption-amplifier", 1).coerceIn(0, 4)
         val capacity = target.getAttribute(Attribute.MAX_ABSORPTION)
         capacity?.removeModifier(shieldCapacityKey)
         capacity?.addTransientModifier(AttributeModifier(shieldCapacityKey, shieldHealth, AttributeModifier.Operation.ADD_NUMBER))
         // The native effect makes the client render yellow hearts
-        // consistently; the amount is immediately limited to the requested
-        // five-heart shield.
-        target.addPotionEffect(PotionEffect(PotionEffectType.ABSORPTION, (seconds * 20).toInt(), 1, true, false, true))
+        // consistently; the amount is immediately limited to the shield size.
+        target.addPotionEffect(PotionEffect(PotionEffectType.ABSORPTION, (seconds * 20).toInt(), absorbAmp, true, false, true))
         target.absorptionAmount = maxOf(target.absorptionAmount, shieldHealth)
+
+        // Bless (high rank): scrub the ally's Slowness / Weakness and grant a
+        // brief Resistance on top of the shield.
+        var blessed = false
+        if (rank >= cfg.getInt("abilities.paladin.shield-bless-min-rank", 3)) {
+            target.removePotionEffect(PotionEffectType.SLOWNESS)
+            target.removePotionEffect(PotionEffectType.WEAKNESS)
+            val blessSeconds = cfg.getDouble("abilities.paladin.shield-bless-seconds", 3.0).coerceAtLeast(0.0)
+            val blessTicks = (blessSeconds * 20).toInt()
+            if (blessTicks > 0) {
+                target.addPotionEffect(PotionEffect(PotionEffectType.RESISTANCE, blessTicks, 0, true, false, true))
+            }
+            blessed = true
+            if (target != player) {
+                target.sendActionBar(Component.text(
+                    "§6✦ Blessed §7- Slowness/Weakness cleansed, Resistance ${blessSeconds.toInt()}s", NamedTextColor.GOLD))
+            }
+        }
+
         val expiresAt = System.currentTimeMillis() + (seconds * 1000).toLong()
         shieldExpiry[target.uniqueId] = expiresAt
         plugin.server.scheduler.runTask(plugin, Runnable {
@@ -154,28 +408,63 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
             if (target.absorptionAmount <= shieldHealth) target.absorptionAmount = 0.0
             shieldExpiry.remove(target.uniqueId)
         }, (seconds * 20).toLong())
+        plugin.classFeedback.paladinShieldCast(target)
         val recipient = if (target == player) "yourself" else target.name
-        player.sendActionBar(Component.text("Shielded $recipient.", NamedTextColor.GOLD))
+        player.sendActionBar(Component.text(
+            (if (blessed) "Blessed & shielded " else "Shielded ") + recipient + ".", NamedTextColor.GOLD))
         return true
     }
 
     private fun mageBlink(player: Player): Boolean {
+        val cfg = plugin.classesConfig
         val data = plugin.classes.data(player.uniqueId)
-        val cost = plugin.classesConfig.getDouble("abilities.mage.blink-mana-cost", 35.0)
+        val rank = plugin.classes.signatureRank(player.uniqueId).coerceAtLeast(1)
+        val cost = cfg.getDouble("abilities.mage.blink-mana-cost", 35.0)
         if (data.mana < cost) {
             player.sendActionBar(Component.text("Not enough Mana (${cost.toInt()} required).", NamedTextColor.RED))
             return false
         }
-        val destination = safeBlinkDestination(player) ?: run {
-            player.sendActionBar(Component.text("No safe space to blink to.", NamedTextColor.RED))
+        val distance = cfg.getDouble("abilities.mage.blink-distance", 10.0) +
+            cfg.getDouble("abilities.mage.blink-distance-per-rank", 1.5) * (rank - 1)
+        val vertical = cfg.getBoolean("abilities.mage.blink-vertical", true)
+        val origin = player.location.clone()
+        val destination = safeBlinkDestination(player, distance, vertical)
+        if (destination == null || destination.distanceSquared(origin) < 0.75) {
+            // A blink blocked from the start costs nothing.
+            player.sendActionBar(Component.text("Blink fizzled - no room.", NamedTextColor.RED))
             return false
         }
+
         data.mana -= cost
         val momentum = player.velocity.clone()
         player.teleport(destination)
         // Teleports normally clear velocity. Reapply it next tick so Blink
         // repositions without killing a sprint, jump, or fall trajectory.
         plugin.server.scheduler.runTask(plugin, Runnable { if (player.isOnline) player.velocity = momentum })
+        val iframeTicks = (cfg.getDouble("abilities.mage.blink-invuln-seconds", 0.4).coerceAtLeast(0.0) * 20).toInt()
+        if (iframeTicks > 0) player.noDamageTicks = maxOf(player.noDamageTicks, iframeTicks)
+
+        // Departure blast (rank-gated): the space you left detonates.
+        if (rank >= cfg.getInt("abilities.mage.blink-blast-min-rank", 2)) {
+            val r = cfg.getDouble("abilities.mage.blink-blast-radius", 3.5).coerceIn(1.0, 10.0)
+            val dmg = cfg.getDouble("abilities.mage.blink-blast-damage", 4.0) +
+                cfg.getDouble("abilities.mage.blink-blast-damage-per-rank", 1.5) * (rank - 1)
+            var hits = 0
+            origin.world?.getNearbyEntities(origin, r, r, r)?.forEach { entity ->
+                val mob = entity as? LivingEntity ?: return@forEach
+                if (mob is Player || !plugin.queries.isDungeonMob(mob)) return@forEach
+                if (dmg > 0.0) mob.damage(dmg, player)
+                val push = mob.location.toVector().subtract(origin.toVector())
+                if (push.lengthSquared() > 1e-6) mob.velocity = mob.velocity.add(push.normalize().multiply(0.4))
+                hits++
+            }
+            if (hits > 0) {
+                plugin.classPassives.addArcaneChargeFromBlink(player, cfg.getDouble("abilities.mage.blink-blast-charge", 2.0))
+            }
+            plugin.classFeedback.mageBlinkBlast(origin, r, plugin.classes.subclass(player.uniqueId))
+        }
+
+        plugin.classFeedback.mageBlink(origin, player.location, plugin.classes.subclass(player.uniqueId))
         player.sendActionBar(Component.text("Blink! (-${cost.toInt()} Mana)", NamedTextColor.LIGHT_PURPLE))
         return true
     }
@@ -192,35 +481,209 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
             return
         }
 
+        val cfg = plugin.classesConfig
         val data = plugin.classes.data(caster.uniqueId)
-        val cost = plugin.classesConfig.getDouble("abilities.mage.heal-mana-cost", 50.0).coerceAtLeast(0.0)
+        val cost = cfg.getDouble("abilities.mage.heal-mana-cost", 50.0).coerceAtLeast(0.0)
         if (data.mana < cost) {
             caster.sendActionBar(Component.text("Not enough Mana (${cost.toInt()} required).", NamedTextColor.RED))
             return
         }
 
-        val target = raycastHealTarget(caster) ?: caster
+        val target = currentHealTarget(caster) ?: caster
         data.mana -= cost
         mageHealCooldownUntil[caster.uniqueId] = now + mageHealCooldownMillis()
-        target.addPotionEffect(PotionEffect(PotionEffectType.REGENERATION, 100, 1, true, true, true))
+        // Enchanter's mastery quest ladder raises both directly, not just Blessing.
+        val masteryLevel = plugin.classes.masteryLevelFor(caster.uniqueId, "support")
+        val duration = (cfg.getDouble("abilities.mage.heal-duration-ticks", 100.0) +
+            cfg.getDouble("abilities.mage.heal-duration-per-mastery-level", 10.0) * masteryLevel).toInt()
+        val amplifierLevels = cfg.getInt("abilities.mage.heal-amplifier-per-mastery-levels", 5).coerceAtLeast(1)
+        val amplifier = cfg.getInt("abilities.mage.heal-amplifier", 1) + masteryLevel / amplifierLevels
+        target.addPotionEffect(PotionEffect(PotionEffectType.REGENERATION, duration, amplifier, true, true, true))
         val effectLocation = target.location.clone().add(0.0, 1.0, 0.0)
         target.world.spawnParticle(Particle.HEART, effectLocation, 10, 0.35, 0.45, 0.35, 0.02)
         target.world.spawnParticle(Particle.HAPPY_VILLAGER, effectLocation, 16, 0.38, 0.5, 0.38, 0.05)
         target.world.playSound(effectLocation, Sound.BLOCK_AMETHYST_BLOCK_CHIME, 0.8f, 1.25f)
 
+        val tier = romanNumeral(amplifier + 1)
         if (target == caster) {
-            caster.sendMessage(Component.text("You healed yourself with Regeneration II. (-${cost.toInt()} Mana)", NamedTextColor.LIGHT_PURPLE))
+            caster.sendMessage(Component.text("You healed yourself with Regeneration $tier. (-${cost.toInt()} Mana)", NamedTextColor.LIGHT_PURPLE))
         } else {
-            caster.sendMessage(Component.text("You healed ${target.name} with Regeneration II. (-${cost.toInt()} Mana)", NamedTextColor.LIGHT_PURPLE))
-            target.sendMessage(Component.text("${caster.name} healed you with Regeneration II.", NamedTextColor.GREEN))
+            caster.sendMessage(Component.text("You healed ${target.name} with Regeneration $tier. (-${cost.toInt()} Mana)", NamedTextColor.LIGHT_PURPLE))
+            target.sendMessage(Component.text("${caster.name} healed you with Regeneration $tier.", NamedTextColor.GREEN))
+        }
+        plugin.classes.addMasteryProgress(caster, MasteryObjective.HEAL_AMOUNT,
+            cfg.getInt("abilities.mage.heal-mastery-points-per-cast", 40))
+        plugin.refreshClassPlayer(caster)
+    }
+
+    private fun romanNumeral(value: Int): String = when (value.coerceIn(1, 8)) {
+        1 -> "I"; 2 -> "II"; 3 -> "III"; 4 -> "IV"; 5 -> "V"; 6 -> "VI"; 7 -> "VII"; else -> "VIII"
+    }
+
+    /** Shift + Right-click with the class weapon: the mastery-specific ability, gated on having chosen one. */
+    private fun castMasteryAbility(caster: Player) {
+        if (!plugin.queries.isInDungeon(caster)) return
+        when (plugin.classes.activeClass(caster.uniqueId)) {
+            ClassType.MAGE -> {
+                if (!plugin.classItems.isStaff(caster.inventory.itemInMainHand)) return
+                when (plugin.classes.subclass(caster.uniqueId)) {
+                    "support" -> castBlessing(caster)
+                    "attack" -> castMeteor(caster)
+                    else -> noMasteryYet(caster)
+                }
+            }
+            ClassType.ARCHER -> {
+                if (!plugin.classItems.isAllowedWeapon(ClassType.ARCHER, caster.inventory.itemInMainHand)) return
+                when (plugin.classes.subclass(caster.uniqueId)) {
+                    "precision" -> castDeadeye(caster)
+                    "stormcaller" -> castTempestVolley(caster)
+                    else -> noMasteryYet(caster)
+                }
+            }
+            else -> {}
+        }
+    }
+
+    private fun noMasteryYet(caster: Player) =
+        caster.sendActionBar(Component.text("Requires a mastery - visit your skill tree at Level 100.", NamedTextColor.GRAY))
+
+    private val blessingPool = listOf(
+        PotionEffectType.STRENGTH, PotionEffectType.SPEED, PotionEffectType.RESISTANCE,
+        PotionEffectType.REGENERATION, PotionEffectType.ABSORPTION
+    )
+
+    /** Enchanter's Blessing: random positive effect(s) on whoever Heal would target (ally under the crosshair, else self). */
+    private fun castBlessing(caster: Player) {
+        val cfg = plugin.classesConfig
+        val now = System.currentTimeMillis()
+        val remaining = (blessingCooldownUntil[caster.uniqueId] ?: 0L) - now
+        if (remaining > 0) {
+            caster.sendActionBar(Component.text("Blessing ready in ${ceil(remaining / 1000.0).toInt()}s.", NamedTextColor.GRAY))
+            return
+        }
+        val data = plugin.classes.data(caster.uniqueId)
+        val cost = cfg.getDouble("abilities.mage.blessing-mana-cost", 40.0).coerceAtLeast(0.0)
+        if (data.mana < cost) {
+            caster.sendActionBar(Component.text("Not enough Mana (${cost.toInt()} required).", NamedTextColor.RED))
+            return
+        }
+        val target = currentHealTarget(caster) ?: caster
+        val masteryLevel = plugin.classes.masteryLevelFor(caster.uniqueId, "support")
+        val duration = ((cfg.getDouble("abilities.mage.blessing-duration-seconds", 20.0).coerceAtLeast(0.0) +
+            cfg.getDouble("abilities.mage.blessing-duration-per-mastery-level", 1.5) * masteryLevel) * 20).toInt()
+        val amplifierLevels = cfg.getInt("abilities.mage.blessing-amplifier-per-mastery-levels", 3).coerceAtLeast(1)
+        val amplifier = (cfg.getInt("abilities.mage.blessing-amplifier", 0) + masteryLevel / amplifierLevels).coerceAtLeast(0)
+        val countLevels = cfg.getInt("abilities.mage.blessing-effect-count-per-mastery-levels", 4).coerceAtLeast(1)
+        val count = (cfg.getInt("abilities.mage.blessing-effect-count", 1) + masteryLevel / countLevels).coerceIn(1, blessingPool.size)
+        data.mana -= cost
+        val cooldownMillis = (cfg.getDouble("abilities.mage.blessing-cooldown-seconds", 12.0).coerceAtLeast(0.0) * 1000).toLong()
+        blessingCooldownUntil[caster.uniqueId] = now + cooldownMillis
+        val chosen = blessingPool.shuffled().take(count)
+        chosen.forEach { target.addPotionEffect(PotionEffect(it, duration, amplifier, true, true, true)) }
+        plugin.classFeedback.mageBlessing(target)
+        val names = chosen.joinToString(", ") { it.name.lowercase(Locale.ROOT).replaceFirstChar(Char::uppercase) }
+        if (target == caster) {
+            caster.sendMessage(Component.text("You blessed yourself with $names. (-${cost.toInt()} Mana)", NamedTextColor.LIGHT_PURPLE))
+        } else {
+            caster.sendMessage(Component.text("You blessed ${target.name} with $names. (-${cost.toInt()} Mana)", NamedTextColor.LIGHT_PURPLE))
+            target.sendMessage(Component.text("${caster.name} blessed you with $names.", NamedTextColor.GREEN))
         }
         plugin.refreshClassPlayer(caster)
     }
 
-    private fun safeBlinkDestination(player: Player): Location? {
+    /** Battlemage's Meteor: aim at a spot, a telegraph ring shows it, then it falls and explodes - mobs full damage, players a fraction. */
+    private fun castMeteor(caster: Player) {
+        val cfg = plugin.classesConfig
+        val now = System.currentTimeMillis()
+        val remaining = (meteorCooldownUntil[caster.uniqueId] ?: 0L) - now
+        if (remaining > 0) {
+            caster.sendActionBar(Component.text("Meteor ready in ${ceil(remaining / 1000.0).toInt()}s.", NamedTextColor.GRAY))
+            return
+        }
+        val data = plugin.classes.data(caster.uniqueId)
+        val cost = cfg.getDouble("abilities.mage.meteor-mana-cost", 80.0).coerceAtLeast(0.0)
+        if (data.mana < cost) {
+            caster.sendActionBar(Component.text("Not enough Mana (${cost.toInt()} required).", NamedTextColor.RED))
+            return
+        }
+        val range = cfg.getDouble("abilities.mage.meteor-max-range", 256.0).coerceAtLeast(1.0)
+        val eye = caster.eyeLocation
+        val hit = caster.world.rayTraceBlocks(eye, eye.direction, range, FluidCollisionMode.NEVER, true)
+        val impact = hit?.hitPosition?.toLocation(caster.world) ?: run {
+            caster.sendActionBar(Component.text("No clear ground in range.", NamedTextColor.GRAY))
+            return
+        }
+        data.mana -= cost
+        val cooldownMillis = (cfg.getDouble("abilities.mage.meteor-cooldown-seconds", 14.0).coerceAtLeast(0.0) * 1000).toLong()
+        meteorCooldownUntil[caster.uniqueId] = now + cooldownMillis
+        MeteorSequence.launch(plugin, caster, impact)
+        caster.sendActionBar(Component.text("Meteor! (-${cost.toInt()} Mana)", NamedTextColor.GOLD))
+        plugin.refreshClassPlayer(caster)
+    }
+
+    /** Sharpshooter's Deadeye: an instant guaranteed-crit shot independent of the Focus bar - always marks its target on hit. */
+    private fun castDeadeye(caster: Player) {
+        val cfg = plugin.classesConfig
+        val now = System.currentTimeMillis()
+        val remaining = (deadeyeCooldownUntil[caster.uniqueId] ?: 0L) - now
+        if (remaining > 0) {
+            caster.sendActionBar(Component.text("Deadeye ready in ${ceil(remaining / 1000.0).toInt()}s.", NamedTextColor.GRAY))
+            return
+        }
+        val cooldownMillis = (cfg.getDouble("abilities.archer.deadeye-cooldown-seconds", 12.0).coerceAtLeast(0.0) * 1000).toLong()
+        deadeyeCooldownUntil[caster.uniqueId] = now + cooldownMillis
+        val arrow = caster.launchProjectile(Arrow::class.java)
+        arrow.velocity = caster.eyeLocation.direction.normalize()
+            .multiply(cfg.getDouble("abilities.archer.deadeye-speed", 3.6))
+        arrow.isCritical = true
+        arrow.isGlowing = true
+        plugin.classItems.markDeadeyeShot(arrow)
+        plugin.classFeedback.deadeyeFired(caster, arrow)
+        caster.sendActionBar(Component.text("§6§lDEADEYE"))
+    }
+
+    /** Stormcaller's Tempest: a ground-usable fan of arrows - unlike Skyfall, no airborne or spent-Focus requirement. */
+    private fun castTempestVolley(caster: Player) {
+        val cfg = plugin.classesConfig
+        val now = System.currentTimeMillis()
+        val remaining = (tempestCooldownUntil[caster.uniqueId] ?: 0L) - now
+        if (remaining > 0) {
+            caster.sendActionBar(Component.text("Tempest ready in ${ceil(remaining / 1000.0).toInt()}s.", NamedTextColor.GRAY))
+            return
+        }
+        val cooldownMillis = (cfg.getDouble("abilities.archer.tempest-cooldown-seconds", 10.0).coerceAtLeast(0.0) * 1000).toLong()
+        tempestCooldownUntil[caster.uniqueId] = now + cooldownMillis
+
+        val masteryLevel = plugin.classes.masteryLevelFor(caster.uniqueId, "stormcaller")
+        val levelsPerArrow = cfg.getInt("abilities.archer.tempest-arrow-count-per-mastery-levels", 5).coerceAtLeast(1)
+        val count = (cfg.getInt("abilities.archer.tempest-arrow-count", 5) + masteryLevel / levelsPerArrow).coerceAtLeast(1)
+        val spreadDegrees = cfg.getDouble("abilities.archer.tempest-spread-degrees", 30.0).coerceAtLeast(0.0)
+        val speed = cfg.getDouble("archer.focus-shot-speed", 3.4)
+
+        val baseDirection = caster.eyeLocation.direction.normalize()
+        // A reference axis to fan around - fall back to world X when aiming
+        // near-vertical, where crossing with world-up would degenerate to zero.
+        val worldUp = Vector(0.0, 1.0, 0.0)
+        val right = (if (kotlin.math.abs(baseDirection.dot(worldUp)) > 0.999)
+            baseDirection.clone().crossProduct(Vector(1.0, 0.0, 0.0))
+        else baseDirection.clone().crossProduct(worldUp)).normalize()
+
+        plugin.classFeedback.tempestCast(caster)
+        for (i in 0 until count) {
+            val t = if (count == 1) 0.0 else (i.toDouble() / (count - 1)) - 0.5
+            val angle = Math.toRadians(t * spreadDegrees)
+            val direction = baseDirection.clone().add(right.clone().multiply(kotlin.math.sin(angle))).normalize()
+            val arrow = caster.launchProjectile(Arrow::class.java)
+            arrow.velocity = direction.multiply(speed)
+            plugin.classItems.markTempestArrow(arrow)
+            plugin.classFeedback.tempestFired(arrow)
+        }
+        caster.sendActionBar(Component.text("§b§lTEMPEST"))
+    }
+
+    private fun safeBlinkDestination(player: Player, maxDistance: Double, vertical: Boolean): Location? {
         val start = player.location
-        val direction = horizontalDirection(player)
-        val maxDistance = plugin.classesConfig.getDouble("abilities.mage.blink-distance", 10.0)
+        val direction = (if (vertical) start.direction else horizontalDirection(player)).clone().normalize()
         var result: Location? = null
         // Check every part of the route, rather than only checking the final
         // spot. Otherwise a valid space on the far side of a wall would let
@@ -237,20 +700,53 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         return result
     }
 
-    /** Finds the closest player in the caster's exact line of sight without looking through blocks. */
-    private fun raycastHealTarget(caster: Player): Player? {
-        val eyeLocation = caster.eyeLocation
-        val hit = caster.world.rayTrace(
-            eyeLocation,
-            eyeLocation.direction,
-            plugin.classesConfig.getDouble("abilities.mage.heal-range", 20.0).coerceAtLeast(0.0),
-            FluidCollisionMode.NEVER,
-            true,
-            0.35
-        ) { candidate ->
-            candidate is Player && candidate.uniqueId != caster.uniqueId && candidate.isOnline && !candidate.isDead
+    /**
+     * Who a Heal cast actually lands on: commit the ally currently under the
+     * highlight ([tickHealHover] validated cone + line of sight for it a few
+     * ticks ago), as long as they are still online, alive and in the same
+     * world - no distance check against the caster here, deliberately: once
+     * a target is locked, casting heals them no matter how far apart you and
+     * they now are. Only if there is no live highlight does it fall back to
+     * a fresh cone check (still range-limited - that is target *selection*,
+     * not this commit step). Returns null -> [castMageHeal] heals the caster.
+     */
+    private fun currentHealTarget(caster: Player): Player? {
+        val hovered = hoveredHealTargets[caster.uniqueId]?.let { plugin.server.getPlayer(it.playerId) }
+        if (hovered != null && hovered.isOnline && !hovered.isDead && hovered.world == caster.world) {
+            return hovered
         }
-        return hit?.hitEntity as? Player
+        return raycastHealTarget(caster)
+    }
+
+    /**
+     * The ally the caster is aiming at: the player nearest their crosshair
+     * within `heal-range` and inside a `heal-aim-cone-degrees` cone, so it
+     * does not need a pixel-perfect ray. Line of sight is still required
+     * unless `heal-require-line-of-sight` is off - no healing through walls.
+     */
+    private fun raycastHealTarget(caster: Player): Player? {
+        val range = plugin.classesConfig.getDouble("abilities.mage.heal-range", 50.0).coerceAtLeast(0.0)
+        if (range <= 0.0) return null
+        val minCos = cos(Math.toRadians(
+            plugin.classesConfig.getDouble("abilities.mage.heal-aim-cone-degrees", 12.0).coerceIn(1.0, 60.0)))
+        val requireLos = plugin.classesConfig.getBoolean("abilities.mage.heal-require-line-of-sight", true)
+        val eye = caster.eyeLocation
+        val look = eye.direction
+        var best: Player? = null
+        var bestAlignment = minCos
+        for (other in caster.world.players) {
+            if (other === caster || !other.isOnline || other.isDead) continue
+            val toTarget = other.eyeLocation.toVector().subtract(eye.toVector())
+            val distance = toTarget.length()
+            if (distance < 0.1 || distance > range) continue
+            val alignment = toTarget.clone().normalize().dot(look)
+            if (alignment < bestAlignment) continue
+            if (requireLos && caster.world.rayTraceBlocks(
+                    eye, toTarget, distance, FluidCollisionMode.NEVER, true) != null) continue
+            bestAlignment = alignment
+            best = other
+        }
+        return best
     }
 
     private fun updateHoveredHealTarget(caster: Player, target: Player?) {

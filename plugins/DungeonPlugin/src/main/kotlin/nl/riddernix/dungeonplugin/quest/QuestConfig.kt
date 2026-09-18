@@ -7,6 +7,7 @@ import java.io.IOException
 import java.io.InputStreamReader
 import java.nio.charset.StandardCharsets
 import java.time.ZoneId
+import java.util.Locale
 
 /**
  * `quests.yml` - the quest layer's own configuration: the pool each category
@@ -41,7 +42,22 @@ class QuestConfig(private val plugin: DungeonPlugin) {
             val defaults = YamlConfiguration.loadConfiguration(InputStreamReader(resource, StandardCharsets.UTF_8))
             yaml.setDefaults(defaults)
             yaml.options().copyDefaults(true)
+            // The board layout is still being tuned: when the bundled
+            // `board.layout-version` moves ahead of the file's, drop the
+            // file's whole `board:` section so the bundled defaults take over
+            // (copyDefaults writes them back on save). Pool, menu and
+            // xp-multiplier keep the normal merge-and-keep behaviour.
+            val bundledBoard = defaults.getInt("board.layout-version", 0)
+            if (yaml.getInt("board.layout-version", 0) < bundledBoard) {
+                yaml.set("board", null)
+                plugin.logger.info("quests.yml: board layout reset to bundled version $bundledBoard.")
+            }
         }
+        // Backfill the xp-multiplier block into a file that predates it, so it
+        // is present and tunable rather than silently falling back in code.
+        if (!yaml.isDouble("xp-multiplier.daily")) yaml.set("xp-multiplier.daily", 1.10)
+        if (!yaml.isDouble("xp-multiplier.weekly")) yaml.set("xp-multiplier.weekly", 1.20)
+        if (!yaml.isString("xp-multiplier.stacking")) yaml.set("xp-multiplier.stacking", "multiplicative")
         save()
         poolCache.clear()
         for (category in QuestCategory.entries) poolCache[category] = parsePool(category)
@@ -76,6 +92,31 @@ class QuestConfig(private val plugin: DungeonPlugin) {
     fun refreshCheckSeconds(): Long = maxOf(5L, yaml.getLong("timing.refresh-check-seconds", 60L))
 
     // ------------------------------------------------------------------
+    //  XP multiplier
+    // ------------------------------------------------------------------
+
+    /** True = daily and weekly bonuses multiply (1.10 * 1.20); false = add (1 + .10 + .20). */
+    fun multiplierStacksMultiplicatively(): Boolean =
+        (yaml.getString("xp-multiplier.stacking", "multiplicative") ?: "multiplicative")
+            .trim().lowercase(Locale.ROOT) != "additive"
+
+    /**
+     * A category's XP bonus, applied once every quest in it is complete. The
+     * fallback is the shipped value, not `1.0`, so a `quests.yml` that
+     * predates this section (and whose default-merge did not backfill it)
+     * still gets a working bonus. Only [QuestCategory.DAILY] and
+     * [QuestCategory.WEEKLY] contribute; general never does.
+     */
+    fun categoryMultiplier(category: QuestCategory): Double {
+        val shipped = when (category) {
+            QuestCategory.DAILY -> 1.10
+            QuestCategory.WEEKLY -> 1.20
+            QuestCategory.GENERAL -> 1.0
+        }
+        return maxOf(1.0, yaml.getDouble("xp-multiplier.${category.id}", shipped))
+    }
+
+    // ------------------------------------------------------------------
     //  Quest pool
     // ------------------------------------------------------------------
 
@@ -105,7 +146,7 @@ class QuestConfig(private val plugin: DungeonPlugin) {
                 description = entry.getString("description", "") ?: "",
                 objective = objective,
                 required = required,
-                reward = entry.getString("reward", "") ?: ""
+                rewardXp = entry.getInt("reward-xp", 0).coerceAtLeast(0)
             ))
         }
         return out

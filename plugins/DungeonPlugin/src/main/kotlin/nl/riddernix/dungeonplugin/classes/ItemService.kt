@@ -5,15 +5,18 @@ import org.bukkit.Material
 import org.bukkit.NamespacedKey
 import org.bukkit.entity.Player
 import org.bukkit.entity.Projectile
+import org.bukkit.inventory.ItemFlag
 import org.bukkit.inventory.ItemStack
 import org.bukkit.persistence.PersistentDataType
 
 /** The class layer's tagged items: shards, the Mage staff, and projectile marks. */
-class ItemService(plugin: DungeonPlugin) {
+class ItemService(private val plugin: DungeonPlugin) {
 
     private val itemKindKey = NamespacedKey(plugin, "item_kind")
-    private val arcaneBoltKey = NamespacedKey(plugin, "arcane_bolt")
     private val focusShotKey = NamespacedKey(plugin, "focus_shot")
+    private val skyfallArrowKey = NamespacedKey(plugin, "skyfall_arrow")
+    private val deadeyeShotKey = NamespacedKey(plugin, "deadeye_shot")
+    private val tempestArrowKey = NamespacedKey(plugin, "tempest_arrow")
 
     fun skillShard(): ItemStack = taggedItem(
         Material.PRISMARINE_CRYSTALS,
@@ -29,10 +32,18 @@ class ItemService(plugin: DungeonPlugin) {
         SOUL_SHARD_KIND
     )
 
-    fun mageStaff(): ItemStack = taggedItem(
-        Material.BLAZE_ROD,
-        "§5Apprentice Staff",
-        listOf("§7A Mage's class weapon.", "§dLeft-click: Arcane Bolt", "§aRight-click: Healing Spell"),
+    fun mageStaff(subclassId: String?): ItemStack = taggedItem(
+        plugin.classesConfig.mageWandMaterial("staff-item", Material.BLAZE_ROD, subclassId),
+        "§5" + plugin.classesConfig.mageWandString("name", "Apprentice Staff", subclassId),
+        buildList {
+            add("§7A Mage's class weapon.")
+            add("§dLeft-click: Arcane Bolt")
+            add("§aRight-click: Healing Spell")
+            when (subclassId) {
+                "support" -> add("§bShift + Right-click: Blessing")
+                "attack" -> add("§6Shift + Right-click: Meteor")
+            }
+        },
         STAFF_KIND
     )
 
@@ -40,19 +51,36 @@ class ItemService(plugin: DungeonPlugin) {
     fun isSkillShard(item: ItemStack?): Boolean = isKind(item, SKILL_SHARD_KIND)
     fun isSoulShard(item: ItemStack?): Boolean = isKind(item, SOUL_SHARD_KIND)
 
-    fun markArcaneBolt(projectile: Projectile) {
-        projectile.persistentDataContainer.set(arcaneBoltKey, PersistentDataType.BYTE, 1)
-    }
-
-    fun isArcaneBolt(projectile: Projectile): Boolean =
-        projectile.persistentDataContainer.has(arcaneBoltKey, PersistentDataType.BYTE)
-
     fun markFocusShot(projectile: Projectile) {
         projectile.persistentDataContainer.set(focusShotKey, PersistentDataType.BYTE, 1)
     }
 
     fun isFocusShot(projectile: Projectile): Boolean =
         projectile.persistentDataContainer.has(focusShotKey, PersistentDataType.BYTE)
+
+    /** A drawn bow shot fired while airborne from Wind Jump with a full Focus bar: detonates on impact. */
+    fun markSkyfallArrow(projectile: Projectile) {
+        projectile.persistentDataContainer.set(skyfallArrowKey, PersistentDataType.BYTE, 1)
+    }
+
+    fun isSkyfallArrow(projectile: Projectile): Boolean =
+        projectile.persistentDataContainer.has(skyfallArrowKey, PersistentDataType.BYTE)
+
+    /** Sharpshooter's Deadeye: an instant guaranteed-crit shot, independent of the Focus bar. */
+    fun markDeadeyeShot(projectile: Projectile) {
+        projectile.persistentDataContainer.set(deadeyeShotKey, PersistentDataType.BYTE, 1)
+    }
+
+    fun isDeadeyeShot(projectile: Projectile): Boolean =
+        projectile.persistentDataContainer.has(deadeyeShotKey, PersistentDataType.BYTE)
+
+    /** Stormcaller's Tempest: one of a ground-usable fan of arrows. */
+    fun markTempestArrow(projectile: Projectile) {
+        projectile.persistentDataContainer.set(tempestArrowKey, PersistentDataType.BYTE, 1)
+    }
+
+    fun isTempestArrow(projectile: Projectile): Boolean =
+        projectile.persistentDataContainer.has(tempestArrowKey, PersistentDataType.BYTE)
 
     fun isAllowedWeapon(classType: ClassType, item: ItemStack?): Boolean {
         if (item == null || item.type.isAir) return false
@@ -103,6 +131,9 @@ class ItemService(plugin: DungeonPlugin) {
         @Suppress("DEPRECATION")
         meta.lore = lore
         meta.persistentDataContainer.set(itemKindKey, PersistentDataType.STRING, kind)
+        // Class-layer items never wear out.
+        meta.isUnbreakable = true
+        meta.addItemFlags(ItemFlag.HIDE_UNBREAKABLE)
         item.itemMeta = meta
         return item
     }

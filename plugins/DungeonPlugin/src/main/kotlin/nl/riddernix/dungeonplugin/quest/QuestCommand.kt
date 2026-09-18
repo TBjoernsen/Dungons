@@ -17,9 +17,12 @@ import java.util.Locale
  * (`dungeonplugin.admin`) drive and inspect the system for testing:
  *
  * - `/quests refresh <daily|weekly|general>` - roll a category now.
- * - `/quests progress <kill|damage> <amount>` - add progress to your own
- *   active quests without grinding mobs.
- * - `/quests info` - current sets, last refresh, next scheduled refresh.
+ * - `/quests progress <kill|damage|all> <amount>` - add progress to your own
+ *   active quests without grinding mobs (`all` advances every objective, so
+ *   a whole category can be finished in one command).
+ * - `/quests info` - current sets, per-slot progress and state, whether each
+ *   category is complete, and the resulting XP multiplier.
+ * - `/quests board place|remove|list` - the free-standing in-world quest board.
  */
 class QuestCommand(private val plugin: DungeonPlugin) : CommandExecutor, TabCompleter {
 
@@ -33,11 +36,44 @@ class QuestCommand(private val plugin: DungeonPlugin) : CommandExecutor, TabComp
             "refresh" -> handleRefresh(sender, args)
             "progress" -> handleProgress(sender, args)
             "info" -> handleInfo(sender)
+            "board" -> handleBoard(sender, args)
             else -> {
-                sender.sendMessage("§7Usage: §f/quests §7| §f/quests refresh|progress|info")
+                sender.sendMessage("§7Usage: §f/quests §7| §f/quests refresh|progress|info|board")
                 true
             }
         }
+    }
+
+    /** `/quests board place|remove|list` - the free-standing in-world quest board. */
+    private fun handleBoard(sender: CommandSender, args: Array<out String>): Boolean {
+        if (!sender.hasPermission("dungeonplugin.admin")) return noPermission(sender)
+        val player = sender as? Player ?: return notPlayer(sender)
+        when (args.getOrNull(1)?.lowercase(Locale.ROOT)) {
+            "place" -> {
+                val id = plugin.questBoards.place(player.location)
+                player.sendMessage("§aQuest board §f$id§a placed at your feet, facing the way you are.")
+            }
+            "remove" -> {
+                if (plugin.questBoards.removeNearest(player.location))
+                    player.sendMessage("§aRemoved the nearest quest board.")
+                else
+                    player.sendMessage("§cNo quest board within range.")
+            }
+            "list" -> {
+                val boards = plugin.questBoards.list()
+                if (boards.isEmpty()) {
+                    player.sendMessage("§7No quest boards placed. §f/quests board place")
+                } else {
+                    player.sendMessage("§6Quest boards:")
+                    boards.forEach {
+                        val l = it.location
+                        player.sendMessage("  §7${it.id} §8- §f${l.world?.name} ${l.blockX}, ${l.blockY}, ${l.blockZ}")
+                    }
+                }
+            }
+            else -> player.sendMessage("§cUsage: /quests board <place|remove|list>")
+        }
+        return true
     }
 
     private fun handleRefresh(sender: CommandSender, args: Array<out String>): Boolean {
@@ -55,18 +91,21 @@ class QuestCommand(private val plugin: DungeonPlugin) : CommandExecutor, TabComp
     private fun handleProgress(sender: CommandSender, args: Array<out String>): Boolean {
         if (!sender.hasPermission("dungeonplugin.admin")) return noPermission(sender)
         val player = sender as? Player ?: return notPlayer(sender)
-        val objective = when (args.getOrNull(1)?.lowercase(Locale.ROOT)) {
-            "kill", "kill_any", "mob" -> QuestObjective.KILL_ANY
-            "damage", "deal_damage", "dmg" -> QuestObjective.DEAL_DAMAGE
-            else -> null
+        val which = args.getOrNull(1)?.lowercase(Locale.ROOT)
+        val objectives = when (which) {
+            "kill", "kill_any", "mob" -> listOf(QuestObjective.KILL_ANY)
+            "damage", "deal_damage", "dmg" -> listOf(QuestObjective.DEAL_DAMAGE)
+            "all", "both" -> QuestObjective.entries.toList()
+            else -> emptyList()
         }
         val amount = args.getOrNull(2)?.toIntOrNull()
-        if (objective == null || amount == null || amount <= 0) {
-            player.sendMessage("§cUsage: /quests progress <kill|damage> <amount>")
+        if (objectives.isEmpty() || amount == null || amount <= 0) {
+            player.sendMessage("§cUsage: /quests progress <kill|damage|all> <amount>")
             return true
         }
-        plugin.quests.addProgress(player, objective, amount)
-        player.sendMessage("§7Added §f$amount §7to your §f${objective.id}§7 quests.")
+        objectives.forEach { plugin.quests.addProgress(player, it, amount) }
+        player.sendMessage("§7Added §f$amount §7to your " +
+            "§f${objectives.joinToString("/") { it.id }}§7 quests.")
         return true
     }
 
@@ -74,21 +113,47 @@ class QuestCommand(private val plugin: DungeonPlugin) : CommandExecutor, TabComp
         if (!sender.hasPermission("dungeonplugin.admin")) return noPermission(sender)
         val zone = plugin.questConfig.zone()
         val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss z")
+        val player = sender as? Player
         sender.sendMessage("§6Quests §7(zone §f$zone§7)")
         for (category in QuestCategory.entries) {
             val last = plugin.quests.lastRefreshMillis(category)
             val lastText = if (last <= 0) "never"
             else ZonedDateTime.ofInstant(java.time.Instant.ofEpochMilli(last), zone).format(formatter)
-            sender.sendMessage("§e${category.displayName}§7: last refresh §f$lastText")
+            val done = player != null && plugin.quests.categoryComplete(player.uniqueId, category)
+            sender.sendMessage("§e${category.displayName}§7: last refresh §f$lastText" +
+                if (player != null) "  §7complete=§f${if (done) "§ayes" else "§cno"}" else "")
             plugin.quests.definitions(category).forEachIndexed { index, definition ->
+                val progress = if (player != null && definition != null) {
+                    val c = plugin.quests.counter(player.uniqueId, category, index)
+                    val st = plugin.quests.state(player.uniqueId, category, index)
+                    " §7$c/§f${definition.required} §8${st.name.lowercase()}"
+                } else ""
                 sender.sendMessage("  §7$index. §f${definition?.title ?: "§c(unresolved)"} " +
-                    "§8[${definition?.objective?.id ?: "-"} x${definition?.required ?: "-"}]")
+                    "§8[${definition?.objective?.id ?: "-"} x${definition?.required ?: "-"}]$progress")
             }
             nextBoundary(category, ZonedDateTime.now(zone))?.let {
                 sender.sendMessage("  §7next scheduled refresh: §f${it.format(formatter)}")
             }
         }
+        if (player != null) {
+            val multiplier = plugin.quests.xpMultiplier(player.uniqueId)
+            val parts = plugin.quests.multiplierBreakdown(player.uniqueId)
+            sender.sendMessage("§6XP multiplier: §a×${QuestManager.format(multiplier)} " +
+                "§7(${percent(multiplier)})  §8stacking=${
+                    if (plugin.questConfig.multiplierStacksMultiplicatively()) "multiplicative" else "additive"}")
+            for (category in QuestCategory.entries.filter { it.refreshing }) {
+                val factor = plugin.questConfig.categoryMultiplier(category)
+                val active = parts.any { it.first == category }
+                sender.sendMessage("  §7${category.displayName}: config §f×${QuestManager.format(factor)} " +
+                    "§8${if (active) "§a(active)" else "§7(inactive)"}")
+            }
+        }
         return true
+    }
+
+    private fun percent(multiplier: Double): String {
+        val bonus = ((multiplier - 1.0) * 100.0).let { if (it < 0) 0.0 else it }
+        return "+${bonus.toInt()}% dungeon XP"
     }
 
     private fun nextBoundary(category: QuestCategory, now: ZonedDateTime): ZonedDateTime? = when (category) {
@@ -102,11 +167,12 @@ class QuestCommand(private val plugin: DungeonPlugin) : CommandExecutor, TabComp
         val admin = sender.hasPermission("dungeonplugin.admin")
         return when (args.size) {
             1 -> filter(buildList {
-                if (admin) addAll(listOf("refresh", "progress", "info"))
+                if (admin) addAll(listOf("refresh", "progress", "info", "board"))
             }, args[0])
             2 -> when (args[0].lowercase(Locale.ROOT)) {
                 "refresh" -> filter(QuestCategory.entries.map { it.id }, args[1])
-                "progress" -> filter(listOf("kill", "damage"), args[1])
+                "progress" -> filter(listOf("kill", "damage", "all"), args[1])
+                "board" -> filter(listOf("place", "remove", "list"), args[1])
                 else -> emptyList()
             }
             3 -> if (args[0].equals("progress", true)) filter(listOf("1", "5", "10", "50"), args[2]) else emptyList()

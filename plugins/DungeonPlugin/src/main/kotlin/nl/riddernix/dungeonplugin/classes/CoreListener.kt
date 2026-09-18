@@ -14,6 +14,7 @@ import org.bukkit.event.Listener
 import org.bukkit.event.block.Action
 import org.bukkit.event.entity.EntityDamageByEntityEvent
 import org.bukkit.event.entity.EntityDamageEvent
+import org.bukkit.event.entity.EntityDeathEvent
 import org.bukkit.event.entity.EntityShootBowEvent
 import org.bukkit.event.entity.ProjectileHitEvent
 import org.bukkit.event.inventory.InventoryClickEvent
@@ -155,6 +156,35 @@ class CoreListener(private val plugin: DungeonPlugin) : Listener {
         }
     }
 
+    @EventHandler(ignoreCancelled = true)
+    fun onArcherScopeSneak(event: PlayerToggleSneakEvent) {
+        if (!event.isSneaking) return
+        if (!plugin.queries.isInDungeon(event.player)) return
+        plugin.classPassives.tryScope(event.player)
+    }
+
+    @EventHandler(ignoreCancelled = true)
+    fun onWarriorBerserkSneak(event: PlayerToggleSneakEvent) {
+        if (!event.isSneaking) return
+        if (!plugin.queries.isInDungeon(event.player)) return
+        when (plugin.classPassives.activateBerserk(event.player)) {
+            BerserkActivationResult.NOT_READY ->
+                event.player.sendActionBar(Component.text("§7Rage is not full yet."))
+            BerserkActivationResult.ON_COOLDOWN ->
+                event.player.sendActionBar(Component.text(
+                    "§7Berserk cooling down (${plugin.classPassives.berserkCooldownSeconds(event.player)}s)."))
+            else -> Unit
+        }
+    }
+
+    /** A mob kill by a Berserk Warrior stretches Bloodlust. */
+    @EventHandler(priority = EventPriority.MONITOR)
+    fun onWarriorBloodlustKill(event: EntityDeathEvent) {
+        if (event.entity is Player) return
+        val killer = event.entity.killer ?: return
+        plugin.classPassives.bloodlustOnKill(killer)
+    }
+
     @EventHandler
     fun onArmorChange(event: PlayerArmorChangeEvent) {
         if (!isArmor(event.newItem)) return
@@ -225,12 +255,16 @@ class CoreListener(private val plugin: DungeonPlugin) : Listener {
         val projectile = event.damager as? Projectile ?: return
         val player = projectile.shooter as? Player ?: return
         if (!plugin.queries.isInDungeon(player)) return
-        if (plugin.classItems.isArcaneBolt(projectile)) {
-            plugin.classPassives.handleArcaneBoltDamage(event, player, projectile)
-            return
-        }
         if (plugin.classItems.isFocusShot(projectile)) {
             plugin.classPassives.handleFocusShotDamage(event, player, projectile)
+            return
+        }
+        if (plugin.classItems.isDeadeyeShot(projectile)) {
+            plugin.classPassives.handleDeadeyeDamage(event, player, projectile)
+            return
+        }
+        if (plugin.classItems.isTempestArrow(projectile)) {
+            plugin.classPassives.handleTempestDamage(event, player)
             return
         }
         if (projectile.uniqueId !in permittedProjectiles) {
@@ -243,11 +277,18 @@ class CoreListener(private val plugin: DungeonPlugin) : Listener {
     @EventHandler
     fun onProjectileHit(event: ProjectileHitEvent) {
         val projectile = event.entity
-        if (plugin.classItems.isArcaneBolt(projectile)) {
-            plugin.classPassives.handleArcaneBoltHit(event)
+        if (plugin.classItems.isSkyfallArrow(projectile)) {
+            val shooter = projectile.shooter as? Player
+            if (shooter != null && plugin.queries.isInDungeon(shooter)) {
+                plugin.classPassives.detonateSkyfall(projectile.location, shooter)
+            }
+            projectile.remove()
+            plugin.server.scheduler.runTask(plugin, Runnable { permittedProjectiles.remove(projectile.uniqueId) })
             return
         }
         if (plugin.classItems.isFocusShot(projectile)) return
+        if (plugin.classItems.isDeadeyeShot(projectile)) return
+        if (plugin.classItems.isTempestArrow(projectile)) return
         if (projectile.uniqueId !in permittedProjectiles) return
         val player = projectile.shooter as? Player ?: return
         plugin.classPassives.handleProjectileMiss(event, player)

@@ -35,7 +35,9 @@ timing:
 #   description - the objective, in words
 #   objective   - kill_any (count mob kills) or deal_damage (sum damage dealt)
 #   required    - the counter target
-#   reward      - placeholder text for now; real rewards come later
+#   reward-xp   - dungeon XP granted on claim, toward class levelling. It is
+#                 scaled by the player's current quest XP multiplier (below);
+#                 on a dungeons-only server it falls back to vanilla XP.
 #
 # A refresh draws 4 at random from a track's pool (general takes the first
 # 4 in file order). Pools may hold more than 4 once real content lands.
@@ -46,25 +48,25 @@ pool:
       description: "Slay 10 monsters."
       objective: kill_any
       required: 10
-      reward: "150 coins"
+      reward-xp: 150
     d_bruiser:
       title: "Bruiser"
       description: "Deal 200 damage to monsters."
       objective: deal_damage
       required: 200
-      reward: "1 Skill Shard"
+      reward-xp: 200
     d_exterminator:
       title: "Exterminator"
       description: "Slay 20 monsters."
       objective: kill_any
       required: 20
-      reward: "250 coins"
+      reward-xp: 200
     d_heavy_hitter:
       title: "Heavy Hitter"
       description: "Deal 500 damage to monsters."
       objective: deal_damage
       required: 500
-      reward: "300 coins"
+      reward-xp: 300
 
   weekly:
     w_weekly_slayer:
@@ -72,25 +74,25 @@ pool:
       description: "Slay 100 monsters this week."
       objective: kill_any
       required: 100
-      reward: "1000 coins"
+      reward-xp: 800
     w_devastation:
       title: "Devastation"
       description: "Deal 5000 damage this week."
       objective: deal_damage
       required: 5000
-      reward: "3 Skill Shards"
+      reward-xp: 1000
     w_monster_hunter:
       title: "Monster Hunter"
       description: "Slay 250 monsters this week."
       objective: kill_any
       required: 250
-      reward: "2000 coins"
+      reward-xp: 1200
     w_onslaught:
       title: "Onslaught"
       description: "Deal 10000 damage this week."
       objective: deal_damage
       required: 10000
-      reward: "1 Soul Shard"
+      reward-xp: 1500
 
   general:
     g_first_blood:
@@ -98,25 +100,41 @@ pool:
       description: "Slay your first monster."
       objective: kill_any
       required: 1
-      reward: "50 coins"
+      reward-xp: 100
     g_getting_started:
       title: "Getting Started"
       description: "Slay 50 monsters."
       objective: kill_any
       required: 50
-      reward: "500 coins"
+      reward-xp: 500
     g_warmup:
       title: "Warm-up"
       description: "Deal 1000 damage to monsters."
       objective: deal_damage
       required: 1000
-      reward: "500 coins"
+      reward-xp: 500
     g_veteran:
       title: "Veteran"
       description: "Slay 500 monsters."
       objective: kill_any
       required: 500
-      reward: "1 Soul Shard"
+      reward-xp: 1500
+
+# ---------------------------------------------------------------------
+#  XP multiplier
+# ---------------------------------------------------------------------
+# Once every quest in a track is complete (claimed or not) that track's
+# factor below multiplies ALL dungeon XP the player earns - quest rewards
+# and dungeon-completion XP alike. Daily and weekly stack; general never
+# contributes. A track refreshing clears its quests, so the bonus drops on
+# its own.
+xp-multiplier:
+  # How daily's and weekly's factors combine when both are complete:
+  #   multiplicative - 1.10 * 1.20 = 1.32  (+32% dungeon XP)
+  #   additive       - 1 + 0.10 + 0.20 = 1.30
+  stacking: multiplicative
+  daily: 1.10
+  weekly: 1.20
 
 # ---------------------------------------------------------------------
 #  Menus
@@ -134,6 +152,17 @@ menu:
     # Timed categories get refresh-timer-format; general gets no-refresh-text.
     refresh-timer-format: "<dark_gray>Next refresh: <gray><time>"
     no-refresh-text: "<dark_gray>No scheduled refresh."
+    # Added to a button's lore (and the item glows) once every quest in that
+    # category is done. complete-text is for daily/weekly (which grant the XP
+    # bonus); complete-text-general for general (which doesn't).
+    complete-text: "<green>✔ All complete - XP bonus active"
+    complete-text-general: "<green>✔ All complete"
+    # The XP-multiplier readout item. <value> is the current factor (e.g.
+    # 1.88). Lore is generated: the per-track breakdown.
+    multiplier:
+      slot: 22
+      material: EXPERIENCE_BOTTLE
+      name: "<aqua>Dungeon XP Multiplier: <white>×<value>"
     daily:
       slot: 11
       material: PAPER
@@ -179,3 +208,141 @@ menu:
         material: GRAY_DYE
       missing:
         material: BARRIER
+
+# ---------------------------------------------------------------------
+#  In-world quest board (display entities)
+# ---------------------------------------------------------------------
+# A free-standing notice board, placed with /quests board place. Designed
+# to be read from ~5 blocks; standing within activation-radius raises your
+# interaction reach to click-range so the claim hitboxes work from there
+# (this also extends melee reach while you stand there - keep boards away
+# from combat).
+#
+# Page 0 = Daily (left column) + Weekly (right column); page 1 = General.
+# The right/left arrows flip pages. All coordinates are in blocks, relative
+# to the board's placement spot; X is along the board's width, Y is up.
+board:
+  # Bumped whenever the bundled layout numbers below change; a file with a
+  # lower value has its whole `board:` section replaced on load (the layout
+  # is still being tuned). Raise it yourself past the bundled value to keep
+  # your own edits.
+  layout-version: 11
+  # /quests board place drops the board this many blocks ahead of you, turned
+  # to face back at you so the cards read from where you stand. Set
+  # face-player false to place it exactly where (and facing how) you stand.
+  face-player: true
+  place-distance: 5.0
+  # Placement snaps to the block grid (block-centre X/Z, block-floor Y,
+  # nearest-90° yaw) so the board's axes stay square. Turn off to place at
+  # the exact spot and angle you stand.
+  snap-to-grid: true
+  view-range: 4.0
+  activation-radius: 24.0
+  click-range: 8.0
+  brightness: 15
+  # How often (seconds) a standing player's notes are rebuilt, so the
+  # "Refreshes in ..." timers keep counting down.
+  overlay-refresh-seconds: 30
+  # Turn the whole board around in place if it renders mirrored.
+  flip-facing: false
+  remove-radius: 5.0
+  cleanup-radius: 16.0
+  backing:
+    block: STRIPPED_SPRUCE_WOOD
+    frame-block: STRIPPED_DARK_OAK_LOG
+    width: 8.0
+    height: 6.2
+    depth: 0.3
+    centre-y: 3.1
+    frame-thickness: 0.35
+  title:
+    text: "<gradient:#e8c56a:#a5761f><bold>Quest Board</bold></gradient>"
+    height: 5.4
+    scale: 1.6
+  # The XP-multiplier strip, under the title and above the columns.
+  # <value> = the factor (1.32), <percent> = the bonus (32).
+  multiplier:
+    format: "<color:#c9a227>Dungeon XP Multiplier: <white>×<value> <gray>(+<percent>%)"
+    height: 4.9
+    scale: 0.6
+  notes:
+    # Distance of each column's centre from the board centre. Daily sits at
+    # -column-x, Weekly at +column-x, General (page 1) is centred at 0.
+    column-x: 1.95
+    # Y of the top of the first note; each row drops by row-gap.
+    top-y: 3.9
+    row-gap: 0.95
+    text-scale: 0.44
+    line-width: 210
+    # Standoff of text/arrows in front of the backing's front face.
+    front-z: 0.06
+    # ARGB parchment colours: normal, and when a quest is complete-unclaimed.
+    paper: "D8C89A6B"
+    paper-complete: "E6D9A441"
+  # Per-card text. Placeholders: <category> <title> <time> <desc> <bar>
+  # <current> <required>.
+  card:
+    title-format: "<color:#3b2a12><bold><category> Quest: <title>"
+    timer-format: "<color:#6b5836>Refreshes in <time>"
+    timer-none: "<color:#6b5836>No timed refresh"
+    description-format: "<color:#3b2a12><desc>"
+    bar-format: "<bar> <color:#3b2a12><current>/<required>"
+    bar-fill: "<color:#c9a227>▰"
+    bar-empty: "<color:#5b4a2e>▰"
+    bar-segments: 10
+    state-incomplete: "<color:#7a2d2d>✖ Not Completed"
+    state-complete: "<color:#2e7d32><bold>✔ Completed!"
+    state-claimed: "<color:#5b4a2e>✔ Claimed"
+  # Page arrows. Literal glyphs (no MiniMessage) tinted with `color`. `next`
+  # shows on page 0 at +edge-x (to General); `prev` on page 1 at -edge-x
+  # (back). edge-x sits them just inside the board's side, not past it.
+  arrows:
+    next: ">"
+    prev: "<"
+    color: "#c9a227"
+    scale: 1.8
+    edge-x: 3.5
+    height: 2.6
+  hitboxes:
+    # A note hitbox is measured from the card's own text (widest line x line
+    # count) and tracks the card on the same anchor. An Interaction's
+    # footprint is a SQUARE (side = width), so a box wide enough to cover a
+    # card is also that deep - to stop it poking out toward you, its front
+    # face sits front-clearance in front of the card and the rest extends
+    # back into the board (harmless, the backing is not a real block).
+    #   note-width-extra - added to the measured width so it fully covers the card
+    #   height-scale      - shrink the vertical extent (the metric over-reads a bit)
+    #   note-padding      - extra blocks on every side of the box
+    #   front-clearance   - how far the box's front face sits in front of the card
+    #   x-nudge/y-nudge   - shift the box centre if the client anchors text off
+    #   pixels-per-block / line-height-px - font metrics for the measurement
+    note-width-extra: 0.3
+    height-scale: 0.8
+    note-padding: 0.06
+    front-clearance: 0.1
+    x-nudge: 0.0
+    # Positive lifts every note hitbox (the client anchors the multi-line
+    # card text a bit lower than it is measured).
+    y-nudge: 0.3
+    # Extra per-row lift for rows 2 and 3 if they drift relative to 0 and 1.
+    y-row-nudge: 0.0
+    pixels-per-block: 40.0
+    line-height-px: 10.0
+    # The page arrows get a fixed, comfortable click area (the glyph itself
+    # is tiny).
+    arrow-width: 1.0
+    arrow-height: 1.4
+  # A single line under each column reminding the player that clearing the
+  # whole track turns on an XP bonus. Daily/Weekly use `text` with the
+  # bonus each grants substituted in; General uses `text-general` (blank by
+  # default - General never grants a bonus). Placeholders: <category>
+  # <percent>.
+  column-footer:
+    text: "<gold>✦ Clear all <category>: <white>+<percent>% Dungeon XP"
+    text-general: ""
+    # Blocks below the bottom note row, and the text size.
+    y-gap: 0.8
+    scale: 0.5
+  sounds:
+    page: UI_BUTTON_CLICK
+    deny: BLOCK_NOTE_BLOCK_BASS
