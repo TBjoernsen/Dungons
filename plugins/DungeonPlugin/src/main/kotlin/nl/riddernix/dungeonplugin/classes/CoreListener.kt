@@ -37,9 +37,6 @@ class CoreListener(private val plugin: DungeonPlugin) : Listener {
     private val pendingRangedCasts = HashSet<UUID>()
     private val interactionBlockedRangedCasts = HashSet<UUID>()
 
-    /** Per player: wall-clock ms of their last Left-Click swing, for detecting Sharpshooter's Shift+double-Left-Click Deadeye gesture. */
-    private val lastLeftClickAt = HashMap<UUID, Long>()
-
     @EventHandler
     fun onJoin(event: PlayerJoinEvent) {
         stripArmor(event.player)
@@ -53,7 +50,6 @@ class CoreListener(private val plugin: DungeonPlugin) : Listener {
         plugin.classFeedback.remove(event.player)
         pendingRangedCasts.remove(event.player.uniqueId)
         interactionBlockedRangedCasts.remove(event.player.uniqueId)
-        lastLeftClickAt.remove(event.player.uniqueId)
     }
 
     @EventHandler
@@ -125,25 +121,17 @@ class CoreListener(private val plugin: DungeonPlugin) : Listener {
         if (!plugin.classItems.isStaff(item) && !plugin.classItems.isAllowedWeapon(ClassType.ARCHER, item)) return
         if (!pendingRangedCasts.add(player.uniqueId)) return
 
-        // Measured at the raw swing, not after the 1-tick defer below, so the
-        // gap between clicks reflects the player's actual timing.
-        val now = System.currentTimeMillis()
-        val previous = lastLeftClickAt.put(player.uniqueId, now)
-        val windowMs = (plugin.classesConfig.getDouble(
-            "abilities.archer.deadeye-double-click-window-seconds", 0.4).coerceAtLeast(0.0) * 1000).toLong()
-        val isDoubleClick = player.isSneaking && previous != null && (now - previous) <= windowMs
-
         // PlayerInteractEvent and PlayerArmSwingEvent do not have a fixed
         // delivery order. Waiting one tick lets the interaction handlers
         // above cancel this cast reliably.
         plugin.server.scheduler.runTask(plugin, Runnable {
             pendingRangedCasts.remove(player.uniqueId)
             if (!player.isOnline || !plugin.queries.isInDungeon(player) || isRangedCastBlocked(player)) return@Runnable
-            castRangedAttack(player, isDoubleClick)
+            castRangedAttack(player)
         })
     }
 
-    private fun castRangedAttack(player: Player, doubleClick: Boolean) {
+    private fun castRangedAttack(player: Player) {
         when {
             plugin.classItems.isStaff(player.inventory.itemInMainHand) -> when (plugin.classPassives.castArcaneBolt(player)) {
                 ArcaneCastResult.COOLDOWN -> Unit
@@ -152,15 +140,22 @@ class CoreListener(private val plugin: DungeonPlugin) : Listener {
                 else -> Unit
             }
             plugin.classItems.isAllowedWeapon(ClassType.ARCHER, player.inventory.itemInMainHand) -> {
-                // Sharpshooter's Deadeye is a Shift+double-Left-Click gesture
-                // on top of the same trigger Focus Shot uses, and never
-                // touches the Focus bar - a single Left-Click (sneaking or
-                // not) always just tries Focus Shot like before.
-                if (doubleClick && plugin.classes.subclass(player.uniqueId) == "precision" &&
-                    plugin.classAbilities.isDeadeyeReady(player.uniqueId)) {
-                    plugin.classAbilities.castDeadeye(player)
-                } else {
-                    plugin.classPassives.castFocusShot(player)
+                // Sharpshooter's Deadeye is two Left-Clicks sharing Focus
+                // Shot's trigger, and takes priority over it without ever
+                // touching the Focus bar: the FIRST click only opens the aim
+                // when Deadeye is ready AND the caster just Wind Jumped -
+                // that gate is what keeps a grounded, non-Wind-Jumped click
+                // from ever reaching Deadeye at all, so Focus Shot stays
+                // fully usable everywhere else. The SECOND click, while an
+                // aim is open, fires it.
+                val precision = plugin.classes.subclass(player.uniqueId) == "precision"
+                when {
+                    precision && plugin.classAbilities.isDeadeyeAiming(player.uniqueId) ->
+                        plugin.classAbilities.fireDeadeyeAimedShot(player)
+                    precision && plugin.classAbilities.isDeadeyeReady(player.uniqueId) &&
+                        plugin.classAbilities.isWindJumping(player) ->
+                        plugin.classAbilities.startDeadeyeAim(player)
+                    else -> plugin.classPassives.castFocusShot(player)
                 }
             }
         }

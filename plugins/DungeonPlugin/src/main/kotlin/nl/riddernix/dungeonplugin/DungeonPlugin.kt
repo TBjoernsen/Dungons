@@ -356,6 +356,9 @@ class DungeonPlugin : JavaPlugin() {
             // The Mage heal-target highlight runs several times a second so the
             // glow you see is the ally a click will actually commit to.
             server.scheduler.runTaskTimer(this, Runnable { classAbilities.tickHealHover() }, 4L, 4L)
+            // Same cadence: an open Deadeye aim needs to close the instant its
+            // Sharpshooter lands, not up to a second later.
+            server.scheduler.runTaskTimer(this, Runnable { classAbilities.tickDeadeyeAimGroundCheck() }, 4L, 4L)
         }
 
         server.scheduler.runTaskTimer(this, Runnable {

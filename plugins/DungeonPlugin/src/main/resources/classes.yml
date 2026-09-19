@@ -6,7 +6,7 @@
 # replaced with this bundled copy on the next load - the balance numbers
 # here move often and are meant to be tuned in the plugin, not held on the
 # server across updates. (Raised whenever the bundled defaults change.)
-config-version: 16
+config-version: 17
 
 classes:
   # Turning this off leaves a dungeons-only server: no classes, no kits, no
@@ -154,8 +154,8 @@ archer:
         name: "Stormcaller"
         description: "Wind Dash hits harder, and a landed Skyfall feeds back into it."
   # --- Sharpshooter: the mark ------------------------------------------
-  # Focus Shot and Deadeye (Shift + double Left-Click, priority over Focus
-  # Shot when off cooldown) mark their target; the SAME shooter's plain
+  # Focus Shot and Deadeye (two Left-Clicks right after a Wind Jump,
+  # priority over Focus Shot) mark their target; the SAME shooter's plain
   # arrows deal bonus damage to a target they marked. A mark lasts until
   # its mob dies - not a timer - so it is visible from a distance (a feet
   # ring + a head pulse, see FeedbackService.markPulse).
@@ -461,24 +461,27 @@ abilities:
     # reaching +1 at full mastery with the default of 10.
     wind-dash-charge-per-mastery-levels: 4
     wind-dash-charge-per-mastery-levels-precision: 10
-    # --- Mastery: Shift + double Left-Click ------------------------------
-    # Sharpshooter's Deadeye: a second Left-Click within deadeye-double-
-    # click-window-seconds of the first, while sneaking, takes priority
-    # over a plain Left-Click's Focus Shot whenever Deadeye is off cooldown -
-    # it never reads or spends the Focus bar, so a full bar is simply left
-    # alone, still there once Deadeye is spent. A lone Left-Click (sneaking
-    # or not) always just tries Focus Shot like before. Always marks its
-    # target (see archer.mark-*). For deadeye-aim-seconds the caster is
-    # slowed (deadeye-aim-slowness-amplifier, an amplifier - 3 is Slowness
-    # IV) while whatever mob is under their crosshair (within deadeye-aim-
-    # range, deadeye-aim-cone-degrees) glows; the arrow then fires straight
-    # at that locked mob for a guaranteed kill. deadeye-damage-multiplier*
-    # only still matters against a dungeon boss, the one thing Deadeye
-    # can't just instakill.
+    # --- Mastery: two Left-Clicks, right after a Wind Jump ---------------
+    # Sharpshooter's Deadeye: the FIRST Left-Click after a Wind Jump (while
+    # still off the ground, isWindJumping) opens the aim instead of trying
+    # Focus Shot - that Wind-Jump gate is what keeps Deadeye from ever
+    # clashing with Focus Shot, which stays fully usable everywhere else
+    # (a lone Left-Click, grounded or not wind-jumped, always just tries
+    # Focus Shot like before). The SECOND Left-Click, while the aim is
+    # still open, fires it - Deadeye never reads or spends the Focus bar
+    # either way, so a full bar is simply left alone. The aim also closes
+    # itself, unfired, the instant the caster lands - deadeye-aim-seconds
+    # is only a safety cap for if they never land and never click again.
+    # Always marks its target (see archer.mark-*). While open, the caster
+    # is slowed (deadeye-aim-slowness-amplifier, an amplifier - 3 is
+    # Slowness IV) while whatever mob is under their crosshair (within
+    # deadeye-aim-range, deadeye-aim-cone-degrees) glows; the arrow then
+    # fires straight at that locked mob for a guaranteed kill. deadeye-
+    # damage-multiplier* only still matters against a dungeon boss, the
+    # one thing Deadeye can't just instakill.
     deadeye-cooldown-seconds: 12.0
     deadeye-speed: 3.6
-    deadeye-double-click-window-seconds: 0.4
-    deadeye-aim-seconds: 1.0
+    deadeye-aim-seconds: 3.0
     deadeye-aim-slowness-amplifier: 3
     deadeye-aim-range: 40.0
     deadeye-aim-cone-degrees: 6.0
