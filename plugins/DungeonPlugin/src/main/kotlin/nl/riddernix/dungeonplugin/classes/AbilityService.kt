@@ -3,6 +3,7 @@ package nl.riddernix.dungeonplugin.classes
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.format.NamedTextColor
 import nl.riddernix.dungeonplugin.DungeonPlugin
+import org.bukkit.Bukkit
 import org.bukkit.ChatColor
 import org.bukkit.FluidCollisionMode
 import org.bukkit.Location
@@ -26,6 +27,8 @@ import org.bukkit.event.player.PlayerSwapHandItemsEvent
 import org.bukkit.inventory.EquipmentSlot
 import org.bukkit.potion.PotionEffect
 import org.bukkit.potion.PotionEffectType
+import org.bukkit.scheduler.BukkitRunnable
+import org.bukkit.scheduler.BukkitTask
 import org.bukkit.util.Vector
 import java.util.Locale
 import java.util.UUID
@@ -88,6 +91,15 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
     private val shieldCapacityKey = NamespacedKey(plugin, "paladin_active_shield_capacity")
     private val healHighlightTeamName = "dp_heal_hover"
 
+    /** Sharpshooter only: shooter -> their in-progress Deadeye aim channel, so it can be cancelled cleanly. */
+    private val deadeyeAimTask = HashMap<UUID, BukkitTask>()
+
+    /** Sharpshooter only: shooter -> the mob their Deadeye channel is currently locked onto (glowing), if any. */
+    private val deadeyeAimTarget = HashMap<UUID, UUID>()
+
+    /** Whatever a Deadeye-highlighted mob's glow state was before the channel touched it, restored once the channel ends. */
+    private val originalMobGlowStates = HashMap<UUID, Boolean>()
+
     /** Refreshes the Mage's heal-target highlight. Runs several times a second so the glow tracks the crosshair. */
     fun tickHealHover() {
         plugin.server.onlinePlayers.forEach { caster ->
@@ -126,6 +138,26 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         windJumpUntil[player.uniqueId] = maxOf(current, System.currentTimeMillis()) + extra
     }
 
+    /**
+     * Stormcaller only: a Skyfall KILL (not just a landed hit) tops the Wind
+     * Dash bank back up by one, capped at the live mastery cap - a multi-kill
+     * burst can refill several at once, but never past the cap. Called once
+     * per kill from [PassiveService.detonateSkyfall], so a crowded room can
+     * fire this several times in the same tick.
+     */
+    fun grantWindDashCharge(player: Player) {
+        val cap = maxWindDashCharges(player)
+        val current = currentWindDashCharges(player)
+        if (current >= cap) return
+        val gained = current + 1
+        windDashCharges[player.uniqueId] = gained
+        player.sendActionBar(Component.text(
+            if (gained >= cap) "§e§lSkyfall kill - Wind Dash charge ready! ($gained/$cap - full)"
+            else "§eSkyfall kill - Wind Dash charge ready! ($gained/$cap)",
+            NamedTextColor.YELLOW))
+        player.world.playSound(player.location, Sound.ENTITY_WIND_CHARGE_THROW, 0.8f, 1.4f)
+    }
+
     fun remove(player: Player) {
         cooldownUntil.remove(player.uniqueId)
         mageHealCooldownUntil.remove(player.uniqueId)
@@ -137,6 +169,7 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         windDashCharges.remove(player.uniqueId)
         windDashChargeReadyAt.remove(player.uniqueId)
         updateHoveredHealTarget(player, null)
+        cancelDeadeyeAim(player)
     }
 
     /**
@@ -666,7 +699,17 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         plugin.refreshClassPlayer(caster)
     }
 
-    /** Sharpshooter's Deadeye: an instant guaranteed-crit shot independent of the Focus bar - always marks its target on hit. */
+    /**
+     * Sharpshooter's Deadeye: a channeled snipe, not an instant shot. The
+     * cooldown commits the instant it starts; for [deadeye-aim-seconds] the
+     * caster is hit with Slowness (heavier than Scope's own effect) while a
+     * crossbow winds up and whatever mob is under their crosshair (re-raycast
+     * every tick, same cone-and-range approach as the Mage's heal target)
+     * glows. When the channel ends the arrow launches straight at that
+     * locked mob's current position - travel time can't miss it - for a
+     * guaranteed kill (see handleDeadeyeDamage; bosses are excepted). No mob
+     * locked at the end just fires forward and, like any other shot, can miss.
+     */
     private fun castDeadeye(caster: Player) {
         val cfg = plugin.classesConfig
         val now = System.currentTimeMillis()
@@ -675,16 +718,109 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
             caster.sendActionBar(Component.text("Deadeye ready in ${ceil(remaining / 1000.0).toInt()}s.", NamedTextColor.GRAY))
             return
         }
+        if (deadeyeAimTask.containsKey(caster.uniqueId)) return
         val cooldownMillis = (cfg.getDouble("abilities.archer.deadeye-cooldown-seconds", 12.0).coerceAtLeast(0.0) * 1000).toLong()
         deadeyeCooldownUntil[caster.uniqueId] = now + cooldownMillis
+
+        val aimTicks = (cfg.getDouble("abilities.archer.deadeye-aim-seconds", 1.0).coerceIn(0.1, 5.0) * 20).toInt().coerceAtLeast(1)
+        val slownessAmplifier = cfg.getInt("abilities.archer.deadeye-aim-slowness-amplifier", 3).coerceIn(0, 10)
+        caster.addPotionEffect(PotionEffect(PotionEffectType.SLOWNESS, aimTicks + 5, slownessAmplifier, true, false, true))
+        plugin.classFeedback.deadeyeAimStart(caster)
+        caster.sendActionBar(Component.text("§6§lDEADEYE §7- aiming..."))
+
+        val casterId = caster.uniqueId
+        val task = object : BukkitRunnable() {
+            var elapsed = 0
+            override fun run() {
+                val live = plugin.server.getPlayer(casterId)
+                if (live == null || !live.isOnline || live.isDead ||
+                    plugin.classes.activeClass(casterId) != ClassType.ARCHER ||
+                    plugin.classes.subclass(casterId) != "precision") {
+                    cancelDeadeyeAim(caster)
+                    cancel()
+                    return
+                }
+                updateDeadeyeAimTarget(live, raycastDeadeyeTarget(live))
+                if (++elapsed >= aimTicks) {
+                    fireDeadeyeShot(live)
+                    updateDeadeyeAimTarget(live, null)
+                    deadeyeAimTask.remove(casterId)
+                    cancel()
+                }
+            }
+        }.runTaskTimer(plugin, 1L, 1L)
+        deadeyeAimTask[casterId] = task
+    }
+
+    /** Cancels an in-progress Deadeye channel without firing - the caster stopped being a valid target-locking Archer mid-aim (offline, dead, or switched away). */
+    private fun cancelDeadeyeAim(caster: Player) {
+        deadeyeAimTask.remove(caster.uniqueId)?.cancel()
+        updateDeadeyeAimTarget(caster, null)
+    }
+
+    /** The mob currently under the caster's crosshair for Deadeye, within range and line of sight - mirrors [raycastHealTarget]'s cone approach, mobs instead of allies. */
+    private fun raycastDeadeyeTarget(caster: Player): LivingEntity? {
+        val cfg = plugin.classesConfig
+        val range = cfg.getDouble("abilities.archer.deadeye-aim-range", 40.0).coerceAtLeast(1.0)
+        val minCos = cos(Math.toRadians(
+            cfg.getDouble("abilities.archer.deadeye-aim-cone-degrees", 6.0).coerceIn(1.0, 45.0)))
+        val eye = caster.eyeLocation
+        val look = eye.direction
+        var best: LivingEntity? = null
+        var bestAlignment = minCos
+        for (entity in caster.world.getNearbyEntities(eye, range, range, range)) {
+            val mob = entity as? LivingEntity ?: continue
+            if (mob === caster || mob is Player || mob.isDead) continue
+            if (!plugin.queries.isDungeonMob(mob) && mob !is Monster) continue
+            val toTarget = mob.eyeLocation.toVector().subtract(eye.toVector())
+            val distance = toTarget.length()
+            if (distance < 0.1) continue
+            val alignment = toTarget.clone().normalize().dot(look)
+            if (alignment < bestAlignment) continue
+            if (caster.world.rayTraceBlocks(eye, toTarget, distance, FluidCollisionMode.NEVER, true) != null) continue
+            bestAlignment = alignment
+            best = mob
+        }
+        return best
+    }
+
+    /** Swaps which mob is glowing for a Deadeye channel, restoring whatever glow state the previous one actually had. */
+    private fun updateDeadeyeAimTarget(caster: Player, target: LivingEntity?) {
+        val casterId = caster.uniqueId
+        val previousId = deadeyeAimTarget[casterId]
+        if (previousId == target?.uniqueId) return
+        previousId?.let { releaseAimGlow(it) }
+        if (target == null) {
+            deadeyeAimTarget.remove(casterId)
+            return
+        }
+        deadeyeAimTarget[casterId] = target.uniqueId
+        originalMobGlowStates.putIfAbsent(target.uniqueId, target.isGlowing)
+        target.isGlowing = true
+    }
+
+    private fun releaseAimGlow(targetId: UUID) {
+        if (deadeyeAimTarget.values.any { it == targetId }) return
+        val wasGlowing = originalMobGlowStates.remove(targetId) ?: return
+        (Bukkit.getEntity(targetId) as? LivingEntity)?.isGlowing = wasGlowing
+    }
+
+    /** The arrow leaving the bow once the aim channel completes - launched straight at the locked target's current position so travel time can't miss, or straight ahead with nothing locked. */
+    private fun fireDeadeyeShot(caster: Player) {
+        val cfg = plugin.classesConfig
+        val target = deadeyeAimTarget[caster.uniqueId]
+            ?.let { Bukkit.getEntity(it) as? LivingEntity }
+            ?.takeIf { !it.isDead && it.isValid }
+        val direction = if (target != null)
+            target.eyeLocation.toVector().subtract(caster.eyeLocation.toVector()).normalize()
+        else caster.eyeLocation.direction.normalize()
         val arrow = caster.launchProjectile(Arrow::class.java)
-        arrow.velocity = caster.eyeLocation.direction.normalize()
-            .multiply(cfg.getDouble("abilities.archer.deadeye-speed", 3.6))
+        arrow.velocity = direction.multiply(cfg.getDouble("abilities.archer.deadeye-speed", 3.6))
         arrow.isCritical = true
         arrow.isGlowing = true
         plugin.classItems.markDeadeyeShot(arrow)
         plugin.classFeedback.deadeyeFired(caster, arrow)
-        caster.sendActionBar(Component.text("§6§lDEADEYE"))
+        caster.sendActionBar(Component.text("§6§lDEADEYE!"))
     }
 
     /** Stormcaller's Tempest: a ground-usable fan of arrows - unlike Skyfall, no airborne or spent-Focus requirement. */

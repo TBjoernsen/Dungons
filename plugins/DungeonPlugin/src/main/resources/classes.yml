@@ -6,7 +6,7 @@
 # replaced with this bundled copy on the next load - the balance numbers
 # here move often and are meant to be tuned in the plugin, not held on the
 # server across updates. (Raised whenever the bundled defaults change.)
-config-version: 14
+config-version: 15
 
 classes:
   # Turning this off leaves a dungeons-only server: no classes, no kits, no
@@ -154,16 +154,17 @@ archer:
         name: "Stormcaller"
         description: "Wind Dash hits harder, and a landed Skyfall feeds back into it."
   # --- Sharpshooter: the mark ------------------------------------------
-  # Focus Shot and Deadeye (Shift+Right-click) mark their target for
-  # mark-duration-seconds; the SAME shooter's plain arrows deal bonus
-  # damage to a target they marked. mark-bonus-per-mastery-level is the
-  # mastery quest ladder's reward - see mastery-quests.yml (not written yet).
-  mark-duration-seconds: 5.0
+  # Focus Shot and Deadeye (Shift+Right-click) mark their target; the SAME
+  # shooter's plain arrows deal bonus damage to a target they marked. A
+  # mark lasts until its mob dies - not a timer - so it is visible from a
+  # distance (a feet ring + a head pulse, see FeedbackService.markPulse).
+  # mark-bonus-per-mastery-level is the mastery quest ladder's reward.
   mark-bonus-damage-percent: 30.0
   mark-bonus-per-mastery-level: 3.0
-  # How many marks the same shooter can have active at once. Applying a new
-  # mark past capacity evicts the oldest one. Capacity grows every
-  # mark-capacity-per-mastery-levels mastery levels.
+  # How many marks the same shooter can have active at once. Once at
+  # capacity, marking a NEW target fails outright - the mob you already
+  # have marked has to die first to free a slot; there's no eviction any
+  # more. Capacity grows every mark-capacity-per-mastery-levels levels.
   mark-capacity: 1
   mark-capacity-per-mastery-levels: 4
   # Scope's Slow Falling stays universal (everyone at rank scope-min-rank+);
@@ -177,7 +178,9 @@ archer:
   # A landed Skyfall extends the Wind Jump window by skyfall-dash-refund-
   # seconds (enough to Wind Dash again while still descending) and its
   # radius grows by skyfall-radius-bonus-stormcaller. Its mastery ladder
-  # also adds flat damage per level.
+  # also adds flat damage per level. Every kill it lands (not just a hit)
+  # also tops the Wind Dash charge bank back up by one, capped at the
+  # live mastery cap - see AbilityService.grantWindDashCharge.
   skyfall-radius-bonus-stormcaller: 1.5
   skyfall-radius-bonus-per-mastery-level: 0.15
   skyfall-dash-refund-seconds: 2.5
@@ -458,17 +461,27 @@ abilities:
     wind-dash-charge-per-mastery-levels: 4
     wind-dash-charge-per-mastery-levels-precision: 10
     # --- Mastery: Shift + Right-click ----------------------------------
-    # Sharpshooter's Deadeye: an instant, guaranteed-crit arrow independent
-    # of the Focus bar - always marks its target (see archer.mark-*).
+    # Sharpshooter's Deadeye: a channeled snipe, independent of the Focus
+    # bar - always marks its target (see archer.mark-*). For deadeye-aim-
+    # seconds the caster is slowed (deadeye-aim-slowness-amplifier, an
+    # amplifier - 3 is Slowness IV) while whatever mob is under their
+    # crosshair (within deadeye-aim-range, deadeye-aim-cone-degrees) glows;
+    # the arrow then fires straight at that locked mob for a guaranteed
+    # kill. deadeye-damage-multiplier* only still matters against a dungeon
+    # boss, the one thing Deadeye can't just instakill.
     deadeye-cooldown-seconds: 12.0
     deadeye-speed: 3.6
+    deadeye-aim-seconds: 1.0
+    deadeye-aim-slowness-amplifier: 3
+    deadeye-aim-range: 40.0
+    deadeye-aim-cone-degrees: 6.0
     deadeye-damage-multiplier: 2.2
     deadeye-damage-multiplier-per-mastery-level: 0.08
     # Stormcaller's Tempest: a ground-usable fan of arrows, unlike
     # Skyfall which needs airborne + a spent Focus bar.
     tempest-cooldown-seconds: 10.0
     tempest-arrow-count: 5
-    tempest-spread-degrees: 30.0
+    tempest-spread-degrees: 20.0
     tempest-damage-multiplier: 0.6
     tempest-arrow-count-per-mastery-levels: 5   # +1 arrow every N levels
   paladin:

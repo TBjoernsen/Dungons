@@ -256,11 +256,41 @@ class FeedbackService(private val plugin: DungeonPlugin) {
         target.world.playSound(target.location, Sound.BLOCK_AMETHYST_BLOCK_CHIME, 0.7f, 1.8f)
     }
 
-    /** A quiet, periodic pulse on a still-marked target - so a mark is visible from a distance, not just at the moment it lands. */
+    /**
+     * A quiet, periodic pulse on a still-marked target - so a mark is visible
+     * from a distance, not just at the moment it lands. Now that a mark lasts
+     * until its mob dies rather than a few seconds, the feet ring matters
+     * more than the head puff for actually telling WHICH mob is marked in a
+     * crowd - it is the bigger, more deliberate of the two cues.
+     */
     fun markPulse(target: LivingEntity) {
         val at = target.location.clone().add(0.0, target.height + 0.3, 0.0)
         val gold = Particle.DustOptions(Color.fromRGB(255, 210, 90), 1.1f)
         target.world.spawnParticle(Particle.DUST, at, 3, 0.22, 0.12, 0.22, 0.0, gold)
+        markRing(target)
+    }
+
+    /** A ring of red dust traced around a marked target's feet - the "which exact mob is this" cue. */
+    private fun markRing(target: LivingEntity) {
+        val world = target.world
+        val feet = target.location
+        val red = Particle.DustOptions(Color.fromRGB(230, 40, 40), 1.3f)
+        val radius = (target.width / 2.0 + 0.15).coerceAtLeast(0.45)
+        val points = 20
+        for (i in 0 until points) {
+            val angle = (2.0 * Math.PI * i) / points
+            val point = feet.clone().add(kotlin.math.cos(angle) * radius, 0.05, kotlin.math.sin(angle) * radius)
+            world.spawnParticle(Particle.DUST, point, 1, 0.0, 0.0, 0.0, 0.0, red)
+        }
+    }
+
+    /** Deadeye's aim channel beginning - a crossbow winding up, and the slow-down that comes with it. */
+    fun deadeyeAimStart(player: Player) {
+        player.playSound(player.location, Sound.ITEM_CROSSBOW_LOADING_START, 1.0f, 0.85f)
+        player.playSound(player.location, Sound.ITEM_CROSSBOW_LOADING_MIDDLE, 1.0f, 0.85f)
+        val muzzle = player.eyeLocation.clone().add(player.eyeLocation.direction.multiply(0.5))
+        val gold = Particle.DustOptions(Color.fromRGB(255, 205, 70), 0.9f)
+        player.world.spawnParticle(Particle.DUST, muzzle, 6, 0.08, 0.08, 0.08, 0.0, gold)
     }
 
     /**
