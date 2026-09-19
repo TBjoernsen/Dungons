@@ -139,8 +139,18 @@ class CoreListener(private val plugin: DungeonPlugin) : Listener {
                 ArcaneCastResult.MANA_LOCKED -> player.sendActionBar(Component.text("§cOnly Mages can cast Arcane Bolt."))
                 else -> Unit
             }
-            plugin.classItems.isAllowedWeapon(ClassType.ARCHER, player.inventory.itemInMainHand) ->
-                plugin.classPassives.castFocusShot(player)
+            plugin.classItems.isAllowedWeapon(ClassType.ARCHER, player.inventory.itemInMainHand) -> {
+                // Sharpshooter's Deadeye lives on the same left-click as
+                // Focus Shot, and takes priority whenever it's off cooldown -
+                // it never touches the Focus bar, so a full bar is simply
+                // left untouched (and still available) rather than spent.
+                if (plugin.classes.subclass(player.uniqueId) == "precision" &&
+                    plugin.classAbilities.isDeadeyeReady(player.uniqueId)) {
+                    plugin.classAbilities.castDeadeye(player)
+                } else {
+                    plugin.classPassives.castFocusShot(player)
+                }
+            }
         }
     }
 

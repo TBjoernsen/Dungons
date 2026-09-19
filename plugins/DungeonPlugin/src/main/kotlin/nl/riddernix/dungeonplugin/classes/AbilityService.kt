@@ -614,7 +614,10 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
             ClassType.ARCHER -> {
                 if (!plugin.classItems.isAllowedWeapon(ClassType.ARCHER, caster.inventory.itemInMainHand)) return
                 when (plugin.classes.subclass(caster.uniqueId)) {
-                    "precision" -> castDeadeye(caster)
+                    // Deadeye fires from Left-Click now (see CoreListener.castRangedAttack) -
+                    // it needs to win the SAME trigger Focus Shot uses so it never
+                    // fires alongside a Focus-bar spend, not a separate button.
+                    "precision" -> caster.sendActionBar(Component.text("§7Deadeye fires from your Left-Click attack.", NamedTextColor.GRAY))
                     "stormcaller" -> castTempestVolley(caster)
                     else -> noMasteryYet(caster)
                 }
@@ -700,19 +703,25 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         plugin.refreshClassPlayer(caster)
     }
 
+    /** Whether Deadeye is off cooldown and could fire right now - CoreListener checks this before routing Left-Click to Deadeye instead of Focus Shot. */
+    fun isDeadeyeReady(playerId: UUID): Boolean = (deadeyeCooldownUntil[playerId] ?: 0L) <= System.currentTimeMillis()
+
     /**
-     * Sharpshooter's Deadeye: one enhanced shot, not a loop. Casting commits
-     * the cooldown and, right then, raycasts once for whatever mob is under
-     * the crosshair (same cone-and-range approach as the Mage's heal
-     * target) and makes it glow. For [deadeye-aim-seconds] after that the
-     * caster is hit with Slowness (heavier than Scope's own effect) while a
-     * crossbow winds up; a single delayed task then fires exactly ONE arrow
-     * at that locked mob's position (or straight ahead if nothing was under
-     * the crosshair) for a guaranteed kill (see handleDeadeyeDamage; bosses
-     * are excepted). If the caster stops being a valid, bow-wielding Archer
-     * before that task runs, it fires nothing at all.
+     * Sharpshooter's Deadeye: one enhanced shot, not a loop. Fires from
+     * Left-Click (see CoreListener.castRangedAttack), taking priority over
+     * Focus Shot whenever it's off cooldown - it never reads or spends the
+     * Focus bar, so a full bar is simply left alone. Casting commits the
+     * cooldown and, right then, raycasts once for whatever mob is under the
+     * crosshair (same cone-and-range approach as the Mage's heal target) and
+     * makes it glow. For [deadeye-aim-seconds] after that the caster is hit
+     * with Slowness (heavier than Scope's own effect) while a crossbow winds
+     * up; a single delayed task then fires exactly ONE arrow at that locked
+     * mob's position (or straight ahead if nothing was under the crosshair)
+     * for a guaranteed kill (see handleDeadeyeDamage; bosses are excepted).
+     * If the caster stops being a valid, bow-wielding Archer before that
+     * task runs, it fires nothing at all.
      */
-    private fun castDeadeye(caster: Player) {
+    fun castDeadeye(caster: Player) {
         val cfg = plugin.classesConfig
         val now = System.currentTimeMillis()
         val remaining = (deadeyeCooldownUntil[caster.uniqueId] ?: 0L) - now

@@ -154,10 +154,11 @@ archer:
         name: "Stormcaller"
         description: "Wind Dash hits harder, and a landed Skyfall feeds back into it."
   # --- Sharpshooter: the mark ------------------------------------------
-  # Focus Shot and Deadeye (Shift+Right-click) mark their target; the SAME
-  # shooter's plain arrows deal bonus damage to a target they marked. A
-  # mark lasts until its mob dies - not a timer - so it is visible from a
-  # distance (a feet ring + a head pulse, see FeedbackService.markPulse).
+  # Focus Shot and Deadeye (Left-Click, priority over Focus Shot when off
+  # cooldown) mark their target; the SAME shooter's plain arrows deal
+  # bonus damage to a target they marked. A mark lasts until its mob dies -
+  # not a timer - so it is visible from a distance (a feet ring + a head
+  # pulse, see FeedbackService.markPulse).
   # mark-bonus-per-mastery-level is the mastery quest ladder's reward.
   mark-bonus-damage-percent: 30.0
   mark-bonus-per-mastery-level: 3.0
@@ -460,15 +461,17 @@ abilities:
     # reaching +1 at full mastery with the default of 10.
     wind-dash-charge-per-mastery-levels: 4
     wind-dash-charge-per-mastery-levels-precision: 10
-    # --- Mastery: Shift + Right-click ----------------------------------
-    # Sharpshooter's Deadeye: a channeled snipe, independent of the Focus
-    # bar - always marks its target (see archer.mark-*). For deadeye-aim-
-    # seconds the caster is slowed (deadeye-aim-slowness-amplifier, an
-    # amplifier - 3 is Slowness IV) while whatever mob is under their
-    # crosshair (within deadeye-aim-range, deadeye-aim-cone-degrees) glows;
-    # the arrow then fires straight at that locked mob for a guaranteed
-    # kill. deadeye-damage-multiplier* only still matters against a dungeon
-    # boss, the one thing Deadeye can't just instakill.
+    # --- Mastery: Left-Click (same trigger as Focus Shot) ---------------
+    # Sharpshooter's Deadeye: takes priority over Focus Shot on Left-Click
+    # whenever it's off cooldown, and never reads or spends the Focus bar -
+    # a full bar is simply left alone, still there once Deadeye is spent.
+    # Always marks its target (see archer.mark-*). For deadeye-aim-seconds
+    # the caster is slowed (deadeye-aim-slowness-amplifier, an amplifier -
+    # 3 is Slowness IV) while whatever mob is under their crosshair (within
+    # deadeye-aim-range, deadeye-aim-cone-degrees) glows; the arrow then
+    # fires straight at that locked mob for a guaranteed kill. deadeye-
+    # damage-multiplier* only still matters against a dungeon boss, the
+    # one thing Deadeye can't just instakill.
     deadeye-cooldown-seconds: 12.0
     deadeye-speed: 3.6
     deadeye-aim-seconds: 1.0
@@ -477,6 +480,7 @@ abilities:
     deadeye-aim-cone-degrees: 6.0
     deadeye-damage-multiplier: 2.2
     deadeye-damage-multiplier-per-mastery-level: 0.08
+    # --- Mastery: Shift + Right-click ----------------------------------
     # Stormcaller's Tempest: a ground-usable fan of arrows, unlike
     # Skyfall which needs airborne + a spent Focus bar.
     tempest-cooldown-seconds: 10.0
