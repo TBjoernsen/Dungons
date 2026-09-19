@@ -37,6 +37,9 @@ class CoreListener(private val plugin: DungeonPlugin) : Listener {
     private val pendingRangedCasts = HashSet<UUID>()
     private val interactionBlockedRangedCasts = HashSet<UUID>()
 
+    /** Per player: wall-clock ms of their last Left-Click swing, for detecting Sharpshooter's Shift+double-Left-Click Deadeye gesture. */
+    private val lastLeftClickAt = HashMap<UUID, Long>()
+
     @EventHandler
     fun onJoin(event: PlayerJoinEvent) {
         stripArmor(event.player)
@@ -50,6 +53,7 @@ class CoreListener(private val plugin: DungeonPlugin) : Listener {
         plugin.classFeedback.remove(event.player)
         pendingRangedCasts.remove(event.player.uniqueId)
         interactionBlockedRangedCasts.remove(event.player.uniqueId)
+        lastLeftClickAt.remove(event.player.uniqueId)
     }
 
     @EventHandler
@@ -121,17 +125,25 @@ class CoreListener(private val plugin: DungeonPlugin) : Listener {
         if (!plugin.classItems.isStaff(item) && !plugin.classItems.isAllowedWeapon(ClassType.ARCHER, item)) return
         if (!pendingRangedCasts.add(player.uniqueId)) return
 
+        // Measured at the raw swing, not after the 1-tick defer below, so the
+        // gap between clicks reflects the player's actual timing.
+        val now = System.currentTimeMillis()
+        val previous = lastLeftClickAt.put(player.uniqueId, now)
+        val windowMs = (plugin.classesConfig.getDouble(
+            "abilities.archer.deadeye-double-click-window-seconds", 0.4).coerceAtLeast(0.0) * 1000).toLong()
+        val isDoubleClick = player.isSneaking && previous != null && (now - previous) <= windowMs
+
         // PlayerInteractEvent and PlayerArmSwingEvent do not have a fixed
         // delivery order. Waiting one tick lets the interaction handlers
         // above cancel this cast reliably.
         plugin.server.scheduler.runTask(plugin, Runnable {
             pendingRangedCasts.remove(player.uniqueId)
             if (!player.isOnline || !plugin.queries.isInDungeon(player) || isRangedCastBlocked(player)) return@Runnable
-            castRangedAttack(player)
+            castRangedAttack(player, isDoubleClick)
         })
     }
 
-    private fun castRangedAttack(player: Player) {
+    private fun castRangedAttack(player: Player, doubleClick: Boolean) {
         when {
             plugin.classItems.isStaff(player.inventory.itemInMainHand) -> when (plugin.classPassives.castArcaneBolt(player)) {
                 ArcaneCastResult.COOLDOWN -> Unit
@@ -140,11 +152,11 @@ class CoreListener(private val plugin: DungeonPlugin) : Listener {
                 else -> Unit
             }
             plugin.classItems.isAllowedWeapon(ClassType.ARCHER, player.inventory.itemInMainHand) -> {
-                // Sharpshooter's Deadeye lives on the same left-click as
-                // Focus Shot, and takes priority whenever it's off cooldown -
-                // it never touches the Focus bar, so a full bar is simply
-                // left untouched (and still available) rather than spent.
-                if (plugin.classes.subclass(player.uniqueId) == "precision" &&
+                // Sharpshooter's Deadeye is a Shift+double-Left-Click gesture
+                // on top of the same trigger Focus Shot uses, and never
+                // touches the Focus bar - a single Left-Click (sneaking or
+                // not) always just tries Focus Shot like before.
+                if (doubleClick && plugin.classes.subclass(player.uniqueId) == "precision" &&
                     plugin.classAbilities.isDeadeyeReady(player.uniqueId)) {
                     plugin.classAbilities.castDeadeye(player)
                 } else {

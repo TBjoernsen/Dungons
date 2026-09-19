@@ -614,10 +614,11 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
             ClassType.ARCHER -> {
                 if (!plugin.classItems.isAllowedWeapon(ClassType.ARCHER, caster.inventory.itemInMainHand)) return
                 when (plugin.classes.subclass(caster.uniqueId)) {
-                    // Deadeye fires from Left-Click now (see CoreListener.castRangedAttack) -
-                    // it needs to win the SAME trigger Focus Shot uses so it never
+                    // Deadeye fires from Shift+double-Left-Click now (see
+                    // CoreListener.onMageArmSwing/castRangedAttack) - it needs
+                    // to win the SAME trigger Focus Shot uses so it never
                     // fires alongside a Focus-bar spend, not a separate button.
-                    "precision" -> caster.sendActionBar(Component.text("§7Deadeye fires from your Left-Click attack.", NamedTextColor.GRAY))
+                    "precision" -> caster.sendActionBar(Component.text("§7Deadeye fires from Shift + double Left-Click.", NamedTextColor.GRAY))
                     "stormcaller" -> castTempestVolley(caster)
                     else -> noMasteryYet(caster)
                 }
@@ -703,13 +704,14 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         plugin.refreshClassPlayer(caster)
     }
 
-    /** Whether Deadeye is off cooldown and could fire right now - CoreListener checks this before routing Left-Click to Deadeye instead of Focus Shot. */
+    /** Whether Deadeye is off cooldown and could fire right now - CoreListener checks this before routing a Shift+double-Left-Click to Deadeye instead of Focus Shot. */
     fun isDeadeyeReady(playerId: UUID): Boolean = (deadeyeCooldownUntil[playerId] ?: 0L) <= System.currentTimeMillis()
 
     /**
-     * Sharpshooter's Deadeye: one enhanced shot, not a loop. Fires from
-     * Left-Click (see CoreListener.castRangedAttack), taking priority over
-     * Focus Shot whenever it's off cooldown - it never reads or spends the
+     * Sharpshooter's Deadeye: one enhanced shot, not a loop. Fires from a
+     * Shift+double-Left-Click gesture (see CoreListener.onMageArmSwing /
+     * castRangedAttack) that takes priority over a plain Left-Click's Focus
+     * Shot whenever Deadeye is off cooldown - it never reads or spends the
      * Focus bar, so a full bar is simply left alone. Casting commits the
      * cooldown and, right then, raycasts once for whatever mob is under the
      * crosshair (same cone-and-range approach as the Mage's heal target) and
