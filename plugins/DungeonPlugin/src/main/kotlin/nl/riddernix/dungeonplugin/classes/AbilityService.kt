@@ -190,7 +190,13 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         // block" (the same vanilla convention that lets a sneaking player
         // place a block against a chest instead of opening it) - the mastery
         // ability always fires, regardless of what is underfoot or in reach.
+        // Cancelling here matters for Archer specifically: a Bow (unlike the
+        // Mage's staff) has real vanilla right-click behaviour - drawing and,
+        // on release, firing a live arrow - and leaving that uncancelled let
+        // it run alongside Deadeye's aim channel, so a held click fired a
+        // second, fully-drawn vanilla shot right on top of Deadeye's own.
         if (event.player.isSneaking) {
+            event.isCancelled = true
             castMasteryAbility(event.player)
             return
         }
@@ -214,7 +220,10 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     fun onMageHealPlayerClick(event: PlayerInteractEntityEvent) {
         if (event.hand != EquipmentSlot.HAND) return
-        if (event.player.isSneaking) castMasteryAbility(event.player) else castMageHeal(event.player)
+        if (event.player.isSneaking) {
+            event.isCancelled = true
+            castMasteryAbility(event.player)
+        } else castMageHeal(event.player)
     }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
