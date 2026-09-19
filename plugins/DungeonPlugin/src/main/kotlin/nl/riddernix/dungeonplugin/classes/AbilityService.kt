@@ -193,12 +193,14 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         // block" (the same vanilla convention that lets a sneaking player
         // place a block against a chest instead of opening it) - the mastery
         // ability always fires, regardless of what is underfoot or in reach.
-        // Cancelling here matters for Archer specifically: a Bow (unlike the
-        // Mage's staff) has real vanilla right-click behaviour - drawing and,
-        // on release, firing a live arrow - and leaving that uncancelled let
-        // it run alongside Deadeye's aim channel, so a held click fired a
-        // second, fully-drawn vanilla shot right on top of Deadeye's own.
-        if (event.player.isSneaking) {
+        // Only intercepted when there's actually a Shift+Right-click ability
+        // to trigger, though: a Bow (unlike the Mage's staff) has real
+        // vanilla right-click behaviour - drawing and, on release, firing a
+        // live arrow - and Sharpshooter no longer has anything bound here
+        // (Deadeye moved to Left-Click). Cancelling this unconditionally for
+        // every sneaking Archer blocked that vanilla draw outright, so a
+        // sneaking Right-click could never become a Skyfall shot.
+        if (event.player.isSneaking && hasShiftRightClickAbility(event.player)) {
             event.isCancelled = true
             castMasteryAbility(event.player)
             return
@@ -223,10 +225,23 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     fun onMageHealPlayerClick(event: PlayerInteractEntityEvent) {
         if (event.hand != EquipmentSlot.HAND) return
-        if (event.player.isSneaking) {
+        if (event.player.isSneaking && hasShiftRightClickAbility(event.player)) {
             event.isCancelled = true
             castMasteryAbility(event.player)
         } else castMageHeal(event.player)
+    }
+
+    /**
+     * Whether Shift+Right-click currently triggers a real ability for this
+     * player - if not, the click must NOT be cancelled/intercepted, or a
+     * real weapon's own vanilla behaviour (an Archer's bow draw, chiefly)
+     * gets silently blocked for nothing. Sharpshooter has none (Deadeye is
+     * Left-Click only); every other mastery still lives here.
+     */
+    private fun hasShiftRightClickAbility(player: Player): Boolean = when (plugin.classes.activeClass(player.uniqueId)) {
+        ClassType.MAGE -> true
+        ClassType.ARCHER -> plugin.classes.subclass(player.uniqueId) == "stormcaller"
+        else -> false
     }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
@@ -624,14 +639,13 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
             }
             ClassType.ARCHER -> {
                 if (!plugin.classItems.isAllowedWeapon(ClassType.ARCHER, caster.inventory.itemInMainHand)) return
+                // Sharpshooter has no Shift+Right-click ability any more -
+                // Deadeye moved to two Left-Clicks (see CoreListener.
+                // castRangedAttack) - so this is never even called for
+                // "precision" (see hasShiftRightClickAbility): a sneaking
+                // Right-click needs to reach a REAL vanilla bow draw
+                // uninterrupted, or Skyfall could never trigger.
                 when (plugin.classes.subclass(caster.uniqueId)) {
-                    // Deadeye is two Left-Clicks now (see CoreListener.
-                    // castRangedAttack): the first right after a Wind Jump
-                    // opens the aim, the second fires it - it needs to win
-                    // the SAME trigger Focus Shot uses so it never fires
-                    // alongside a Focus-bar spend, not a separate button.
-                    "precision" -> caster.sendActionBar(Component.text(
-                        "§7Deadeye: Wind Jump, then Left-Click twice.", NamedTextColor.GRAY))
                     "stormcaller" -> castTempestVolley(caster)
                     else -> noMasteryYet(caster)
                 }
@@ -766,6 +780,7 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
     fun fireDeadeyeAimedShot(caster: Player) {
         val aim = deadeyeAiming.remove(caster.uniqueId) ?: return
         aim.targetId?.let { releaseAimGlow(it) }
+        caster.removePotionEffect(PotionEffectType.SLOWNESS)
         @Suppress("DEPRECATION")
         if (caster.isOnGround) return // landed between the two clicks - already effectively cancelled
         val target = aim.targetId
@@ -778,7 +793,9 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
     private fun cancelDeadeyeAim(playerId: UUID, reason: String?) {
         val aim = deadeyeAiming.remove(playerId) ?: return
         aim.targetId?.let { releaseAimGlow(it) }
-        if (reason != null) plugin.server.getPlayer(playerId)?.sendActionBar(Component.text("§7$reason", NamedTextColor.GRAY))
+        val player = plugin.server.getPlayer(playerId)
+        player?.removePotionEffect(PotionEffectType.SLOWNESS)
+        if (reason != null) player?.sendActionBar(Component.text("§7$reason", NamedTextColor.GRAY))
     }
 
     /** Runs a few times a second: cancels any open Deadeye aim the instant its caster is back on the ground. */
