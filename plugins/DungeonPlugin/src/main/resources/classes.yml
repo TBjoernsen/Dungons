@@ -6,7 +6,7 @@
 # replaced with this bundled copy on the next load - the balance numbers
 # here move often and are meant to be tuned in the plugin, not held on the
 # server across updates. (Raised whenever the bundled defaults change.)
-config-version: 18
+config-version: 19
 
 classes:
   # Turning this off leaves a dungeons-only server: no classes, no kits, no
@@ -474,9 +474,13 @@ abilities:
     # is only a safety cap for if they never land and never click again.
     # Always marks its target (see archer.mark-*). While open, the caster
     # is slowed (deadeye-aim-slowness-amplifier, an amplifier - 3 is
-    # Slowness IV) while whatever mob is under their crosshair (within
-    # deadeye-aim-range, deadeye-aim-cone-degrees) glows; the arrow then
-    # fires straight at that locked mob for a guaranteed kill. deadeye-
+    # Slowness IV) while whatever mob is under their crosshair, within
+    # deadeye-aim-range, glows; the arrow then fires straight at that
+    # locked mob for a guaranteed kill. deadeye-aim-forgiveness pads every
+    # candidate's real hitbox by a flat margin before the crosshair has to
+    # land on it - a real ray-vs-hitbox trace, not an angle check against a
+    # single eye point, so a big scaled-up mob (a Key Guardian spawns at
+    # 1.45-1.65x scale) is easier to lock onto, not harder. deadeye-
     # damage-multiplier* only still matters against a dungeon boss, the
     # one thing Deadeye can't just instakill.
     deadeye-cooldown-seconds: 12.0
@@ -484,7 +488,7 @@ abilities:
     deadeye-aim-seconds: 3.0
     deadeye-aim-slowness-amplifier: 3
     deadeye-aim-range: 40.0
-    deadeye-aim-cone-degrees: 6.0
+    deadeye-aim-forgiveness: 0.6
     deadeye-damage-multiplier: 2.2
     deadeye-damage-multiplier-per-mastery-level: 0.08
     # --- Mastery: Shift + Right-click ----------------------------------

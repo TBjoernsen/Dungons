@@ -814,30 +814,29 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         }
     }
 
-    /** The mob under the caster's crosshair right now, within range and line of sight - mirrors [raycastHealTarget]'s cone approach, mobs instead of allies. */
+    /**
+     * The mob under the caster's crosshair right now, within range and line
+     * of sight. A real ray-vs-hitbox trace (World.rayTraceEntities), not an
+     * angle check against a single eye point - the old cone approach got
+     * proportionally HARDER to land on a big, scaled-up mob (a Key Guardian
+     * spawns at 1.45-1.65x scale) since its eye point sits further from its
+     * visual centre, exactly backwards from what a soft-lock should feel
+     * like. deadeye-aim-forgiveness pads every hitbox by a flat margin on
+     * top of its real size, same idea as a controller's aim assist.
+     */
     private fun raycastDeadeyeTarget(caster: Player): LivingEntity? {
         val cfg = plugin.classesConfig
         val range = cfg.getDouble("abilities.archer.deadeye-aim-range", 40.0).coerceAtLeast(1.0)
-        val minCos = cos(Math.toRadians(
-            cfg.getDouble("abilities.archer.deadeye-aim-cone-degrees", 6.0).coerceIn(1.0, 45.0)))
+        val forgiveness = cfg.getDouble("abilities.archer.deadeye-aim-forgiveness", 0.6).coerceIn(0.0, 3.0)
         val eye = caster.eyeLocation
-        val look = eye.direction
-        var best: LivingEntity? = null
-        var bestAlignment = minCos
-        for (entity in caster.world.getNearbyEntities(eye, range, range, range)) {
-            val mob = entity as? LivingEntity ?: continue
-            if (mob === caster || mob is Player || mob.isDead) continue
-            if (!plugin.queries.isDungeonMob(mob) && mob !is Monster) continue
-            val toTarget = mob.eyeLocation.toVector().subtract(eye.toVector())
-            val distance = toTarget.length()
-            if (distance < 0.1) continue
-            val alignment = toTarget.clone().normalize().dot(look)
-            if (alignment < bestAlignment) continue
-            if (caster.world.rayTraceBlocks(eye, toTarget, distance, FluidCollisionMode.NEVER, true) != null) continue
-            bestAlignment = alignment
-            best = mob
-        }
-        return best
+        val hit = caster.world.rayTraceEntities(eye, eye.direction, range, forgiveness) { entity ->
+            entity is LivingEntity && entity !== caster && entity !is Player && !entity.isDead &&
+                (plugin.queries.isDungeonMob(entity) || entity is Monster)
+        } ?: return null
+        val mob = hit.hitEntity as? LivingEntity ?: return null
+        val distance = eye.distance(mob.eyeLocation)
+        if (caster.world.rayTraceBlocks(eye, eye.direction, distance, FluidCollisionMode.NEVER, true) != null) return null
+        return mob
     }
 
     private fun releaseAimGlow(targetId: UUID) {
