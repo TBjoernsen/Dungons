@@ -37,6 +37,9 @@ class CoreListener(private val plugin: DungeonPlugin) : Listener {
     private val pendingRangedCasts = HashSet<UUID>()
     private val interactionBlockedRangedCasts = HashSet<UUID>()
 
+    /** Per player: wall-clock ms of their last Left-Click swing, for detecting Stormcaller's double-Left-Click Tempest gesture. */
+    private val lastLeftClickAt = HashMap<UUID, Long>()
+
     @EventHandler
     fun onJoin(event: PlayerJoinEvent) {
         stripArmor(event.player)
@@ -50,6 +53,7 @@ class CoreListener(private val plugin: DungeonPlugin) : Listener {
         plugin.classFeedback.remove(event.player)
         pendingRangedCasts.remove(event.player.uniqueId)
         interactionBlockedRangedCasts.remove(event.player.uniqueId)
+        lastLeftClickAt.remove(event.player.uniqueId)
     }
 
     @EventHandler
@@ -121,17 +125,27 @@ class CoreListener(private val plugin: DungeonPlugin) : Listener {
         if (!plugin.classItems.isStaff(item) && !plugin.classItems.isAllowedWeapon(ClassType.ARCHER, item)) return
         if (!pendingRangedCasts.add(player.uniqueId)) return
 
+        // Measured at the raw swing, not after the 1-tick defer below, so the
+        // gap between clicks reflects the player's actual timing - used only
+        // for Stormcaller's Tempest, which (unlike Deadeye) has no aim/
+        // channel of its own to gate the second click on.
+        val now = System.currentTimeMillis()
+        val previous = lastLeftClickAt.put(player.uniqueId, now)
+        val windowMs = (plugin.classesConfig.getDouble(
+            "abilities.archer.tempest-double-click-window-seconds", 0.4).coerceAtLeast(0.0) * 1000).toLong()
+        val isDoubleClick = previous != null && (now - previous) <= windowMs
+
         // PlayerInteractEvent and PlayerArmSwingEvent do not have a fixed
         // delivery order. Waiting one tick lets the interaction handlers
         // above cancel this cast reliably.
         plugin.server.scheduler.runTask(plugin, Runnable {
             pendingRangedCasts.remove(player.uniqueId)
             if (!player.isOnline || !plugin.queries.isInDungeon(player) || isRangedCastBlocked(player)) return@Runnable
-            castRangedAttack(player)
+            castRangedAttack(player, isDoubleClick)
         })
     }
 
-    private fun castRangedAttack(player: Player) {
+    private fun castRangedAttack(player: Player, doubleClick: Boolean) {
         when {
             plugin.classItems.isStaff(player.inventory.itemInMainHand) -> when (plugin.classPassives.castArcaneBolt(player)) {
                 ArcaneCastResult.COOLDOWN -> Unit
@@ -140,21 +154,25 @@ class CoreListener(private val plugin: DungeonPlugin) : Listener {
                 else -> Unit
             }
             plugin.classItems.isAllowedWeapon(ClassType.ARCHER, player.inventory.itemInMainHand) -> {
-                // Sharpshooter's Deadeye is two Left-Clicks sharing Focus
-                // Shot's trigger, and takes priority over it without ever
-                // touching the Focus bar: the FIRST click only opens the aim
-                // when Deadeye is ready AND the caster just Wind Jumped -
-                // that gate is what keeps a grounded, non-Wind-Jumped click
-                // from ever reaching Deadeye at all, so Focus Shot stays
-                // fully usable everywhere else. The SECOND click, while an
-                // aim is open, fires it.
-                val precision = plugin.classes.subclass(player.uniqueId) == "precision"
+                // Both Archer masteries share Focus Shot's trigger and take
+                // priority over it without ever touching the Focus bar.
+                // Sharpshooter's Deadeye is gated on a Wind Jump instead of
+                // timing: the FIRST click only opens the aim when Deadeye is
+                // ready AND the caster just Wind Jumped, so a grounded click
+                // always falls through to Focus Shot; the SECOND click,
+                // while that aim is open, fires it. Stormcaller's Tempest has
+                // no aim/channel to gate on, so it uses a plain double-click
+                // timing window instead - the second Left-Click within
+                // tempest-double-click-window-seconds of the first fires it.
+                val subclass = plugin.classes.subclass(player.uniqueId)
                 when {
-                    precision && plugin.classAbilities.isDeadeyeAiming(player.uniqueId) ->
+                    subclass == "precision" && plugin.classAbilities.isDeadeyeAiming(player.uniqueId) ->
                         plugin.classAbilities.fireDeadeyeAimedShot(player)
-                    precision && plugin.classAbilities.isDeadeyeReady(player.uniqueId) &&
+                    subclass == "precision" && plugin.classAbilities.isDeadeyeReady(player.uniqueId) &&
                         plugin.classAbilities.isWindJumping(player) ->
                         plugin.classAbilities.startDeadeyeAim(player)
+                    subclass == "stormcaller" && doubleClick && plugin.classAbilities.isTempestReady(player.uniqueId) ->
+                        plugin.classAbilities.castTempestVolley(player)
                     else -> plugin.classPassives.castFocusShot(player)
                 }
             }

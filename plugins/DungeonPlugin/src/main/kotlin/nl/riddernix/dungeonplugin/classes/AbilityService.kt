@@ -235,14 +235,12 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
      * Whether Shift+Right-click currently triggers a real ability for this
      * player - if not, the click must NOT be cancelled/intercepted, or a
      * real weapon's own vanilla behaviour (an Archer's bow draw, chiefly)
-     * gets silently blocked for nothing. Sharpshooter has none (Deadeye is
-     * Left-Click only); every other mastery still lives here.
+     * gets silently blocked for nothing. Neither Archer mastery lives here
+     * any more - Deadeye and Tempest are both a double-Left-Click now -
+     * only the Mage's still does.
      */
-    private fun hasShiftRightClickAbility(player: Player): Boolean = when (plugin.classes.activeClass(player.uniqueId)) {
-        ClassType.MAGE -> true
-        ClassType.ARCHER -> plugin.classes.subclass(player.uniqueId) == "stormcaller"
-        else -> false
-    }
+    private fun hasShiftRightClickAbility(player: Player): Boolean =
+        plugin.classes.activeClass(player.uniqueId) == ClassType.MAGE
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     fun onSwapHands(event: PlayerSwapHandItemsEvent) {
@@ -625,32 +623,22 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         1 -> "I"; 2 -> "II"; 3 -> "III"; 4 -> "IV"; 5 -> "V"; 6 -> "VI"; 7 -> "VII"; else -> "VIII"
     }
 
-    /** Shift + Right-click with the class weapon: the mastery-specific ability, gated on having chosen one. */
+    /**
+     * Shift + Right-click with the class weapon: the Mage's mastery-specific
+     * ability, gated on having chosen one. The only mastery still bound
+     * here - both Archer masteries are a double-Left-Click now (Deadeye,
+     * Tempest), so this is never even called for an Archer any more (see
+     * hasShiftRightClickAbility): a sneaking Right-click needs to reach a
+     * REAL vanilla bow draw uninterrupted, or Skyfall could never trigger.
+     */
     private fun castMasteryAbility(caster: Player) {
         if (!plugin.queries.isInDungeon(caster)) return
-        when (plugin.classes.activeClass(caster.uniqueId)) {
-            ClassType.MAGE -> {
-                if (!plugin.classItems.isStaff(caster.inventory.itemInMainHand)) return
-                when (plugin.classes.subclass(caster.uniqueId)) {
-                    "support" -> castBlessing(caster)
-                    "attack" -> castMeteor(caster)
-                    else -> noMasteryYet(caster)
-                }
-            }
-            ClassType.ARCHER -> {
-                if (!plugin.classItems.isAllowedWeapon(ClassType.ARCHER, caster.inventory.itemInMainHand)) return
-                // Sharpshooter has no Shift+Right-click ability any more -
-                // Deadeye moved to two Left-Clicks (see CoreListener.
-                // castRangedAttack) - so this is never even called for
-                // "precision" (see hasShiftRightClickAbility): a sneaking
-                // Right-click needs to reach a REAL vanilla bow draw
-                // uninterrupted, or Skyfall could never trigger.
-                when (plugin.classes.subclass(caster.uniqueId)) {
-                    "stormcaller" -> castTempestVolley(caster)
-                    else -> noMasteryYet(caster)
-                }
-            }
-            else -> {}
+        if (plugin.classes.activeClass(caster.uniqueId) != ClassType.MAGE) return
+        if (!plugin.classItems.isStaff(caster.inventory.itemInMainHand)) return
+        when (plugin.classes.subclass(caster.uniqueId)) {
+            "support" -> castBlessing(caster)
+            "attack" -> castMeteor(caster)
+            else -> noMasteryYet(caster)
         }
     }
 
@@ -859,8 +847,20 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         caster.sendActionBar(Component.text("§6§lDEADEYE!"))
     }
 
-    /** Stormcaller's Tempest: a ground-usable fan of arrows - unlike Skyfall, no airborne or spent-Focus requirement. */
-    private fun castTempestVolley(caster: Player) {
+    /** Whether Tempest is off cooldown - CoreListener checks this before routing a double-Left-Click to Tempest instead of Focus Shot. */
+    fun isTempestReady(playerId: UUID): Boolean = (tempestCooldownUntil[playerId] ?: 0L) <= System.currentTimeMillis()
+
+    /**
+     * Stormcaller's Tempest: a ground-usable fan of arrows - unlike Skyfall,
+     * no airborne or spent-Focus requirement. Fires on the SECOND of two
+     * Left-Clicks (see CoreListener.castRangedAttack), taking priority over
+     * Focus Shot on that second click whenever it's off cooldown; it never
+     * reads or spends the Focus bar. Unlike Deadeye it has no aim/channel to
+     * open first - the double-click itself is what's deliberate enough, and
+     * a lone Left-Click, or the first of a pair, always just tries Focus
+     * Shot like before.
+     */
+    fun castTempestVolley(caster: Player) {
         val cfg = plugin.classesConfig
         val now = System.currentTimeMillis()
         val remaining = (tempestCooldownUntil[caster.uniqueId] ?: 0L) - now

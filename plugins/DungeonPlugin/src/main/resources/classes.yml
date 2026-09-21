@@ -6,7 +6,7 @@
 # replaced with this bundled copy on the next load - the balance numbers
 # here move often and are meant to be tuned in the plugin, not held on the
 # server across updates. (Raised whenever the bundled defaults change.)
-config-version: 19
+config-version: 20
 
 classes:
   # Turning this off leaves a dungeons-only server: no classes, no kits, no
@@ -491,10 +491,17 @@ abilities:
     deadeye-aim-forgiveness: 0.6
     deadeye-damage-multiplier: 2.2
     deadeye-damage-multiplier-per-mastery-level: 0.08
-    # --- Mastery: Shift + Right-click ----------------------------------
-    # Stormcaller's Tempest: a ground-usable fan of arrows, unlike
-    # Skyfall which needs airborne + a spent Focus bar.
+    # --- Mastery: double Left-Click --------------------------------------
+    # Stormcaller's Tempest: a ground-usable fan of arrows, unlike Skyfall
+    # which needs airborne + a spent Focus bar. Shares Focus Shot's
+    # trigger and takes priority over it without ever touching the Focus
+    # bar: the second Left-Click within tempest-double-click-window-
+    # seconds of the first fires Tempest instead, whenever it's off
+    # cooldown. Unlike Deadeye, Tempest has no aim/channel to gate the
+    # second click on - a lone Left-Click, or the first of a pair, always
+    # just tries Focus Shot like before.
     tempest-cooldown-seconds: 10.0
+    tempest-double-click-window-seconds: 0.4
     tempest-arrow-count: 5
     tempest-spread-degrees: 20.0
     tempest-damage-multiplier: 0.6
