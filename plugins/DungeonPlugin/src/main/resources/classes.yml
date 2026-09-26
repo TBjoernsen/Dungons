@@ -6,7 +6,7 @@
 # replaced with this bundled copy on the next load - the balance numbers
 # here move often and are meant to be tuned in the plugin, not held on the
 # server across updates. (Raised whenever the bundled defaults change.)
-config-version: 22
+config-version: 23
 
 classes:
   # Turning this off leaves a dungeons-only server: no classes, no kits, no
@@ -622,7 +622,7 @@ abilities:
     rise-mana-cost: 60.0
     rise-spawn-radius: 2.0
     rise-minion-reach: 2.5
-    rise-minion-search-radius: 16.0
+    rise-minion-search-radius: 32.0
     rise-minion-count: 2
     rise-minion-count-per-mastery-levels: 3     # +1 minion every N levels
     rise-minion-duration-seconds: 15.0
