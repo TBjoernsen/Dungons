@@ -6,7 +6,7 @@
 # replaced with this bundled copy on the next load - the balance numbers
 # here move often and are meant to be tuned in the plugin, not held on the
 # server across updates. (Raised whenever the bundled defaults change.)
-config-version: 24
+config-version: 25
 
 classes:
   # Turning this off leaves a dungeons-only server: no classes, no kits, no
@@ -628,9 +628,12 @@ abilities:
     rise-minion-count: 2
     rise-minion-count-per-mastery-levels: 3     # +1 minion every N levels
     rise-minion-duration-seconds: 15.0
-    rise-minion-damage: 3.0
-    rise-minion-health: 20.0
-    rise-minion-speed: 0.25                     # matches vanilla Skeleton's own base
+    # Comparable to a Difficulty 1 pack mob (health 32, damage 4) rather
+    # than a swarm mob (health 14, damage 2) - a fresh Necromancer's
+    # minions were losing straight fights even at the lowest difficulty.
+    rise-minion-damage: 5.0
+    rise-minion-health: 32.0
+    rise-minion-speed: 0.28                     # a little faster than vanilla Skeleton's own base, so they don't get kited
     # --- Mastery quest scaling ------------------------------------------
     # Claiming a mastery-quests.yml ladder step raises the player's mastery
     # level by 1 (0-10, one per claimed step). These per-level increments
@@ -644,7 +647,7 @@ abilities:
     blessing-duration-per-mastery-level: 1.5  # seconds
     blessing-amplifier-per-mastery-levels: 3  # +1 Blessing amplifier every N levels
     rise-minion-duration-per-mastery-level: 1.5  # seconds
-    rise-minion-damage-per-mastery-level: 0.4
-    rise-minion-health-per-mastery-level: 2.0
-    rise-minion-speed-per-mastery-level: 0.01
+    rise-minion-damage-per-mastery-level: 0.6
+    rise-minion-health-per-mastery-level: 3.0
+    rise-minion-speed-per-mastery-level: 0.012
     blessing-effect-count-per-mastery-levels: 4  # +1 simultaneous effect every N levels

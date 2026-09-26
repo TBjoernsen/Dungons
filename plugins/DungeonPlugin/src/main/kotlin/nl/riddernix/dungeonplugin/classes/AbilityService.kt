@@ -872,6 +872,7 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
             val distance = mob.location.distanceSquared(target.location)
             if (distance > reachSquared) mob.pathfinder.moveTo(target, 1.15)
             else if (cooldown-- <= 0) {
+                mob.swingMainHand()
                 target.damage(damage, mob)
                 if (target.isDead) {
                     Bukkit.getPlayer(ownerId)?.let { plugin.classes.addMasteryProgress(it, MasteryObjective.MINION_KILLS, 1) }
