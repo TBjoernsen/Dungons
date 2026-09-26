@@ -861,8 +861,8 @@ class PassiveService(private val plugin: DungeonPlugin) {
                 if (plugin.classes.subclass(player.uniqueId) == "necromancer") {
                     // No Arcane Charge/Surge for this branch (see addArcaneCharge) -
                     // its own signature-rank payoff isn't designed yet.
-                    if (plugin.classAbilities.isRiseReady(player.uniqueId)) "$mana | Rise §aready"
-                    else "$mana | Rise §7cooling down"
+                    if (plugin.classAbilities.isRiseReady(player.uniqueId)) "$mana | Rise: §aReady"
+                    else "$mana | Rise: §7Cooling down"
                 }
                 else if (rank == 0) "$mana | Unlock Arcane Charge Rank I"
                 else if (data.arcaneCharge >= chargeThreshold()) "$mana | §dSURGE armed"
