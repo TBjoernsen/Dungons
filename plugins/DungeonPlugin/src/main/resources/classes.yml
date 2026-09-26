@@ -6,7 +6,7 @@
 # replaced with this bundled copy on the next load - the balance numbers
 # here move often and are meant to be tuned in the plugin, not held on the
 # server across updates. (Raised whenever the bundled defaults change.)
-config-version: 21
+config-version: 22
 
 classes:
   # Turning this off leaves a dungeons-only server: no classes, no kits, no
@@ -345,6 +345,7 @@ mage:
   # this is what actually hands Battlemage the Magma Wand on mastery.
   subclass-wand-presets:
     attack: magma-wand
+    necromancer: bone-wand
   wand-presets:
     arcane-rod:
       name: "The Arcane Rod"
@@ -385,6 +386,26 @@ mage:
       trail-accent-every: 3
       trail-accent-2: small_flame
       surge-trail-color: "FFC24D"
+    bone-wand:
+      name: "The Bone Wand"
+      # Still the Breeze Rod for now, same as the default - Necromancer's own
+      # held item can wait; only the colour changes.
+      staff-item: BREEZE_ROD
+      orb-block: BONE_BLOCK
+      cast-sound: block_bone_block_hit
+      impact-sound: block_bone_block_break
+      impact-particle: SOUL        # the main impact burst - no witch purple here
+      impact-lava: false
+      impact-particles: 12
+      # Same density as arcane-rod's locked trail, just recoloured grey/bone -
+      # no purple anywhere on this preset.
+      trail-color: "C9C2B0"        # bone/ivory grey
+      trail-size: 1.1
+      trail-spacing: 0.35          # lower = denser
+      trail-accent: soul
+      trail-accent-every: 3
+      trail-accent-2: ash
+      surge-trail-color: "E8E2D0"  # unreachable while Necromancer has no Surge - kept for parity if that changes
   # --- Arcane Charge -> Arcane Surge --------------------------------
   # Arcane Bolts that HIT a mob build Charge (charge-per-hit), plus a little
   # per cast (charge-per-cast). At charge-threshold your next bolt fires as

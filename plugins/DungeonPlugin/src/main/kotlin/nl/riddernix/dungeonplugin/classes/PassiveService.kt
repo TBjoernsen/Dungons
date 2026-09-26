@@ -743,7 +743,11 @@ class PassiveService(private val plugin: DungeonPlugin) {
     }
 
     private fun addArcaneCharge(player: Player, amount: Double) {
-        if (amount <= 0.0 || plugin.classes.signatureRank(player.uniqueId) == 0) return
+        // Necromancer doesn't get Arcane Surge - its own signature-rank
+        // payoff isn't designed yet, so Charge simply never builds rather
+        // than arming a Battlemage/Enchanter effect that doesn't fit it.
+        if (amount <= 0.0 || plugin.classes.signatureRank(player.uniqueId) == 0 ||
+            plugin.classes.subclass(player.uniqueId) == "necromancer") return
         val data = plugin.classes.data(player.uniqueId)
         val threshold = chargeThreshold()
         if (data.arcaneCharge >= threshold) return
@@ -854,7 +858,13 @@ class PassiveService(private val plugin: DungeonPlugin) {
             }
             ClassType.MAGE -> {
                 val mana = "Mana: ${data.mana.roundToInt()}/${maxMana(rank).roundToInt()}"
-                if (rank == 0) "$mana | Unlock Arcane Charge Rank I"
+                if (plugin.classes.subclass(player.uniqueId) == "necromancer") {
+                    // No Arcane Charge/Surge for this branch (see addArcaneCharge) -
+                    // its own signature-rank payoff isn't designed yet.
+                    if (plugin.classAbilities.isRiseReady(player.uniqueId)) "$mana | Rise §aready"
+                    else "$mana | Rise §7cooling down"
+                }
+                else if (rank == 0) "$mana | Unlock Arcane Charge Rank I"
                 else if (data.arcaneCharge >= chargeThreshold()) "$mana | §dSURGE armed"
                 else "$mana | Charge ${data.arcaneCharge.roundToInt()}/${chargeThreshold().roundToInt()}"
             }

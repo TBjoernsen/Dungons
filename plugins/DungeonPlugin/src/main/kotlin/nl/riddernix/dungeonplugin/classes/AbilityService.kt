@@ -1022,6 +1022,10 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
     /** Whether Tempest is off cooldown - CoreListener checks this before routing a double-Left-Click to Tempest instead of Focus Shot. */
     fun isTempestReady(playerId: UUID): Boolean = (tempestCooldownUntil[playerId] ?: 0L) <= System.currentTimeMillis()
 
+    /** Whether Rise could actually fire right now - off cooldown AND no batch still alive. PassiveService's HUD readout checks this since Necromancer has no Arcane Charge to show instead. */
+    fun isRiseReady(playerId: UUID): Boolean =
+        (riseCooldownUntil[playerId] ?: 0L) <= System.currentTimeMillis() && activeMinions[playerId].isNullOrEmpty()
+
     /**
      * Stormcaller's Tempest: a ground-usable fan of arrows - unlike Skyfall,
      * no airborne or spent-Focus requirement. Fires on the SECOND of two
