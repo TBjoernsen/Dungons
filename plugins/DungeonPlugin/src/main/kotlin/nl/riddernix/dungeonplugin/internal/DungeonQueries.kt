@@ -88,6 +88,17 @@ class DungeonQueries(private val plugin: DungeonPlugin) {
             data.get(plugin.dungeonMobBossThemeKey, PersistentDataType.STRING), boss)
     }
 
+    /**
+     * True for a player-summoned ally (currently only the Necromancer's Rise
+     * minions) - never a valid target for anything that treats "isDungeonMob
+     * or a Monster/Mob" as "the enemy." Checked alongside that fallback
+     * everywhere an ability picks targets by entity type rather than by the
+     * dungeon-mob tag alone, since a vanilla Skeleton (what Rise summons)
+     * implements Monster/Mob just like any hostile one would.
+     */
+    fun isAllyMinion(entity: Entity): Boolean =
+        entity.persistentDataContainer.get(plugin.allyMinionKey, PersistentDataType.BYTE) == 1.toByte()
+
     /** UUIDs of the player's current party, or an empty list when they have no party. */
     fun partyMembers(player: Player): List<UUID> =
         plugin.parties.partyOf(player.uniqueId)?.members?.toList() ?: emptyList()

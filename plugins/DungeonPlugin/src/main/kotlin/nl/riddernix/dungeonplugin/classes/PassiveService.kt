@@ -335,7 +335,8 @@ class PassiveService(private val plugin: DungeonPlugin) {
                         entity.addPotionEffect(PotionEffect(PotionEffectType.REGENERATION, regenTicks, 0, true, false, true))
                     }
                 }
-                entity is LivingEntity && (plugin.queries.isDungeonMob(entity) || entity is Mob) ->
+                entity is LivingEntity && !plugin.queries.isAllyMinion(entity) &&
+                    (plugin.queries.isDungeonMob(entity) || entity is Mob) ->
                     if (mobDamage > 0.0) entity.damage(mobDamage, player)
             }
         }
@@ -364,6 +365,7 @@ class PassiveService(private val plugin: DungeonPlugin) {
                 if (slowAmp >= 0 || dot > 0.0) {
                     for (entity in world.getNearbyEntities(centre, radius, 4.0, radius)) {
                         if (entity !is LivingEntity || entity is Player) continue
+                        if (plugin.queries.isAllyMinion(entity)) continue
                         if (!plugin.queries.isDungeonMob(entity) && entity !is Mob) continue
                         val dx = entity.location.x - centre.x
                         val dz = entity.location.z - centre.z
@@ -526,7 +528,8 @@ class PassiveService(private val plugin: DungeonPlugin) {
         val world = where.world ?: return
         for (entity in world.getNearbyEntities(where, radius, radius, radius)) {
             val mob = entity as? LivingEntity ?: continue
-            if (mob is Player || (!plugin.queries.isDungeonMob(mob) && mob !is Mob)) continue
+            if (mob is Player || plugin.queries.isAllyMinion(mob) ||
+                (!plugin.queries.isDungeonMob(mob) && mob !is Mob)) continue
             mob.damage(damage, shooter)
             if (mob.isDead) {
                 plugin.classes.addMasteryProgress(shooter, MasteryObjective.SKYFALL_KILLS, 1)
@@ -1001,7 +1004,8 @@ class PassiveService(private val plugin: DungeonPlugin) {
         val centre = player.location
         centre.world?.getNearbyEntities(centre, radius, 3.0, radius)
             ?.filterIsInstance<LivingEntity>()
-            ?.filter { it != player && it !is Player && (plugin.queries.isDungeonMob(it) || it is Mob) }
+            ?.filter { it != player && it !is Player && !plugin.queries.isAllyMinion(it) &&
+                (plugin.queries.isDungeonMob(it) || it is Mob) }
             ?.forEach { mob ->
                 if (damage > 0.0) mob.damage(damage, player)
                 val push = mob.location.toVector().subtract(centre.toVector())

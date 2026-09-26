@@ -492,6 +492,27 @@ class FeedbackService(private val plugin: DungeonPlugin) {
         world.playSound(centre, Sound.ITEM_FIRECHARGE_USE, 0.7f, 0.6f)
     }
 
+    /** One Rise minion clawing up out of the ground at spawn. */
+    fun necromancerRiseSpawn(minion: LivingEntity) {
+        val at = minion.location.clone().add(0.0, 0.2, 0.0)
+        val world = minion.world
+        val bone = Particle.DustOptions(Color.fromRGB(210, 205, 190), 1.3f)
+        world.spawnParticle(Particle.DUST, at, 20, 0.3, 0.15, 0.3, 0.0, bone)
+        world.spawnParticle(Particle.SOUL, at, 12, 0.25, 0.3, 0.25, 0.02)
+        world.spawnParticle(Particle.SMOKE, at, 10, 0.25, 0.2, 0.25, 0.02)
+        world.playSound(at, Sound.ENTITY_SKELETON_AMBIENT, 1.0f, 0.6f)
+        world.playSound(at, Sound.BLOCK_BONE_BLOCK_BREAK, 0.9f, 0.7f)
+    }
+
+    /** A Rise minion crumbling apart at the end of its duration (as opposed to being killed, which just uses its normal death animation). */
+    fun necromancerMinionExpire(where: Location) {
+        val world = where.world ?: return
+        val bone = Particle.DustOptions(Color.fromRGB(210, 205, 190), 1.1f)
+        world.spawnParticle(Particle.DUST, where.clone().add(0.0, 0.6, 0.0), 16, 0.25, 0.35, 0.25, 0.0, bone)
+        world.spawnParticle(Particle.SOUL, where.clone().add(0.0, 0.6, 0.0), 10, 0.2, 0.3, 0.2, 0.02)
+        world.playSound(where, Sound.BLOCK_BONE_BLOCK_BREAK, 0.8f, 0.9f)
+    }
+
     fun tauntTriggered(player: Player) {
         val center = player.location.clone().add(0.0, 0.85, 0.0)
         val gold = Particle.DustOptions(Color.fromRGB(255, 205, 55), 1.55f)

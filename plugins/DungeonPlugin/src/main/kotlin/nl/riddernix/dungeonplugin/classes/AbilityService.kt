@@ -1,5 +1,8 @@
 package nl.riddernix.dungeonplugin.classes
 
+import com.destroystokyo.paper.entity.ai.Goal
+import com.destroystokyo.paper.entity.ai.GoalKey
+import com.destroystokyo.paper.entity.ai.GoalType
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.format.NamedTextColor
 import nl.riddernix.dungeonplugin.DungeonPlugin
@@ -15,19 +18,25 @@ import org.bukkit.attribute.Attribute
 import org.bukkit.attribute.AttributeModifier
 import org.bukkit.entity.Arrow
 import org.bukkit.entity.LivingEntity
+import org.bukkit.entity.Mob
 import org.bukkit.entity.Monster
 import org.bukkit.entity.Player
+import org.bukkit.entity.Skeleton
 import org.bukkit.event.EventHandler
 import org.bukkit.event.EventPriority
 import org.bukkit.event.Listener
 import org.bukkit.event.block.Action
+import org.bukkit.event.entity.EntityDeathEvent
 import org.bukkit.event.player.PlayerInteractEntityEvent
 import org.bukkit.event.player.PlayerInteractEvent
 import org.bukkit.event.player.PlayerSwapHandItemsEvent
 import org.bukkit.inventory.EquipmentSlot
+import org.bukkit.inventory.ItemStack
+import org.bukkit.persistence.PersistentDataType
 import org.bukkit.potion.PotionEffect
 import org.bukkit.potion.PotionEffectType
 import org.bukkit.util.Vector
+import java.util.EnumSet
 import java.util.Locale
 import java.util.UUID
 import kotlin.math.ceil
@@ -69,7 +78,11 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
     private val meteorCooldownUntil = HashMap<UUID, Long>()
     private val deadeyeCooldownUntil = HashMap<UUID, Long>()
     private val tempestCooldownUntil = HashMap<UUID, Long>()
+    private val riseCooldownUntil = HashMap<UUID, Long>()
     private val shieldExpiry = HashMap<UUID, Long>()
+
+    /** Necromancer only: caster -> the UUIDs of their currently-alive Rise minions. A fresh Rise refuses to cast while this is non-empty. */
+    private val activeMinions = HashMap<UUID, MutableList<UUID>>()
 
     /** Per Archer: the wall-clock ms until which a Wind Jump still counts for a Skyfall shot. */
     private val windJumpUntil = HashMap<UUID, Long>()
@@ -168,11 +181,13 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         meteorCooldownUntil.remove(player.uniqueId)
         deadeyeCooldownUntil.remove(player.uniqueId)
         tempestCooldownUntil.remove(player.uniqueId)
+        riseCooldownUntil.remove(player.uniqueId)
         windJumpUntil.remove(player.uniqueId)
         windDashCharges.remove(player.uniqueId)
         windDashChargeReadyAt.remove(player.uniqueId)
         updateHoveredHealTarget(player, null)
         cancelDeadeyeAim(player.uniqueId, null)
+        dismissMinions(player.uniqueId)
     }
 
     /**
@@ -242,6 +257,15 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
     private fun hasShiftRightClickAbility(player: Player): Boolean =
         plugin.classes.activeClass(player.uniqueId) == ClassType.MAGE
 
+    /** A Rise minion's death: no vanilla loot/exp (it was never really a mob), and its slot frees up immediately rather than waiting for the batch's duration timer. */
+    @EventHandler(priority = EventPriority.MONITOR)
+    fun onMinionDeath(event: EntityDeathEvent) {
+        if (!plugin.queries.isAllyMinion(event.entity)) return
+        event.drops.clear()
+        event.droppedExp = 0
+        for (batch in activeMinions.values) batch.remove(event.entity.uniqueId)
+    }
+
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     fun onSwapHands(event: PlayerSwapHandItemsEvent) {
         val player = event.player
@@ -303,7 +327,8 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
 
         val hits = player.getNearbyEntities(radius, 1.6, radius)
             .filterIsInstance<LivingEntity>()
-            .filter { it != player && it !is Player && (plugin.queries.isDungeonMob(it) || it is Monster) }
+            .filter { it != player && it !is Player && !plugin.queries.isAllyMinion(it) &&
+                (plugin.queries.isDungeonMob(it) || it is Monster) }
         hits.forEach { enemy ->
             enemy.damage(damage, player)
             val push = direction.clone().multiply(if (berserk) 0.55 else 0.35)
@@ -453,7 +478,8 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         val origin = player.location
         player.getNearbyEntities(radius, radius, radius)
             .filterIsInstance<LivingEntity>()
-            .filter { it != player && it !is Player && (plugin.queries.isDungeonMob(it) || it is Monster) }
+            .filter { it != player && it !is Player && !plugin.queries.isAllyMinion(it) &&
+                (plugin.queries.isDungeonMob(it) || it is Monster) }
             .forEach { mob ->
                 val away = mob.location.toVector().subtract(origin.toVector())
                 if (away.lengthSquared() > 1e-6) away.normalize() else away.zero()
@@ -638,6 +664,7 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         when (plugin.classes.subclass(caster.uniqueId)) {
             "support" -> castBlessing(caster)
             "attack" -> castMeteor(caster)
+            "necromancer" -> castRise(caster)
             else -> noMasteryYet(caster)
         }
     }
@@ -717,6 +744,146 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         MeteorSequence.launch(plugin, caster, impact)
         caster.sendActionBar(Component.text("Meteor! (-${cost.toInt()} Mana)", NamedTextColor.GOLD))
         plugin.refreshClassPlayer(caster)
+    }
+
+    /**
+     * Necromancer's Rise: raises a small batch of skeletal allies that fight
+     * for the caster until they fall or the batch's duration runs out.
+     * Refuses to cast at all while the caster's last batch is still alive -
+     * see the class doc on [riseCooldownUntil]'s neighbour, [activeMinions],
+     * for why the cooldown itself is deliberately left fixed instead of
+     * scaling with mastery.
+     */
+    private fun castRise(caster: Player) {
+        val cfg = plugin.classesConfig
+        val now = System.currentTimeMillis()
+        val remaining = (riseCooldownUntil[caster.uniqueId] ?: 0L) - now
+        if (remaining > 0) {
+            caster.sendActionBar(Component.text("Rise ready in ${ceil(remaining / 1000.0).toInt()}s.", NamedTextColor.GRAY))
+            return
+        }
+        if (!activeMinions[caster.uniqueId].isNullOrEmpty()) {
+            caster.sendActionBar(Component.text("Your risen minions still fight - wait for them to fall.", NamedTextColor.GRAY))
+            return
+        }
+        val data = plugin.classes.data(caster.uniqueId)
+        val cost = cfg.getDouble("abilities.mage.rise-mana-cost", 60.0).coerceAtLeast(0.0)
+        if (data.mana < cost) {
+            caster.sendActionBar(Component.text("Not enough Mana (${cost.toInt()} required).", NamedTextColor.RED))
+            return
+        }
+        data.mana -= cost
+        val cooldownMillis = (cfg.getDouble("abilities.mage.rise-cooldown-seconds", 45.0).coerceAtLeast(0.0) * 1000).toLong()
+        riseCooldownUntil[caster.uniqueId] = now + cooldownMillis
+
+        val masteryLevel = plugin.classes.masteryLevelFor(caster.uniqueId, "necromancer")
+        val levelsPerMinion = cfg.getInt("abilities.mage.rise-minion-count-per-mastery-levels", 3).coerceAtLeast(1)
+        val count = (cfg.getInt("abilities.mage.rise-minion-count", 2) + masteryLevel / levelsPerMinion).coerceAtLeast(1)
+        val durationTicks = ((cfg.getDouble("abilities.mage.rise-minion-duration-seconds", 15.0) +
+            cfg.getDouble("abilities.mage.rise-minion-duration-per-mastery-level", 1.5) * masteryLevel) * 20).toLong().coerceAtLeast(20L)
+        val damage = cfg.getDouble("abilities.mage.rise-minion-damage", 3.0) +
+            cfg.getDouble("abilities.mage.rise-minion-damage-per-mastery-level", 0.4) * masteryLevel
+        val health = cfg.getDouble("abilities.mage.rise-minion-health", 20.0) +
+            cfg.getDouble("abilities.mage.rise-minion-health-per-mastery-level", 2.0) * masteryLevel
+        val speed = cfg.getDouble("abilities.mage.rise-minion-speed", 0.25) +
+            cfg.getDouble("abilities.mage.rise-minion-speed-per-mastery-level", 0.01) * masteryLevel
+        val reach = cfg.getDouble("abilities.mage.rise-minion-reach", 2.5).coerceAtLeast(1.0)
+        val searchRadius = cfg.getDouble("abilities.mage.rise-minion-search-radius", 16.0).coerceAtLeast(1.0)
+        val spawnRadius = cfg.getDouble("abilities.mage.rise-spawn-radius", 2.0).coerceAtLeast(0.0)
+
+        val casterId = caster.uniqueId
+        val batch = activeMinions.getOrPut(casterId) { ArrayList() }
+        repeat(count) {
+            val angle = Math.random() * 2 * Math.PI
+            val offset = Vector(kotlin.math.cos(angle) * spawnRadius, 0.0, kotlin.math.sin(angle) * spawnRadius)
+            val at = caster.location.clone().add(offset)
+            val minion = caster.world.spawn(at, Skeleton::class.java) { skeleton ->
+                skeleton.persistentDataContainer.set(plugin.allyMinionKey, PersistentDataType.BYTE, 1)
+                skeleton.customName(Component.text("Risen Skeleton", NamedTextColor.GRAY))
+                skeleton.isCustomNameVisible = true
+                skeleton.canPickupItems = false
+                skeleton.removeWhenFarAway = true
+                skeleton.equipment?.setItemInMainHand(ItemStack(Material.STONE_SWORD))
+                skeleton.equipment?.itemInMainHandDropChance = 0f
+                skeleton.addPotionEffect(PotionEffect(PotionEffectType.FIRE_RESISTANCE, Int.MAX_VALUE, 0, true, false, false))
+                setAttributeIfPresent(skeleton, Attribute.MAX_HEALTH, health)
+                skeleton.health = health
+                setAttributeIfPresent(skeleton, Attribute.MOVEMENT_SPEED, speed)
+            }
+            Bukkit.getMobGoals().removeAllGoals(minion)
+            Bukkit.getMobGoals().addGoal(minion, 1, AllyMeleeGoal(minion, plugin, damage, reach, searchRadius,
+                NamespacedKey(plugin, "necromancer_minion_attack"), Skeleton::class.java))
+            batch.add(minion.uniqueId)
+            plugin.classFeedback.necromancerRiseSpawn(minion)
+
+            plugin.server.scheduler.runTaskLater(plugin, Runnable {
+                if (minion.isValid && !minion.isDead) {
+                    plugin.classFeedback.necromancerMinionExpire(minion.location)
+                    minion.remove()
+                }
+                activeMinions[casterId]?.remove(minion.uniqueId)
+            }, durationTicks)
+        }
+        caster.sendActionBar(Component.text("§8§lRISE §7(-${cost.toInt()} Mana)", NamedTextColor.GRAY))
+        plugin.refreshClassPlayer(caster)
+    }
+
+    /** Force-removes every minion this player currently has up - class switch, hard reset, or disconnect. */
+    private fun dismissMinions(playerId: UUID) {
+        val batch = activeMinions.remove(playerId) ?: return
+        for (id in batch) {
+            (Bukkit.getEntity(id) as? Skeleton)?.remove()
+        }
+    }
+
+    private fun setAttributeIfPresent(entity: LivingEntity, attribute: Attribute, value: Double) {
+        entity.getAttribute(attribute)?.baseValue = value
+    }
+
+    /**
+     * A Necromancer minion's targeting: the nearest hostile dungeon mob
+     * within [range], not the nearest player - the mirror image of the
+     * boss-facing HostileMeleeGoal in DungeonMobManager. isAllyMinion is
+     * checked so minions never attack each other.
+     */
+    private class AllyMeleeGoal<T : Mob>(
+        private val mob: T,
+        private val plugin: DungeonPlugin,
+        private val damage: Double,
+        reach: Double,
+        private val range: Double,
+        key: NamespacedKey,
+        type: Class<T>
+    ) : Goal<T> {
+        private val key: GoalKey<T> = GoalKey.of(type, key)
+        private var cooldown = 0
+        private val reachSquared = reach * reach
+
+        override fun shouldActivate(): Boolean = nearest() != null
+        override fun shouldStayActive(): Boolean = nearest() != null
+
+        override fun tick() {
+            val target = nearest() ?: return
+            mob.target = target
+            mob.isAggressive = true
+            mob.lookAt(target)
+            val distance = mob.location.distanceSquared(target.location)
+            if (distance > reachSquared) mob.pathfinder.moveTo(target, 1.15)
+            else if (cooldown-- <= 0) {
+                target.damage(damage, mob)
+                cooldown = 20
+            }
+        }
+
+        private fun nearest(): LivingEntity? =
+            mob.world.getNearbyEntities(mob.location, range, range, range)
+                .filterIsInstance<LivingEntity>()
+                .filter { it !is Player && !plugin.queries.isAllyMinion(it) &&
+                    (plugin.queries.isDungeonMob(it) || it is Monster) }
+                .minByOrNull { it.location.distanceSquared(mob.location) }
+
+        override fun getKey(): GoalKey<T> = key
+        override fun getTypes(): EnumSet<GoalType> = EnumSet.of(GoalType.MOVE, GoalType.LOOK, GoalType.TARGET)
     }
 
     /** Whether Deadeye is off cooldown - CoreListener checks this (with [isWindJumping]) before routing a Left-Click to [startDeadeyeAim] instead of Focus Shot. */
@@ -819,7 +986,7 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         val eye = caster.eyeLocation
         val hit = caster.world.rayTraceEntities(eye, eye.direction, range, forgiveness) { entity ->
             entity is LivingEntity && entity !== caster && entity !is Player && !entity.isDead &&
-                (plugin.queries.isDungeonMob(entity) || entity is Monster)
+                !plugin.queries.isAllyMinion(entity) && (plugin.queries.isDungeonMob(entity) || entity is Monster)
         } ?: return null
         val mob = hit.hitEntity as? LivingEntity ?: return null
         val distance = eye.distance(mob.eyeLocation)

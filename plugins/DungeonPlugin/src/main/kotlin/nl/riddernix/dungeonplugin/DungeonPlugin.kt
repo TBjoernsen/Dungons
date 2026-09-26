@@ -160,6 +160,8 @@ class DungeonPlugin : JavaPlugin() {
         private set
     lateinit var dungeonMobTestKey: NamespacedKey
         private set
+    lateinit var allyMinionKey: NamespacedKey
+        private set
     lateinit var panelIdKey: NamespacedKey
         private set
     lateinit var panelRoleKey: NamespacedKey
@@ -222,6 +224,7 @@ class DungeonPlugin : JavaPlugin() {
         dungeonMobBossThemeKey = NamespacedKey(this, "dungeon_mob_boss_theme")
         dungeonMobCategoryKey = NamespacedKey(this, "dungeon_mob_category")
         dungeonMobTestKey = NamespacedKey(this, "dungeon_mob_test")
+        allyMinionKey = NamespacedKey(this, "ally_minion")
         // Built before anything that can fire: every event goes through the
         // bus, and every snapshot handed out is built by the snapshotter.
         events = DungeonEventBus(this)

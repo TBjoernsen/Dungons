@@ -6,7 +6,7 @@
 # replaced with this bundled copy on the next load - the balance numbers
 # here move often and are meant to be tuned in the plugin, not held on the
 # server across updates. (Raised whenever the bundled defaults change.)
-config-version: 20
+config-version: 21
 
 classes:
   # Turning this off leaves a dungeons-only server: no classes, no kits, no
@@ -410,8 +410,10 @@ mage:
   # At unlock-level, within range of the skill tree (mastery.select-radius
   # below), a Mage picks one branch. Attack gets the Magma Wand (see
   # subclass-wand-presets above) and a harder/further Surge; support keeps
-  # the arcane-rod look and a mending Surge. Both get a Shift+Right-click
-  # ability (abilities.mage.blessing-*/meteor-* below). Swapping branches
+  # the arcane-rod look and a mending Surge; necromancer keeps the arcane-
+  # rod look too and commands temporary allies instead of casting on
+  # anyone directly. All three get a Shift+Right-click ability
+  # (abilities.mage.blessing-*/meteor-*/rise-* below). Swapping branches
   # later costs reset-soul-shard-cost Soul Shards (see /skills mastery).
   subclasses:
     unlock-level: 100
@@ -423,6 +425,9 @@ mage:
       support:
         name: "Enchanter"
         description: "Arcane Surge mends allies instead of striking foes."
+      necromancer:
+        name: "Necromancer"
+        description: "Rise calls skeletal allies to fight at your side."
 
 # F-key (Swap Hands) abilities per class. Right-clicking the tagged Mage
 # staff casts Healing Spell.
@@ -582,6 +587,27 @@ abilities:
     meteor-ally-damage-fraction: 0.25
     meteor-knockback: 0.7
     meteor-knockup: 0.35
+    # Necromancer's Rise. Raises rise-minion-count Skeletons (allies, never
+    # counted as dungeon mobs or targetable by anything that treats "a
+    # Monster" as "the enemy") around the caster; each fights whatever
+    # hostile dungeon mob is nearest within rise-minion-search-radius,
+    # dealing rise-minion-damage in melee at rise-minion-reach. They fall
+    # apart on their own after rise-minion-duration-seconds, or sooner if
+    # something kills them first. A fresh Rise refuses to cast at all while
+    # any of the current batch are still alive - the cooldown itself
+    # never changes with mastery, but stronger minions surviving closer to
+    # (or past) it means the felt downtime shrinks anyway.
+    rise-cooldown-seconds: 45.0
+    rise-mana-cost: 60.0
+    rise-spawn-radius: 2.0
+    rise-minion-reach: 2.5
+    rise-minion-search-radius: 16.0
+    rise-minion-count: 2
+    rise-minion-count-per-mastery-levels: 3     # +1 minion every N levels
+    rise-minion-duration-seconds: 15.0
+    rise-minion-damage: 3.0
+    rise-minion-health: 20.0
+    rise-minion-speed: 0.25                     # matches vanilla Skeleton's own base
     # --- Mastery quest scaling ------------------------------------------
     # Claiming a mastery-quests.yml ladder step raises the player's mastery
     # level by 1 (0-10, one per claimed step). These per-level increments
@@ -594,4 +620,8 @@ abilities:
     heal-amplifier-per-mastery-levels: 5      # +1 Heal amplifier every N levels
     blessing-duration-per-mastery-level: 1.5  # seconds
     blessing-amplifier-per-mastery-levels: 3  # +1 Blessing amplifier every N levels
+    rise-minion-duration-per-mastery-level: 1.5  # seconds
+    rise-minion-damage-per-mastery-level: 0.4
+    rise-minion-health-per-mastery-level: 2.0
+    rise-minion-speed-per-mastery-level: 0.01
     blessing-effect-count-per-mastery-levels: 4  # +1 simultaneous effect every N levels
