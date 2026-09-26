@@ -430,9 +430,9 @@ class FeedbackService(private val plugin: DungeonPlugin) {
             w.spawnParticle(puff, origin.clone().add(0.0, 1.0, 0.0), 26, 0.3, 0.6, 0.3, 0.05)
             w.playSound(origin, when {
                 fiery -> Sound.ITEM_FIRECHARGE_USE
-                necro -> Sound.ENTITY_WITHER_AMBIENT
+                necro -> Sound.ENTITY_WITHER_SHOOT
                 else -> Sound.ENTITY_ENDERMAN_TELEPORT
-            }, 0.55f, if (fiery) 0.9f else if (necro) 0.8f else 1.6f)
+            }, 0.55f, if (fiery) 0.9f else if (necro) 0.7f else 1.6f)
         }
         destination.world?.let { w ->
             w.spawnParticle(puff, destination.clone().add(0.0, 1.0, 0.0), 26, 0.3, 0.6, 0.3, 0.05)
@@ -443,9 +443,9 @@ class FeedbackService(private val plugin: DungeonPlugin) {
             }, destination.clone().add(0.0, 1.0, 0.0), if (fiery) 6 else 12, 0.25, 0.5, 0.25, 0.03)
             w.playSound(destination, when {
                 fiery -> Sound.ENTITY_BLAZE_SHOOT
-                necro -> Sound.ENTITY_WITHER_BREAK_BLOCK
+                necro -> Sound.ENTITY_WITHER_SPAWN
                 else -> Sound.BLOCK_AMETHYST_BLOCK_CHIME
-            }, 0.6f, if (fiery) 1.2f else if (necro) 0.7f else 1.4f)
+            }, if (necro) 0.35f else 0.6f, if (fiery) 1.2f else if (necro) 0.8f else 1.4f)
         }
     }
 
@@ -530,8 +530,10 @@ class FeedbackService(private val plugin: DungeonPlugin) {
         world.spawnParticle(Particle.DUST, at, 20, 0.3, 0.15, 0.3, 0.0, bone)
         world.spawnParticle(Particle.SOUL, at, 12, 0.25, 0.3, 0.25, 0.02)
         world.spawnParticle(Particle.SMOKE, at, 10, 0.25, 0.2, 0.25, 0.02)
-        world.playSound(at, Sound.ENTITY_SKELETON_AMBIENT, 1.0f, 0.6f)
-        world.playSound(at, Sound.ENTITY_WITHER_BREAK_BLOCK, 0.9f, 0.7f)
+        // Volumes kept modest - a full batch spawns several of these in the
+        // same tick, and ENTITY_WITHER_SPAWN alone is already a big sound.
+        world.playSound(at, Sound.ENTITY_SKELETON_AMBIENT, 0.6f, 0.6f)
+        world.playSound(at, Sound.ENTITY_WITHER_SPAWN, 0.4f, 1.1f)
     }
 
     /** A Rise minion crumbling apart at the end of its duration (as opposed to being killed, which just uses its normal death animation). */

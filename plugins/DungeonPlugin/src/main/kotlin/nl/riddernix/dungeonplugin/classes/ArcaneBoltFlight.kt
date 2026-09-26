@@ -52,6 +52,7 @@ class ArcaneBoltFlight private constructor(
     private val muzzleOffset = cfg.getDouble("mage.bolt.muzzle-offset", 1.4).coerceIn(0.0, 4.0)
     private val trailStartGap = cfg.getDouble("mage.bolt.trail.start-gap", 1.0).coerceIn(0.0, 8.0)
     private val fiery = cfg.mageWandBoolean("impact-lava", false, subclassId)
+    private val necro = subclassId == "necromancer"
     private var pos: Location = shooter.eyeLocation.clone()
         .add(direction.clone().multiply(muzzleOffset)).apply { y -= 0.15 }
     private var travelled = 0.0
@@ -139,8 +140,11 @@ class ArcaneBoltFlight private constructor(
                 }
             }
             playSound(cfg.mageWandString("impact-sound", "block_amethyst_block_hit", subclassId),
-                if (surge) 0.9f else if (fiery) 0.45f else 0.9f, if (surge) 0.7f else 1.1f)
+                if (surge) 0.9f else if (fiery || necro) 0.45f else 0.9f, if (surge) 0.7f else 1.1f)
             if (surge) playSound(if (fiery) "entity_blaze_shoot" else "block_beacon_activate", 0.6f, if (fiery) 0.7f else 1.5f)
+            // A second, quieter layer so the impact doesn't read as one lone
+            // note - a bony rattle under the Wither screech.
+            if (necro) playSound("entity_skeleton_ambient", 0.35f, 1.3f)
         }
     }
 

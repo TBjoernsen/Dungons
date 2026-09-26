@@ -790,10 +790,15 @@ class PassiveService(private val plugin: DungeonPlugin) {
     }
 
     private fun castBoltSound(player: Player) {
-        val raw = plugin.classesConfig.mageWandString("cast-sound", "block_amethyst_block_chime", plugin.classes.subclass(player.uniqueId))
+        val subclassId = plugin.classes.subclass(player.uniqueId)
+        val raw = plugin.classesConfig.mageWandString("cast-sound", "block_amethyst_block_chime", subclassId)
         val sound = if (raw.isBlank()) null
         else org.bukkit.Registry.SOUNDS.get(org.bukkit.NamespacedKey.minecraft(raw.lowercase().replace('_', '.')))
-        if (sound != null) player.world.playSound(player.location, sound, 0.7f, 1.2f)
+        val necro = subclassId == "necromancer"
+        if (sound != null) player.world.playSound(player.location, sound, if (necro) 0.45f else 0.7f, 1.2f)
+        // A second, quieter layer so the cast doesn't read as one lone note -
+        // a bony rattle under the Wither's shoot cue.
+        if (necro) player.world.playSound(player.location, Sound.ENTITY_SKELETON_AMBIENT, 0.3f, 1.4f)
     }
 
     /**
