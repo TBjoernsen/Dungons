@@ -430,7 +430,7 @@ class FeedbackService(private val plugin: DungeonPlugin) {
             w.spawnParticle(puff, origin.clone().add(0.0, 1.0, 0.0), 26, 0.3, 0.6, 0.3, 0.05)
             w.playSound(origin, when {
                 fiery -> Sound.ITEM_FIRECHARGE_USE
-                necro -> Sound.ENTITY_VEX_CHARGE
+                necro -> Sound.ENTITY_WITHER_AMBIENT
                 else -> Sound.ENTITY_ENDERMAN_TELEPORT
             }, 0.55f, if (fiery) 0.9f else if (necro) 0.8f else 1.6f)
         }
@@ -443,7 +443,7 @@ class FeedbackService(private val plugin: DungeonPlugin) {
             }, destination.clone().add(0.0, 1.0, 0.0), if (fiery) 6 else 12, 0.25, 0.5, 0.25, 0.03)
             w.playSound(destination, when {
                 fiery -> Sound.ENTITY_BLAZE_SHOOT
-                necro -> Sound.BLOCK_BONE_BLOCK_BREAK
+                necro -> Sound.ENTITY_WITHER_BREAK_BLOCK
                 else -> Sound.BLOCK_AMETHYST_BLOCK_CHIME
             }, 0.6f, if (fiery) 1.2f else if (necro) 0.7f else 1.4f)
         }
@@ -469,7 +469,7 @@ class FeedbackService(private val plugin: DungeonPlugin) {
         world.playSound(centre, Sound.ENTITY_GENERIC_EXPLODE, 0.55f, if (fiery) 1.1f else if (necro) 0.8f else 1.4f)
         world.playSound(centre, when {
             fiery -> Sound.BLOCK_LAVA_POP
-            necro -> Sound.ENTITY_SKELETON_AMBIENT
+            necro -> Sound.ENTITY_WITHER_HURT
             else -> Sound.ENTITY_ILLUSIONER_MIRROR_MOVE
         }, 0.7f, 0.9f)
     }
@@ -531,7 +531,7 @@ class FeedbackService(private val plugin: DungeonPlugin) {
         world.spawnParticle(Particle.SOUL, at, 12, 0.25, 0.3, 0.25, 0.02)
         world.spawnParticle(Particle.SMOKE, at, 10, 0.25, 0.2, 0.25, 0.02)
         world.playSound(at, Sound.ENTITY_SKELETON_AMBIENT, 1.0f, 0.6f)
-        world.playSound(at, Sound.BLOCK_BONE_BLOCK_BREAK, 0.9f, 0.7f)
+        world.playSound(at, Sound.ENTITY_WITHER_BREAK_BLOCK, 0.9f, 0.7f)
     }
 
     /** A Rise minion crumbling apart at the end of its duration (as opposed to being killed, which just uses its normal death animation). */
@@ -540,7 +540,7 @@ class FeedbackService(private val plugin: DungeonPlugin) {
         val bone = Particle.DustOptions(Color.fromRGB(210, 205, 190), 1.1f)
         world.spawnParticle(Particle.DUST, where.clone().add(0.0, 0.6, 0.0), 16, 0.25, 0.35, 0.25, 0.0, bone)
         world.spawnParticle(Particle.SOUL, where.clone().add(0.0, 0.6, 0.0), 10, 0.2, 0.3, 0.2, 0.02)
-        world.playSound(where, Sound.BLOCK_BONE_BLOCK_BREAK, 0.8f, 0.9f)
+        world.playSound(where, Sound.ENTITY_WITHER_HURT, 0.7f, 0.9f)
     }
 
     fun tauntTriggered(player: Player) {

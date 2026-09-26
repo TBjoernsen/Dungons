@@ -6,7 +6,7 @@
 # replaced with this bundled copy on the next load - the balance numbers
 # here move often and are meant to be tuned in the plugin, not held on the
 # server across updates. (Raised whenever the bundled defaults change.)
-config-version: 23
+config-version: 24
 
 classes:
   # Turning this off leaves a dungeons-only server: no classes, no kits, no
@@ -392,8 +392,10 @@ mage:
       # held item can wait; only the colour changes.
       staff-item: BREEZE_ROD
       orb-block: BONE_BLOCK
-      cast-sound: block_bone_block_hit
-      impact-sound: block_bone_block_break
+      # Wither-flavoured rather than plain bone-block clacks - the shoot
+      # sound is literally the Wither's own projectile cue.
+      cast-sound: entity_wither_shoot
+      impact-sound: entity_wither_hurt
       impact-particle: SOUL        # the main impact burst - no witch purple here
       impact-lava: false
       impact-particles: 12
