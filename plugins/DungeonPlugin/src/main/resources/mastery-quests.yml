@@ -15,7 +15,7 @@
 # *-per-mastery-level keys in classes.yml). This is a starting set -
 # numbers and titles are all meant to be retuned after real testing.
 
-mastery-quests-version: 2
+mastery-quests-version: 3
 
 mage:
   attack:
@@ -44,6 +44,23 @@ mage:
       - { objective: heal_amount, required: 7500,  title: "Wellspring",      description: "Heal 7,500 HP." }
       - { objective: heal_amount, required: 10500, title: "Radiant Grace",   description: "Heal 10,500 HP." }
       - { objective: heal_amount, required: 14500, title: "Font of Life",    description: "Heal 14,500 HP." }
+  # Necromancer interleaves two objectives for now - how many minions
+  # you've raised in total, and how many kills they've landed for you.
+  # A third objective (something Soul-related) may join this ladder
+  # later without disturbing these two.
+  necromancer:
+    reward-xp: 150
+    ladder:
+      - { objective: minions_summoned, required: 6,   title: "First Rising",         description: "Summon 6 minions total." }
+      - { objective: minion_kills,     required: 10,  title: "Blood for Bone",       description: "Have your minions kill 10 enemies." }
+      - { objective: minions_summoned, required: 14,  title: "Growing Legion",       description: "Summon 14 minions total." }
+      - { objective: minion_kills,     required: 25,  title: "Feeding the Horde",    description: "Have your minions kill 25 enemies." }
+      - { objective: minions_summoned, required: 24,  title: "Endless Rising",       description: "Summon 24 minions total." }
+      - { objective: minion_kills,     required: 50,  title: "Undying Wrath",        description: "Have your minions kill 50 enemies." }
+      - { objective: minions_summoned, required: 36,  title: "Grim Multitude",       description: "Summon 36 minions total." }
+      - { objective: minion_kills,     required: 90,  title: "Legion's Reckoning",   description: "Have your minions kill 90 enemies." }
+      - { objective: minions_summoned, required: 50,  title: "Master of the Fallen", description: "Summon 50 minions total." }
+      - { objective: minion_kills,     required: 150, title: "Army of the Dead",     description: "Have your minions kill 150 enemies." }
 
 archer:
   # Sharpshooter interleaves all three of its signature tools: Deadeye's

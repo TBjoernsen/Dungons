@@ -811,7 +811,7 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
                 setAttributeIfPresent(skeleton, Attribute.MOVEMENT_SPEED, speed)
             }
             Bukkit.getMobGoals().removeAllGoals(minion)
-            Bukkit.getMobGoals().addGoal(minion, 1, AllyMeleeGoal(minion, plugin, damage, reach, searchRadius,
+            Bukkit.getMobGoals().addGoal(minion, 1, AllyMeleeGoal(minion, plugin, casterId, damage, reach, searchRadius,
                 NamespacedKey(plugin, "necromancer_minion_attack"), Skeleton::class.java))
             batch.add(minion.uniqueId)
             plugin.classFeedback.necromancerRiseSpawn(minion)
@@ -824,6 +824,7 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
                 activeMinions[casterId]?.remove(minion.uniqueId)
             }, durationTicks)
         }
+        plugin.classes.addMasteryProgress(caster, MasteryObjective.MINIONS_SUMMONED, count)
         caster.sendActionBar(Component.text("§8§lRISE §7(-${cost.toInt()} Mana)", NamedTextColor.GRAY))
         plugin.refreshClassPlayer(caster)
     }
@@ -849,6 +850,7 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
     private class AllyMeleeGoal<T : Mob>(
         private val mob: T,
         private val plugin: DungeonPlugin,
+        private val ownerId: UUID,
         private val damage: Double,
         reach: Double,
         private val range: Double,
@@ -871,6 +873,9 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
             if (distance > reachSquared) mob.pathfinder.moveTo(target, 1.15)
             else if (cooldown-- <= 0) {
                 target.damage(damage, mob)
+                if (target.isDead) {
+                    Bukkit.getPlayer(ownerId)?.let { plugin.classes.addMasteryProgress(it, MasteryObjective.MINION_KILLS, 1) }
+                }
                 cooldown = 20
             }
         }
