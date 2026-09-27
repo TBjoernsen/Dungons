@@ -574,10 +574,12 @@ abilities:
     # Guardian's Shockwave: a Reinhardt-Earthshatter-style frontal cone in
     # whatever direction the Paladin is facing (not centred on them) -
     # shockwave-range long, shockwave-angle-degrees wide, both widening
-    # further with mastery. Everything it hits takes damage, a knock-up
-    # and knockback, and is knocked down for shockwave-stun-seconds (AI
-    # switched off entirely, not just slowed - a real "can't act" window
-    # for the team to punish).
+    # further with mastery. Everything it hits takes damage and is
+    # launched up and back (knock-up, knockback) on the spot - the
+    # knockdown itself waits until each mob actually lands, then keeps its
+    # AI switched off entirely (not just slowed) for shockwave-stun-
+    # seconds - a real "can't act" window for the team to punish, that
+    # begins on landing rather than mid-air.
     shockwave-cooldown-seconds: 15.0
     shockwave-range: 10.0
     shockwave-angle-degrees: 120.0

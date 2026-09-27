@@ -372,6 +372,9 @@ class DungeonPlugin : JavaPlugin() {
             // Rouge's Earthquake Daze - dazed mobs need their target cleared
             // often enough that a fresh one never really sticks.
             server.scheduler.runTaskTimer(this, Runnable { classAbilities.tickDazedMobs() }, 4L, 4L)
+            // Guardian's Shockwave - a launched mob's landing needs to be
+            // caught promptly, so this runs faster than the others.
+            server.scheduler.runTaskTimer(this, Runnable { classAbilities.tickPendingKnockdowns() }, 2L, 2L)
         }
 
         server.scheduler.runTaskTimer(this, Runnable {

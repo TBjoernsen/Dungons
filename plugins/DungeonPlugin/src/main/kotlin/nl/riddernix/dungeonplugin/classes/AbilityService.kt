@@ -89,6 +89,9 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
     /** Guardian's Shockwave: mob UUID -> wall-clock ms until which its AI should stay switched off. */
     private val stunnedMobs = HashMap<UUID, Long>()
 
+    /** Guardian's Shockwave: mob UUID -> a launched mob waiting to land before tickPendingKnockdowns actually knocks it down. */
+    private val pendingKnockdowns = HashMap<UUID, PendingKnockdown>()
+
     /** Rouge's Earthquake: mob UUID -> wall-clock ms until which tickDazedMobs should keep stripping its target and sending it wandering. */
     private val dazedMobs = HashMap<UUID, Long>()
 
@@ -615,19 +618,62 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
             }
         for (mob in hits) {
             mob.damage(damage, caster)
-            // AI off (knockDown) BEFORE the velocity is set, not after - the
-            // knockback/knock-up needs to be the LAST thing touching the
-            // mob's motion this tick, or setAI(false) can quietly reset it
-            // and the shove only seems to land a moment later instead of
-            // right on impact.
-            knockDown(mob, stunTicks)
             val push = mob.location.toVector().subtract(origin.toVector()).setY(0.0)
             if (push.lengthSquared() > 0.0001) push.normalize() else push.zero()
             mob.velocity = mob.velocity.clone().add(push.multiply(knockback)).setY(knockUp)
-            plugin.classes.addMasteryProgress(caster, MasteryObjective.SHOCKWAVE_STUNS, 1)
+            // The knockdown itself waits for the landing - see
+            // tickPendingKnockdowns - so it never fights the launch impulse
+            // above for control of the mob's motion.
+            if (mob is Mob && stunTicks > 0) {
+                pendingKnockdowns[mob.uniqueId] = PendingKnockdown(caster.uniqueId, stunTicks, System.currentTimeMillis())
+            }
         }
         plugin.classFeedback.paladinShockwave(caster, range, angleDegrees)
         caster.sendActionBar(Component.text("§6§lSHOCKWAVE!", NamedTextColor.GOLD))
+    }
+
+    private class PendingKnockdown(val casterId: UUID, val stunTicks: Long, val armedAt: Long, var leftGround: Boolean = false)
+
+    /**
+     * Runs several times a second: watches every mob Shockwave just
+     * launched until it leaves the ground and then touches back down, and
+     * ONLY THEN calls [knockDown] - launched enemies fly through the air
+     * first, and the "can't act" window begins when they land, not the
+     * instant they're hit. A mob that never seems to land (stuck geometry,
+     * a very long fall) is forced into the knockdown after a few seconds
+     * regardless, so nothing waits forever.
+     */
+    fun tickPendingKnockdowns() {
+        if (pendingKnockdowns.isEmpty()) return
+        val now = System.currentTimeMillis()
+        val iterator = pendingKnockdowns.entries.iterator()
+        while (iterator.hasNext()) {
+            val entry = iterator.next()
+            val mob = Bukkit.getEntity(entry.key) as? LivingEntity
+            if (mob == null || !mob.isValid || mob.isDead) {
+                iterator.remove()
+                continue
+            }
+            val pending = entry.value
+            val elapsed = now - pending.armedAt
+            // A couple of ticks' grace before the FIRST ground check - right
+            // at launch the mob is still reported as on-ground for a moment,
+            // before the knock-up velocity has actually lifted it.
+            if (elapsed < 100L) continue
+            @Suppress("DEPRECATION")
+            val onGround = mob.isOnGround
+            if (!pending.leftGround) {
+                if (!onGround) pending.leftGround = true
+                if (elapsed < 4000L) continue
+            }
+            if ((pending.leftGround && onGround) || elapsed >= 4000L) {
+                knockDown(mob, pending.stunTicks)
+                Bukkit.getPlayer(pending.casterId)?.let {
+                    plugin.classes.addMasteryProgress(it, MasteryObjective.SHOCKWAVE_STUNS, 1)
+                }
+                iterator.remove()
+            }
+        }
     }
 
     /** Guardian's knockdown: the mob's AI is fully switched off (not just slowed) until [stunTicks] pass, then restored - a real "can't act" window rather than a stronger Slowness. */
