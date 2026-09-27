@@ -28,6 +28,9 @@ import java.util.UUID
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
+/** Deadeye's guaranteed-kill damage against anything that isn't a dungeon boss - large enough that armor/resistance/absorption can't matter. */
+private const val DEADEYE_INSTAKILL_DAMAGE = 1.0e9
+
 /** The four signature passives: Rage, Focus, Taunt and Arcane Charge. */
 class PassiveService(private val plugin: DungeonPlugin) {
 
@@ -51,8 +54,12 @@ class PassiveService(private val plugin: DungeonPlugin) {
     /** Sharpshooter only: wall-clock ms until Scope's extra damage window closes. */
     private val scopeDamageBonusUntil = HashMap<UUID, Long>()
 
-    /** Sharpshooter only: mob UUID -> (wall-clock ms the mark expires, the one shooter it rewards). */
-    private val markedUntil = HashMap<UUID, Long>()
+    /**
+     * Sharpshooter only: mob UUID -> the one shooter who marked it. A mark
+     * lasts until its mob dies (or is otherwise invalidated) - not a timer -
+     * so [pulseMarks] only ever drops an entry once the mob is confirmed
+     * gone, never on a clock.
+     */
     private val markedBy = HashMap<UUID, UUID>()
 
     /** Sharpshooter only: shooter -> their currently-marked target UUIDs, oldest first, capped by maxActiveMarks. */
@@ -65,7 +72,7 @@ class PassiveService(private val plugin: DungeonPlugin) {
     fun tick() {
         maintainTaunt()
         val now = System.currentTimeMillis()
-        pulseMarks(now)
+        pulseMarks()
         for (player in plugin.server.onlinePlayers) {
             val data = plugin.classes.data(player.uniqueId)
             val rank = plugin.classes.signatureRank(player.uniqueId)
@@ -328,7 +335,8 @@ class PassiveService(private val plugin: DungeonPlugin) {
                         entity.addPotionEffect(PotionEffect(PotionEffectType.REGENERATION, regenTicks, 0, true, false, true))
                     }
                 }
-                entity is LivingEntity && (plugin.queries.isDungeonMob(entity) || entity is Mob) ->
+                entity is LivingEntity && !plugin.queries.isAllyMinion(entity) &&
+                    (plugin.queries.isDungeonMob(entity) || entity is Mob) ->
                     if (mobDamage > 0.0) entity.damage(mobDamage, player)
             }
         }
@@ -357,6 +365,7 @@ class PassiveService(private val plugin: DungeonPlugin) {
                 if (slowAmp >= 0 || dot > 0.0) {
                     for (entity in world.getNearbyEntities(centre, radius, 4.0, radius)) {
                         if (entity !is LivingEntity || entity is Player) continue
+                        if (plugin.queries.isAllyMinion(entity)) continue
                         if (!plugin.queries.isDungeonMob(entity) && entity !is Mob) continue
                         val dx = entity.location.x - centre.x
                         val dz = entity.location.z - centre.z
@@ -519,9 +528,13 @@ class PassiveService(private val plugin: DungeonPlugin) {
         val world = where.world ?: return
         for (entity in world.getNearbyEntities(where, radius, radius, radius)) {
             val mob = entity as? LivingEntity ?: continue
-            if (mob is Player || (!plugin.queries.isDungeonMob(mob) && mob !is Mob)) continue
+            if (mob is Player || plugin.queries.isAllyMinion(mob) ||
+                (!plugin.queries.isDungeonMob(mob) && mob !is Mob)) continue
             mob.damage(damage, shooter)
-            if (mob.isDead) plugin.classes.addMasteryProgress(shooter, MasteryObjective.SKYFALL_KILLS, 1)
+            if (mob.isDead) {
+                plugin.classes.addMasteryProgress(shooter, MasteryObjective.SKYFALL_KILLS, 1)
+                if (stormcaller) plugin.classAbilities.grantWindDashCharge(shooter)
+            }
             val away = mob.location.toVector().subtract(where.toVector())
             if (away.lengthSquared() > 0.0001) away.normalize() else away.zero()
             mob.velocity = mob.velocity.add(away.multiply(0.35)).setY(knockUp)
@@ -602,18 +615,30 @@ class PassiveService(private val plugin: DungeonPlugin) {
         plugin.classFeedback.focusShotImpact(projectile.location)
     }
 
-    /** Deadeye connecting: its own multiplier (independent of Focus Shot's), and it always applies the mark on hit. */
+    /**
+     * Deadeye connecting: the payoff for a channeled, locked-on shot is a
+     * guaranteed kill, not a multiplier - dungeon bosses are the one
+     * exception (the old heavy multiplier still applies to them), so a
+     * 12s-cooldown ability can't just trivialize a boss fight. It still
+     * always applies the mark on hit, which matters for the boss case.
+     */
     fun handleDeadeyeDamage(event: EntityDamageByEntityEvent, shooter: Player, projectile: Projectile) {
         if (plugin.classes.activeClass(shooter.uniqueId) != ClassType.ARCHER) {
             event.isCancelled = true
             return
         }
-        val cfg = plugin.classesConfig
-        val masteryLevel = plugin.classes.masteryLevelFor(shooter.uniqueId, "precision")
-        val multiplier = cfg.getDouble("archer.deadeye-damage-multiplier", 2.2) +
-            cfg.getDouble("archer.deadeye-damage-multiplier-per-mastery-level", 0.08) * masteryLevel
-        event.damage = (event.damage + archerAttackBonus(shooter)) * multiplier
-        (event.entity as? LivingEntity)?.let { target ->
+        val target = event.entity as? LivingEntity
+        val isBoss = target?.let { plugin.queries.dungeonMob(it)?.boss == true } ?: false
+        if (isBoss) {
+            val cfg = plugin.classesConfig
+            val masteryLevel = plugin.classes.masteryLevelFor(shooter.uniqueId, "precision")
+            val multiplier = cfg.getDouble("archer.deadeye-damage-multiplier", 2.2) +
+                cfg.getDouble("archer.deadeye-damage-multiplier-per-mastery-level", 0.08) * masteryLevel
+            event.damage = (event.damage + archerAttackBonus(shooter)) * multiplier
+        } else {
+            event.damage = DEADEYE_INSTAKILL_DAMAGE
+        }
+        target?.let {
             event.damage *= scopeDamageMultiplier(shooter)
             applyMark(target, shooter)
             plugin.classes.addMasteryProgress(shooter, MasteryObjective.DEADEYE_MARKS, 1)
@@ -718,7 +743,11 @@ class PassiveService(private val plugin: DungeonPlugin) {
     }
 
     private fun addArcaneCharge(player: Player, amount: Double) {
-        if (amount <= 0.0 || plugin.classes.signatureRank(player.uniqueId) == 0) return
+        // Necromancer doesn't get Arcane Surge - its own signature-rank
+        // payoff isn't designed yet, so Charge simply never builds rather
+        // than arming a Battlemage/Enchanter effect that doesn't fit it.
+        if (amount <= 0.0 || plugin.classes.signatureRank(player.uniqueId) == 0 ||
+            plugin.classes.subclass(player.uniqueId) == "necromancer") return
         val data = plugin.classes.data(player.uniqueId)
         val threshold = chargeThreshold()
         if (data.arcaneCharge >= threshold) return
@@ -761,10 +790,15 @@ class PassiveService(private val plugin: DungeonPlugin) {
     }
 
     private fun castBoltSound(player: Player) {
-        val raw = plugin.classesConfig.mageWandString("cast-sound", "block_amethyst_block_chime", plugin.classes.subclass(player.uniqueId))
+        val subclassId = plugin.classes.subclass(player.uniqueId)
+        val raw = plugin.classesConfig.mageWandString("cast-sound", "block_amethyst_block_chime", subclassId)
         val sound = if (raw.isBlank()) null
         else org.bukkit.Registry.SOUNDS.get(org.bukkit.NamespacedKey.minecraft(raw.lowercase().replace('_', '.')))
-        if (sound != null) player.world.playSound(player.location, sound, 0.7f, 1.2f)
+        val necro = subclassId == "necromancer"
+        if (sound != null) player.world.playSound(player.location, sound, if (necro) 0.45f else 0.7f, 1.2f)
+        // A second, quieter layer so the cast doesn't read as one lone note -
+        // a bony rattle under the Wither's shoot cue.
+        if (necro) player.world.playSound(player.location, Sound.ENTITY_SKELETON_AMBIENT, 0.3f, 1.4f)
     }
 
     /**
@@ -829,7 +863,13 @@ class PassiveService(private val plugin: DungeonPlugin) {
             }
             ClassType.MAGE -> {
                 val mana = "Mana: ${data.mana.roundToInt()}/${maxMana(rank).roundToInt()}"
-                if (rank == 0) "$mana | Unlock Arcane Charge Rank I"
+                if (plugin.classes.subclass(player.uniqueId) == "necromancer") {
+                    // No Arcane Charge/Surge for this branch (see addArcaneCharge) -
+                    // its own signature-rank payoff isn't designed yet.
+                    if (plugin.classAbilities.isRiseReady(player.uniqueId)) "$mana | Rise: §aReady"
+                    else "$mana | Rise: §7Cooling down"
+                }
+                else if (rank == 0) "$mana | Unlock Arcane Charge Rank I"
                 else if (data.arcaneCharge >= chargeThreshold()) "$mana | §dSURGE armed"
                 else "$mana | Charge ${data.arcaneCharge.roundToInt()}/${chargeThreshold().roundToInt()}"
             }
@@ -979,7 +1019,8 @@ class PassiveService(private val plugin: DungeonPlugin) {
         val centre = player.location
         centre.world?.getNearbyEntities(centre, radius, 3.0, radius)
             ?.filterIsInstance<LivingEntity>()
-            ?.filter { it != player && it !is Player && (plugin.queries.isDungeonMob(it) || it is Mob) }
+            ?.filter { it != player && it !is Player && !plugin.queries.isAllyMinion(it) &&
+                (plugin.queries.isDungeonMob(it) || it is Mob) }
             ?.forEach { mob ->
                 if (damage > 0.0) mob.damage(damage, player)
                 val push = mob.location.toVector().subtract(centre.toVector())
@@ -1064,7 +1105,7 @@ class PassiveService(private val plugin: DungeonPlugin) {
         return (base + (rank - 1).coerceAtLeast(0) * perRank + masteryBonus).coerceAtLeast(1.0)
     }
 
-    /** Sharpshooter's mastery ladder raises how many marks they can hold at once - beyond the cap, a new mark bumps the oldest. */
+    /** Sharpshooter's mastery ladder raises how many marks they can hold at once - see [applyMark] for what happens at the cap. */
     private fun maxActiveMarks(shooter: Player): Int {
         val cfg = plugin.classesConfig
         val masteryLevel = plugin.classes.masteryLevelFor(shooter.uniqueId, "precision")
@@ -1072,32 +1113,32 @@ class PassiveService(private val plugin: DungeonPlugin) {
         return cfg.getInt("archer.mark-capacity", 1).coerceAtLeast(1) + masteryLevel / levelsPerMark
     }
 
-    /** Sharpshooter only: marks `target`, crediting `shooter` - only their own plain arrows benefit. */
+    /**
+     * Sharpshooter only: marks `target`, crediting `shooter` - only their own
+     * plain arrows benefit. A mark lasts until its mob dies, not a timer, so
+     * a new target cannot be marked while the shooter is already at their
+     * mark capacity (see [maxActiveMarks]) - the oldest mark is no longer
+     * evicted to make room; kill (or otherwise lose) what's already marked
+     * first.
+     */
     private fun applyMark(target: LivingEntity, shooter: Player) {
-        val cfg = plugin.classesConfig
-        val durationMs = (cfg.getDouble("archer.mark-duration-seconds", 5.0).coerceAtLeast(0.0) * 1000L).toLong()
         val shooterId = shooter.uniqueId
         val targetId = target.uniqueId
         val active = activeMarksByShooter.getOrPut(shooterId) { ArrayList() }
-        if (targetId !in active) {
-            val cap = maxActiveMarks(shooter)
-            while (active.size >= cap && active.isNotEmpty()) {
-                val oldest = active.removeAt(0)
-                markedUntil.remove(oldest)
-                markedBy.remove(oldest)
-            }
-            active.add(targetId)
+        if (targetId in active) return
+        if (active.size >= maxActiveMarks(shooter)) {
+            shooter.sendActionBar(Component.text("§7No marks free - kill your current mark first.", NamedTextColor.GRAY))
+            return
         }
-        markedUntil[targetId] = System.currentTimeMillis() + durationMs
+        active.add(targetId)
         markedBy[targetId] = shooterId
         plugin.classFeedback.markApplied(target)
     }
 
-    /** The multiplier a hit on `target` gets from Sharpshooter's mark - 1.0 if not applicable, not marked, expired, or someone else's mark. */
+    /** The multiplier a hit on `target` gets from Sharpshooter's mark - 1.0 if not applicable, not marked, or someone else's mark. */
     private fun markDamageMultiplier(target: LivingEntity, shooter: Player): Double {
         if (plugin.classes.subclass(shooter.uniqueId) != "precision") return 1.0
-        val expires = markedUntil[target.uniqueId] ?: return 1.0
-        if (expires < System.currentTimeMillis() || markedBy[target.uniqueId] != shooter.uniqueId) return 1.0
+        if (markedBy[target.uniqueId] != shooter.uniqueId) return 1.0
         val cfg = plugin.classesConfig
         val percent = cfg.getDouble("archer.mark-bonus-damage-percent", 30.0) +
             cfg.getDouble("archer.mark-bonus-per-mastery-level", 3.0) *
@@ -1117,19 +1158,18 @@ class PassiveService(private val plugin: DungeonPlugin) {
         return 1.0 + (percent / 100.0).coerceAtLeast(0.0)
     }
 
-    /** Once a second: a quiet pulse on every still-marked target, and drops expired/invalid marks. */
-    private fun pulseMarks(now: Long) {
-        val expired = ArrayList<UUID>()
-        for ((entityId, expiresAt) in markedUntil) {
+    /** Once a second: a pulse + feet ring on every still-marked target, and frees any mark whose mob died or is gone. */
+    private fun pulseMarks() {
+        val gone = ArrayList<UUID>()
+        for (entityId in markedBy.keys) {
             val entity = Bukkit.getEntity(entityId) as? LivingEntity
-            if (expiresAt < now || entity == null || entity.isDead || !entity.isValid) {
-                expired.add(entityId)
+            if (entity == null || entity.isDead || !entity.isValid) {
+                gone.add(entityId)
                 continue
             }
             plugin.classFeedback.markPulse(entity)
         }
-        expired.forEach { id ->
-            markedUntil.remove(id)
+        gone.forEach { id ->
             val shooterId = markedBy.remove(id)
             if (shooterId != null) activeMarksByShooter[shooterId]?.remove(id)
         }

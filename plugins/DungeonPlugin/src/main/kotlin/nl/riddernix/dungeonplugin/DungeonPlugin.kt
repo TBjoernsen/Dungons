@@ -163,6 +163,8 @@ class DungeonPlugin : JavaPlugin() {
         private set
     lateinit var dungeonMobTestKey: NamespacedKey
         private set
+    lateinit var allyMinionKey: NamespacedKey
+        private set
     lateinit var panelIdKey: NamespacedKey
         private set
     lateinit var panelRoleKey: NamespacedKey
@@ -229,6 +231,7 @@ class DungeonPlugin : JavaPlugin() {
         dungeonMobBossThemeKey = NamespacedKey(this, "dungeon_mob_boss_theme")
         dungeonMobCategoryKey = NamespacedKey(this, "dungeon_mob_category")
         dungeonMobTestKey = NamespacedKey(this, "dungeon_mob_test")
+        allyMinionKey = NamespacedKey(this, "ally_minion")
         // Built before anything that can fire: every event goes through the
         // bus, and every snapshot handed out is built by the snapshotter.
         events = DungeonEventBus(this)
@@ -363,6 +366,9 @@ class DungeonPlugin : JavaPlugin() {
             // The Mage heal-target highlight runs several times a second so the
             // glow you see is the ally a click will actually commit to.
             server.scheduler.runTaskTimer(this, Runnable { classAbilities.tickHealHover() }, 4L, 4L)
+            // Same cadence: an open Deadeye aim needs to close the instant its
+            // Sharpshooter lands, not up to a second later.
+            server.scheduler.runTaskTimer(this, Runnable { classAbilities.tickDeadeyeAimGroundCheck() }, 4L, 4L)
         }
 
         server.scheduler.runTaskTimer(this, Runnable {

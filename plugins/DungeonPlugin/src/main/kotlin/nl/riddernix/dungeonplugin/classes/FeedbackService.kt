@@ -256,11 +256,41 @@ class FeedbackService(private val plugin: DungeonPlugin) {
         target.world.playSound(target.location, Sound.BLOCK_AMETHYST_BLOCK_CHIME, 0.7f, 1.8f)
     }
 
-    /** A quiet, periodic pulse on a still-marked target - so a mark is visible from a distance, not just at the moment it lands. */
+    /**
+     * A quiet, periodic pulse on a still-marked target - so a mark is visible
+     * from a distance, not just at the moment it lands. Now that a mark lasts
+     * until its mob dies rather than a few seconds, the feet ring matters
+     * more than the head puff for actually telling WHICH mob is marked in a
+     * crowd - it is the bigger, more deliberate of the two cues.
+     */
     fun markPulse(target: LivingEntity) {
         val at = target.location.clone().add(0.0, target.height + 0.3, 0.0)
         val gold = Particle.DustOptions(Color.fromRGB(255, 210, 90), 1.1f)
         target.world.spawnParticle(Particle.DUST, at, 3, 0.22, 0.12, 0.22, 0.0, gold)
+        markRing(target)
+    }
+
+    /** A ring of red dust traced around a marked target's feet - the "which exact mob is this" cue. */
+    private fun markRing(target: LivingEntity) {
+        val world = target.world
+        val feet = target.location
+        val red = Particle.DustOptions(Color.fromRGB(230, 40, 40), 1.3f)
+        val radius = (target.width / 2.0 + 0.15).coerceAtLeast(0.45)
+        val points = 20
+        for (i in 0 until points) {
+            val angle = (2.0 * Math.PI * i) / points
+            val point = feet.clone().add(kotlin.math.cos(angle) * radius, 0.05, kotlin.math.sin(angle) * radius)
+            world.spawnParticle(Particle.DUST, point, 1, 0.0, 0.0, 0.0, 0.0, red)
+        }
+    }
+
+    /** Deadeye's aim channel beginning - a crossbow winding up, and the slow-down that comes with it. */
+    fun deadeyeAimStart(player: Player) {
+        player.playSound(player.location, Sound.ITEM_CROSSBOW_LOADING_START, 1.0f, 0.85f)
+        player.playSound(player.location, Sound.ITEM_CROSSBOW_LOADING_MIDDLE, 1.0f, 0.85f)
+        val muzzle = player.eyeLocation.clone().add(player.eyeLocation.direction.multiply(0.5))
+        val gold = Particle.DustOptions(Color.fromRGB(255, 205, 70), 0.9f)
+        player.world.spawnParticle(Particle.DUST, muzzle, 6, 0.08, 0.08, 0.08, 0.0, gold)
     }
 
     /**
@@ -387,18 +417,35 @@ class FeedbackService(private val plugin: DungeonPlugin) {
         }
     }
 
-    /** Mage Blink: a poof at both ends and a fwoosh, tinted to the wand preset. */
+    /** Mage Blink: a poof at both ends and a fwoosh, tinted to the wand preset - fiery for Battlemage, bone/soul for Necromancer, arcane purple otherwise. */
     fun mageBlink(origin: Location, destination: Location, subclassId: String?) {
         val fiery = mageFiery(subclassId)
-        val puff = if (fiery) Particle.FLAME else Particle.WITCH
+        val necro = subclassId == "necromancer"
+        val puff = when {
+            fiery -> Particle.FLAME
+            necro -> Particle.SOUL
+            else -> Particle.WITCH
+        }
         origin.world?.let { w ->
             w.spawnParticle(puff, origin.clone().add(0.0, 1.0, 0.0), 26, 0.3, 0.6, 0.3, 0.05)
-            w.playSound(origin, if (fiery) Sound.ITEM_FIRECHARGE_USE else Sound.ENTITY_ENDERMAN_TELEPORT, 0.55f, if (fiery) 0.9f else 1.6f)
+            w.playSound(origin, when {
+                fiery -> Sound.ITEM_FIRECHARGE_USE
+                necro -> Sound.ENTITY_WITHER_SHOOT
+                else -> Sound.ENTITY_ENDERMAN_TELEPORT
+            }, 0.55f, if (fiery) 0.9f else if (necro) 0.7f else 1.6f)
         }
         destination.world?.let { w ->
             w.spawnParticle(puff, destination.clone().add(0.0, 1.0, 0.0), 26, 0.3, 0.6, 0.3, 0.05)
-            w.spawnParticle(if (fiery) Particle.LAVA else Particle.END_ROD, destination.clone().add(0.0, 1.0, 0.0), if (fiery) 6 else 12, 0.25, 0.5, 0.25, 0.03)
-            w.playSound(destination, if (fiery) Sound.ENTITY_BLAZE_SHOOT else Sound.BLOCK_AMETHYST_BLOCK_CHIME, 0.6f, if (fiery) 1.2f else 1.4f)
+            w.spawnParticle(when {
+                fiery -> Particle.LAVA
+                necro -> Particle.ASH
+                else -> Particle.END_ROD
+            }, destination.clone().add(0.0, 1.0, 0.0), if (fiery) 6 else 12, 0.25, 0.5, 0.25, 0.03)
+            w.playSound(destination, when {
+                fiery -> Sound.ENTITY_BLAZE_SHOOT
+                necro -> Sound.ENTITY_WITHER_SPAWN
+                else -> Sound.BLOCK_AMETHYST_BLOCK_CHIME
+            }, if (necro) 0.35f else 0.6f, if (fiery) 1.2f else if (necro) 0.8f else 1.4f)
         }
     }
 
@@ -406,12 +453,25 @@ class FeedbackService(private val plugin: DungeonPlugin) {
     fun mageBlinkBlast(centre: Location, radius: Double, subclassId: String?) {
         val world = centre.world ?: return
         val fiery = mageFiery(subclassId)
-        val tint = if (fiery) Color.fromRGB(255, 130, 40) else Color.fromRGB(180, 110, 255)
+        val necro = subclassId == "necromancer"
+        val tint = when {
+            fiery -> Color.fromRGB(255, 130, 40)
+            necro -> Color.fromRGB(201, 194, 176)   // bone/ivory grey, matches the Bone Wand's trail colour
+            else -> Color.fromRGB(180, 110, 255)
+        }
         world.spawnParticle(Particle.DUST, centre.clone().add(0.0, 0.6, 0.0), 28, radius * 0.4, 0.3, radius * 0.4, 0.0, Particle.DustOptions(tint, 1.5f))
-        world.spawnParticle(if (fiery) Particle.FLAME else Particle.WITCH, centre.clone().add(0.0, 0.6, 0.0), 22, radius * 0.35, 0.3, radius * 0.35, 0.06)
+        world.spawnParticle(when {
+            fiery -> Particle.FLAME
+            necro -> Particle.SOUL
+            else -> Particle.WITCH
+        }, centre.clone().add(0.0, 0.6, 0.0), 22, radius * 0.35, 0.3, radius * 0.35, 0.06)
         world.spawnParticle(Particle.EXPLOSION, centre.clone().add(0.0, 0.5, 0.0), 2, 0.2, 0.1, 0.2, 0.0)
-        world.playSound(centre, Sound.ENTITY_GENERIC_EXPLODE, 0.55f, if (fiery) 1.1f else 1.4f)
-        world.playSound(centre, if (fiery) Sound.BLOCK_LAVA_POP else Sound.ENTITY_ILLUSIONER_MIRROR_MOVE, 0.7f, 0.9f)
+        world.playSound(centre, Sound.ENTITY_GENERIC_EXPLODE, 0.55f, if (fiery) 1.1f else if (necro) 0.8f else 1.4f)
+        world.playSound(centre, when {
+            fiery -> Sound.BLOCK_LAVA_POP
+            necro -> Sound.ENTITY_WITHER_HURT
+            else -> Sound.ENTITY_ILLUSIONER_MIRROR_MOVE
+        }, 0.7f, 0.9f)
     }
 
     /** Enchanter's Blessing landing on its target. */
@@ -460,6 +520,29 @@ class FeedbackService(private val plugin: DungeonPlugin) {
         world.playSound(centre, Sound.ENTITY_GENERIC_EXPLODE, 1.1f, 0.7f)
         world.playSound(centre, Sound.ENTITY_BLAZE_SHOOT, 0.8f, 0.5f)
         world.playSound(centre, Sound.ITEM_FIRECHARGE_USE, 0.7f, 0.6f)
+    }
+
+    /** One Rise minion clawing up out of the ground at spawn. */
+    fun necromancerRiseSpawn(minion: LivingEntity) {
+        val at = minion.location.clone().add(0.0, 0.2, 0.0)
+        val world = minion.world
+        val bone = Particle.DustOptions(Color.fromRGB(210, 205, 190), 1.3f)
+        world.spawnParticle(Particle.DUST, at, 20, 0.3, 0.15, 0.3, 0.0, bone)
+        world.spawnParticle(Particle.SOUL, at, 12, 0.25, 0.3, 0.25, 0.02)
+        world.spawnParticle(Particle.SMOKE, at, 10, 0.25, 0.2, 0.25, 0.02)
+        // Volumes kept modest - a full batch spawns several of these in the
+        // same tick, and ENTITY_WITHER_SPAWN alone is already a big sound.
+        world.playSound(at, Sound.ENTITY_SKELETON_AMBIENT, 0.6f, 0.6f)
+        world.playSound(at, Sound.ENTITY_WITHER_SPAWN, 0.4f, 1.1f)
+    }
+
+    /** A Rise minion crumbling apart at the end of its duration (as opposed to being killed, which just uses its normal death animation). */
+    fun necromancerMinionExpire(where: Location) {
+        val world = where.world ?: return
+        val bone = Particle.DustOptions(Color.fromRGB(210, 205, 190), 1.1f)
+        world.spawnParticle(Particle.DUST, where.clone().add(0.0, 0.6, 0.0), 16, 0.25, 0.35, 0.25, 0.0, bone)
+        world.spawnParticle(Particle.SOUL, where.clone().add(0.0, 0.6, 0.0), 10, 0.2, 0.3, 0.2, 0.02)
+        world.playSound(where, Sound.ENTITY_WITHER_HURT, 0.7f, 0.9f)
     }
 
     fun tauntTriggered(player: Player) {

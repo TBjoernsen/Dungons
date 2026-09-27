@@ -1,8 +1,12 @@
 package nl.riddernix.dungeonplugin.classes
 
+import com.destroystokyo.paper.entity.ai.Goal
+import com.destroystokyo.paper.entity.ai.GoalKey
+import com.destroystokyo.paper.entity.ai.GoalType
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.format.NamedTextColor
 import nl.riddernix.dungeonplugin.DungeonPlugin
+import org.bukkit.Bukkit
 import org.bukkit.ChatColor
 import org.bukkit.FluidCollisionMode
 import org.bukkit.Location
@@ -14,19 +18,25 @@ import org.bukkit.attribute.Attribute
 import org.bukkit.attribute.AttributeModifier
 import org.bukkit.entity.Arrow
 import org.bukkit.entity.LivingEntity
+import org.bukkit.entity.Mob
 import org.bukkit.entity.Monster
 import org.bukkit.entity.Player
+import org.bukkit.entity.Skeleton
 import org.bukkit.event.EventHandler
 import org.bukkit.event.EventPriority
 import org.bukkit.event.Listener
 import org.bukkit.event.block.Action
+import org.bukkit.event.entity.EntityDeathEvent
 import org.bukkit.event.player.PlayerInteractEntityEvent
 import org.bukkit.event.player.PlayerInteractEvent
 import org.bukkit.event.player.PlayerSwapHandItemsEvent
 import org.bukkit.inventory.EquipmentSlot
+import org.bukkit.inventory.ItemStack
+import org.bukkit.persistence.PersistentDataType
 import org.bukkit.potion.PotionEffect
 import org.bukkit.potion.PotionEffectType
 import org.bukkit.util.Vector
+import java.util.EnumSet
 import java.util.Locale
 import java.util.UUID
 import kotlin.math.ceil
@@ -68,7 +78,11 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
     private val meteorCooldownUntil = HashMap<UUID, Long>()
     private val deadeyeCooldownUntil = HashMap<UUID, Long>()
     private val tempestCooldownUntil = HashMap<UUID, Long>()
+    private val riseCooldownUntil = HashMap<UUID, Long>()
     private val shieldExpiry = HashMap<UUID, Long>()
+
+    /** Necromancer only: caster -> the UUIDs of their currently-alive Rise minions. A fresh Rise refuses to cast while this is non-empty. */
+    private val activeMinions = HashMap<UUID, MutableList<UUID>>()
 
     /** Per Archer: the wall-clock ms until which a Wind Jump still counts for a Skyfall shot. */
     private val windJumpUntil = HashMap<UUID, Long>()
@@ -87,6 +101,20 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
     private val originalGlowStates = HashMap<UUID, Boolean>()
     private val shieldCapacityKey = NamespacedKey(plugin, "paladin_active_shield_capacity")
     private val healHighlightTeamName = "dp_heal_hover"
+    /** Whatever a Deadeye-highlighted mob's glow state was before the aim touched it, restored once the aim closes (fired or cancelled). */
+    private val originalMobGlowStates = HashMap<UUID, Boolean>()
+
+    /**
+     * Sharpshooter only: shooter -> their currently-open Deadeye aim.
+     * Presence as a key means "aiming right now" - [DeadeyeAim.targetId] is
+     * itself nullable (no mob was under the crosshair when the aim opened),
+     * which is why this isn't just a plain `HashMap<UUID, UUID?>`: removing
+     * a null value and removing an absent key both return null, and this
+     * class needs to tell those apart.
+     */
+    private val deadeyeAiming = HashMap<UUID, DeadeyeAim>()
+
+    private class DeadeyeAim(val targetId: UUID?)
 
     /** Refreshes the Mage's heal-target highlight. Runs several times a second so the glow tracks the crosshair. */
     fun tickHealHover() {
@@ -126,6 +154,26 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         windJumpUntil[player.uniqueId] = maxOf(current, System.currentTimeMillis()) + extra
     }
 
+    /**
+     * Stormcaller only: a Skyfall KILL (not just a landed hit) tops the Wind
+     * Dash bank back up by one, capped at the live mastery cap - a multi-kill
+     * burst can refill several at once, but never past the cap. Called once
+     * per kill from [PassiveService.detonateSkyfall], so a crowded room can
+     * fire this several times in the same tick.
+     */
+    fun grantWindDashCharge(player: Player) {
+        val cap = maxWindDashCharges(player)
+        val current = currentWindDashCharges(player)
+        if (current >= cap) return
+        val gained = current + 1
+        windDashCharges[player.uniqueId] = gained
+        player.sendActionBar(Component.text(
+            if (gained >= cap) "§e§lSkyfall kill - Wind Dash charge ready! ($gained/$cap - full)"
+            else "§eSkyfall kill - Wind Dash charge ready! ($gained/$cap)",
+            NamedTextColor.YELLOW))
+        player.world.playSound(player.location, Sound.ENTITY_WIND_CHARGE_THROW, 0.8f, 1.4f)
+    }
+
     fun remove(player: Player) {
         cooldownUntil.remove(player.uniqueId)
         mageHealCooldownUntil.remove(player.uniqueId)
@@ -133,10 +181,13 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         meteorCooldownUntil.remove(player.uniqueId)
         deadeyeCooldownUntil.remove(player.uniqueId)
         tempestCooldownUntil.remove(player.uniqueId)
+        riseCooldownUntil.remove(player.uniqueId)
         windJumpUntil.remove(player.uniqueId)
         windDashCharges.remove(player.uniqueId)
         windDashChargeReadyAt.remove(player.uniqueId)
         updateHoveredHealTarget(player, null)
+        cancelDeadeyeAim(player.uniqueId, null)
+        dismissMinions(player.uniqueId)
     }
 
     /**
@@ -157,7 +208,15 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         // block" (the same vanilla convention that lets a sneaking player
         // place a block against a chest instead of opening it) - the mastery
         // ability always fires, regardless of what is underfoot or in reach.
-        if (event.player.isSneaking) {
+        // Only intercepted when there's actually a Shift+Right-click ability
+        // to trigger, though: a Bow (unlike the Mage's staff) has real
+        // vanilla right-click behaviour - drawing and, on release, firing a
+        // live arrow - and Sharpshooter no longer has anything bound here
+        // (Deadeye moved to Left-Click). Cancelling this unconditionally for
+        // every sneaking Archer blocked that vanilla draw outright, so a
+        // sneaking Right-click could never become a Skyfall shot.
+        if (event.player.isSneaking && hasShiftRightClickAbility(event.player)) {
+            event.isCancelled = true
             castMasteryAbility(event.player)
             return
         }
@@ -181,7 +240,30 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     fun onMageHealPlayerClick(event: PlayerInteractEntityEvent) {
         if (event.hand != EquipmentSlot.HAND) return
-        if (event.player.isSneaking) castMasteryAbility(event.player) else castMageHeal(event.player)
+        if (event.player.isSneaking && hasShiftRightClickAbility(event.player)) {
+            event.isCancelled = true
+            castMasteryAbility(event.player)
+        } else castMageHeal(event.player)
+    }
+
+    /**
+     * Whether Shift+Right-click currently triggers a real ability for this
+     * player - if not, the click must NOT be cancelled/intercepted, or a
+     * real weapon's own vanilla behaviour (an Archer's bow draw, chiefly)
+     * gets silently blocked for nothing. Neither Archer mastery lives here
+     * any more - Deadeye and Tempest are both a double-Left-Click now -
+     * only the Mage's still does.
+     */
+    private fun hasShiftRightClickAbility(player: Player): Boolean =
+        plugin.classes.activeClass(player.uniqueId) == ClassType.MAGE
+
+    /** A Rise minion's death: no vanilla loot/exp (it was never really a mob), and its slot frees up immediately rather than waiting for the batch's duration timer. */
+    @EventHandler(priority = EventPriority.MONITOR)
+    fun onMinionDeath(event: EntityDeathEvent) {
+        if (!plugin.queries.isAllyMinion(event.entity)) return
+        event.drops.clear()
+        event.droppedExp = 0
+        for (batch in activeMinions.values) batch.remove(event.entity.uniqueId)
     }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
@@ -245,7 +327,8 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
 
         val hits = player.getNearbyEntities(radius, 1.6, radius)
             .filterIsInstance<LivingEntity>()
-            .filter { it != player && it !is Player && (plugin.queries.isDungeonMob(it) || it is Monster) }
+            .filter { it != player && it !is Player && !plugin.queries.isAllyMinion(it) &&
+                (plugin.queries.isDungeonMob(it) || it is Monster) }
         hits.forEach { enemy ->
             enemy.damage(damage, player)
             val push = direction.clone().multiply(if (berserk) 0.55 else 0.35)
@@ -395,7 +478,8 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         val origin = player.location
         player.getNearbyEntities(radius, radius, radius)
             .filterIsInstance<LivingEntity>()
-            .filter { it != player && it !is Player && (plugin.queries.isDungeonMob(it) || it is Monster) }
+            .filter { it != player && it !is Player && !plugin.queries.isAllyMinion(it) &&
+                (plugin.queries.isDungeonMob(it) || it is Monster) }
             .forEach { mob ->
                 val away = mob.location.toVector().subtract(origin.toVector())
                 if (away.lengthSquared() > 1e-6) away.normalize() else away.zero()
@@ -565,27 +649,23 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         1 -> "I"; 2 -> "II"; 3 -> "III"; 4 -> "IV"; 5 -> "V"; 6 -> "VI"; 7 -> "VII"; else -> "VIII"
     }
 
-    /** Shift + Right-click with the class weapon: the mastery-specific ability, gated on having chosen one. */
+    /**
+     * Shift + Right-click with the class weapon: the Mage's mastery-specific
+     * ability, gated on having chosen one. The only mastery still bound
+     * here - both Archer masteries are a double-Left-Click now (Deadeye,
+     * Tempest), so this is never even called for an Archer any more (see
+     * hasShiftRightClickAbility): a sneaking Right-click needs to reach a
+     * REAL vanilla bow draw uninterrupted, or Skyfall could never trigger.
+     */
     private fun castMasteryAbility(caster: Player) {
         if (!plugin.queries.isInDungeon(caster)) return
-        when (plugin.classes.activeClass(caster.uniqueId)) {
-            ClassType.MAGE -> {
-                if (!plugin.classItems.isStaff(caster.inventory.itemInMainHand)) return
-                when (plugin.classes.subclass(caster.uniqueId)) {
-                    "support" -> castBlessing(caster)
-                    "attack" -> castMeteor(caster)
-                    else -> noMasteryYet(caster)
-                }
-            }
-            ClassType.ARCHER -> {
-                if (!plugin.classItems.isAllowedWeapon(ClassType.ARCHER, caster.inventory.itemInMainHand)) return
-                when (plugin.classes.subclass(caster.uniqueId)) {
-                    "precision" -> castDeadeye(caster)
-                    "stormcaller" -> castTempestVolley(caster)
-                    else -> noMasteryYet(caster)
-                }
-            }
-            else -> {}
+        if (plugin.classes.activeClass(caster.uniqueId) != ClassType.MAGE) return
+        if (!plugin.classItems.isStaff(caster.inventory.itemInMainHand)) return
+        when (plugin.classes.subclass(caster.uniqueId)) {
+            "support" -> castBlessing(caster)
+            "attack" -> castMeteor(caster)
+            "necromancer" -> castRise(caster)
+            else -> noMasteryYet(caster)
         }
     }
 
@@ -666,29 +746,298 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         plugin.refreshClassPlayer(caster)
     }
 
-    /** Sharpshooter's Deadeye: an instant guaranteed-crit shot independent of the Focus bar - always marks its target on hit. */
-    private fun castDeadeye(caster: Player) {
+    /**
+     * Necromancer's Rise: raises a small batch of skeletal allies that fight
+     * for the caster until they fall or the batch's duration runs out.
+     * Refuses to cast at all while the caster's last batch is still alive -
+     * see the class doc on [riseCooldownUntil]'s neighbour, [activeMinions],
+     * for why the cooldown itself is deliberately left fixed instead of
+     * scaling with mastery.
+     */
+    private fun castRise(caster: Player) {
         val cfg = plugin.classesConfig
         val now = System.currentTimeMillis()
-        val remaining = (deadeyeCooldownUntil[caster.uniqueId] ?: 0L) - now
+        val remaining = (riseCooldownUntil[caster.uniqueId] ?: 0L) - now
         if (remaining > 0) {
-            caster.sendActionBar(Component.text("Deadeye ready in ${ceil(remaining / 1000.0).toInt()}s.", NamedTextColor.GRAY))
+            caster.sendActionBar(Component.text("Rise ready in ${ceil(remaining / 1000.0).toInt()}s.", NamedTextColor.GRAY))
             return
         }
+        if (!activeMinions[caster.uniqueId].isNullOrEmpty()) {
+            caster.sendActionBar(Component.text("Your risen minions still fight - wait for them to fall.", NamedTextColor.GRAY))
+            return
+        }
+        val data = plugin.classes.data(caster.uniqueId)
+        val cost = cfg.getDouble("abilities.mage.rise-mana-cost", 60.0).coerceAtLeast(0.0)
+        if (data.mana < cost) {
+            caster.sendActionBar(Component.text("Not enough Mana (${cost.toInt()} required).", NamedTextColor.RED))
+            return
+        }
+        data.mana -= cost
+        val cooldownMillis = (cfg.getDouble("abilities.mage.rise-cooldown-seconds", 45.0).coerceAtLeast(0.0) * 1000).toLong()
+        riseCooldownUntil[caster.uniqueId] = now + cooldownMillis
+
+        val masteryLevel = plugin.classes.masteryLevelFor(caster.uniqueId, "necromancer")
+        val levelsPerMinion = cfg.getInt("abilities.mage.rise-minion-count-per-mastery-levels", 3).coerceAtLeast(1)
+        val count = (cfg.getInt("abilities.mage.rise-minion-count", 2) + masteryLevel / levelsPerMinion).coerceAtLeast(1)
+        val durationTicks = ((cfg.getDouble("abilities.mage.rise-minion-duration-seconds", 15.0) +
+            cfg.getDouble("abilities.mage.rise-minion-duration-per-mastery-level", 1.5) * masteryLevel) * 20).toLong().coerceAtLeast(20L)
+        val damage = cfg.getDouble("abilities.mage.rise-minion-damage", 3.0) +
+            cfg.getDouble("abilities.mage.rise-minion-damage-per-mastery-level", 0.4) * masteryLevel
+        val health = cfg.getDouble("abilities.mage.rise-minion-health", 20.0) +
+            cfg.getDouble("abilities.mage.rise-minion-health-per-mastery-level", 2.0) * masteryLevel
+        val speed = cfg.getDouble("abilities.mage.rise-minion-speed", 0.25) +
+            cfg.getDouble("abilities.mage.rise-minion-speed-per-mastery-level", 0.01) * masteryLevel
+        val reach = cfg.getDouble("abilities.mage.rise-minion-reach", 2.5).coerceAtLeast(1.0)
+        val searchRadius = cfg.getDouble("abilities.mage.rise-minion-search-radius", 16.0).coerceAtLeast(1.0)
+        val spawnRadius = cfg.getDouble("abilities.mage.rise-spawn-radius", 2.0).coerceAtLeast(0.0)
+
+        val casterId = caster.uniqueId
+        val batch = activeMinions.getOrPut(casterId) { ArrayList() }
+        repeat(count) {
+            val angle = Math.random() * 2 * Math.PI
+            val offset = Vector(kotlin.math.cos(angle) * spawnRadius, 0.0, kotlin.math.sin(angle) * spawnRadius)
+            val at = caster.location.clone().add(offset)
+            val minion = caster.world.spawn(at, Skeleton::class.java) { skeleton ->
+                skeleton.persistentDataContainer.set(plugin.allyMinionKey, PersistentDataType.BYTE, 1)
+                skeleton.customName(Component.text("Risen Skeleton", NamedTextColor.GRAY))
+                skeleton.isCustomNameVisible = true
+                skeleton.canPickupItems = false
+                skeleton.removeWhenFarAway = true
+                skeleton.equipment?.setItemInMainHand(ItemStack(Material.STONE_SWORD))
+                skeleton.equipment?.itemInMainHandDropChance = 0f
+                skeleton.addPotionEffect(PotionEffect(PotionEffectType.FIRE_RESISTANCE, Int.MAX_VALUE, 0, true, false, false))
+                setAttributeIfPresent(skeleton, Attribute.MAX_HEALTH, health)
+                skeleton.health = health
+                setAttributeIfPresent(skeleton, Attribute.MOVEMENT_SPEED, speed)
+            }
+            Bukkit.getMobGoals().removeAllGoals(minion)
+            Bukkit.getMobGoals().addGoal(minion, 1, AllyMeleeGoal(minion, plugin, casterId, damage, reach, searchRadius,
+                NamespacedKey(plugin, "necromancer_minion_attack"), Skeleton::class.java))
+            batch.add(minion.uniqueId)
+            plugin.classFeedback.necromancerRiseSpawn(minion)
+
+            plugin.server.scheduler.runTaskLater(plugin, Runnable {
+                if (minion.isValid && !minion.isDead) {
+                    plugin.classFeedback.necromancerMinionExpire(minion.location)
+                    minion.remove()
+                }
+                activeMinions[casterId]?.remove(minion.uniqueId)
+            }, durationTicks)
+        }
+        plugin.classes.addMasteryProgress(caster, MasteryObjective.MINIONS_SUMMONED, count)
+        caster.sendActionBar(Component.text("§8§lRISE §7(-${cost.toInt()} Mana)", NamedTextColor.GRAY))
+        plugin.refreshClassPlayer(caster)
+    }
+
+    /** Force-removes every minion this player currently has up - class switch, hard reset, or disconnect. */
+    private fun dismissMinions(playerId: UUID) {
+        val batch = activeMinions.remove(playerId) ?: return
+        for (id in batch) {
+            (Bukkit.getEntity(id) as? Skeleton)?.remove()
+        }
+    }
+
+    private fun setAttributeIfPresent(entity: LivingEntity, attribute: Attribute, value: Double) {
+        entity.getAttribute(attribute)?.baseValue = value
+    }
+
+    /**
+     * A Necromancer minion's targeting: the nearest hostile dungeon mob
+     * within [range], not the nearest player - the mirror image of the
+     * boss-facing HostileMeleeGoal in DungeonMobManager. isAllyMinion is
+     * checked so minions never attack each other.
+     */
+    private class AllyMeleeGoal<T : Mob>(
+        private val mob: T,
+        private val plugin: DungeonPlugin,
+        private val ownerId: UUID,
+        private val damage: Double,
+        reach: Double,
+        private val range: Double,
+        key: NamespacedKey,
+        type: Class<T>
+    ) : Goal<T> {
+        private val key: GoalKey<T> = GoalKey.of(type, key)
+        private var cooldown = 0
+        private val reachSquared = reach * reach
+
+        override fun shouldActivate(): Boolean = nearest() != null
+        override fun shouldStayActive(): Boolean = nearest() != null
+
+        override fun tick() {
+            val target = nearest() ?: return
+            mob.target = target
+            mob.isAggressive = true
+            mob.lookAt(target)
+            val distance = mob.location.distanceSquared(target.location)
+            if (distance > reachSquared) mob.pathfinder.moveTo(target, 1.15)
+            else if (cooldown-- <= 0) {
+                mob.swingMainHand()
+                target.damage(damage, mob)
+                if (target.isDead) {
+                    Bukkit.getPlayer(ownerId)?.let { plugin.classes.addMasteryProgress(it, MasteryObjective.MINION_KILLS, 1) }
+                }
+                cooldown = 20
+            }
+        }
+
+        private fun nearest(): LivingEntity? =
+            mob.world.getNearbyEntities(mob.location, range, range, range)
+                .filterIsInstance<LivingEntity>()
+                .filter { it !is Player && !plugin.queries.isAllyMinion(it) &&
+                    (plugin.queries.isDungeonMob(it) || it is Monster) }
+                .minByOrNull { it.location.distanceSquared(mob.location) }
+
+        override fun getKey(): GoalKey<T> = key
+        override fun getTypes(): EnumSet<GoalType> = EnumSet.of(GoalType.MOVE, GoalType.LOOK, GoalType.TARGET)
+    }
+
+    /** Whether Deadeye is off cooldown - CoreListener checks this (with [isWindJumping]) before routing a Left-Click to [startDeadeyeAim] instead of Focus Shot. */
+    fun isDeadeyeReady(playerId: UUID): Boolean = (deadeyeCooldownUntil[playerId] ?: 0L) <= System.currentTimeMillis()
+
+    /** Whether the caster currently has an open Deadeye aim - CoreListener checks this to route their NEXT Left-Click to [fireDeadeyeAimedShot] instead of Focus Shot. */
+    fun isDeadeyeAiming(playerId: UUID): Boolean = deadeyeAiming.containsKey(playerId)
+
+    /**
+     * Sharpshooter's Deadeye, opening half: the FIRST of two Left-Clicks.
+     * Only reachable off the ground, right after a Wind Jump ([isWindJumping])
+     * - that is what keeps it from ever clashing with Focus Shot, which stays
+     * fully usable everywhere else (see CoreListener.castRangedAttack). The
+     * cooldown commits here, not on the second click. Slowness (heavier than
+     * Scope's own effect) and a crossbow wind-up start immediately; whatever
+     * mob is under the crosshair right now (same cone-and-range approach as
+     * the Mage's heal target) glows. The aim resolves on the caster's NEXT
+     * Left-Click ([fireDeadeyeAimedShot]) or is cancelled the instant they
+     * land ([tickDeadeyeAimGroundCheck]), whichever comes first -
+     * deadeye-aim-seconds is only a safety cap for if neither happens.
+     */
+    fun startDeadeyeAim(caster: Player) {
+        val cfg = plugin.classesConfig
         val cooldownMillis = (cfg.getDouble("abilities.archer.deadeye-cooldown-seconds", 12.0).coerceAtLeast(0.0) * 1000).toLong()
-        deadeyeCooldownUntil[caster.uniqueId] = now + cooldownMillis
+        deadeyeCooldownUntil[caster.uniqueId] = System.currentTimeMillis() + cooldownMillis
+
+        val maxAimTicks = (cfg.getDouble("abilities.archer.deadeye-aim-seconds", 3.0).coerceIn(0.5, 10.0) * 20).toLong().coerceAtLeast(1L)
+        val slownessAmplifier = cfg.getInt("abilities.archer.deadeye-aim-slowness-amplifier", 3).coerceIn(0, 10)
+        caster.addPotionEffect(PotionEffect(PotionEffectType.SLOWNESS, maxAimTicks.toInt() + 5, slownessAmplifier, true, false, true))
+        plugin.classFeedback.deadeyeAimStart(caster)
+        caster.sendActionBar(Component.text("§6§lDEADEYE §7- aiming, Left-Click again to fire..."))
+
+        val targetId = raycastDeadeyeTarget(caster)?.let { target ->
+            originalMobGlowStates.putIfAbsent(target.uniqueId, target.isGlowing)
+            target.isGlowing = true
+            target.uniqueId
+        }
+        val casterId = caster.uniqueId
+        deadeyeAiming[casterId] = DeadeyeAim(targetId)
+
+        plugin.server.scheduler.runTaskLater(plugin, Runnable {
+            if (isDeadeyeAiming(casterId)) {
+                cancelDeadeyeAim(casterId, "Deadeye aim timed out.")
+            }
+        }, maxAimTicks)
+    }
+
+    /** Sharpshooter's Deadeye, closing half: the SECOND Left-Click while an aim is open - fires the one arrow at whatever's still locked, then closes the aim. */
+    fun fireDeadeyeAimedShot(caster: Player) {
+        val aim = deadeyeAiming.remove(caster.uniqueId) ?: return
+        aim.targetId?.let { releaseAimGlow(it) }
+        caster.removePotionEffect(PotionEffectType.SLOWNESS)
+        @Suppress("DEPRECATION")
+        if (caster.isOnGround) return // landed between the two clicks - already effectively cancelled
+        val target = aim.targetId
+            ?.let { Bukkit.getEntity(it) as? LivingEntity }
+            ?.takeIf { !it.isDead && it.isValid }
+        fireDeadeyeShot(caster, target)
+    }
+
+    /** Closes an open Deadeye aim WITHOUT firing - the caster landed, or the safety cap in [startDeadeyeAim] ran out. */
+    private fun cancelDeadeyeAim(playerId: UUID, reason: String?) {
+        val aim = deadeyeAiming.remove(playerId) ?: return
+        aim.targetId?.let { releaseAimGlow(it) }
+        val player = plugin.server.getPlayer(playerId)
+        player?.removePotionEffect(PotionEffectType.SLOWNESS)
+        if (reason != null) player?.sendActionBar(Component.text("§7$reason", NamedTextColor.GRAY))
+    }
+
+    /** Runs a few times a second: cancels any open Deadeye aim the instant its caster is back on the ground. */
+    fun tickDeadeyeAimGroundCheck() {
+        if (deadeyeAiming.isEmpty()) return
+        for (playerId in deadeyeAiming.keys.toList()) {
+            val player = plugin.server.getPlayer(playerId)
+            if (player == null || !player.isOnline) {
+                cancelDeadeyeAim(playerId, null)
+                continue
+            }
+            @Suppress("DEPRECATION")
+            if (player.isOnGround) {
+                cancelDeadeyeAim(playerId, "Deadeye cancelled - you landed.")
+            }
+        }
+    }
+
+    /**
+     * The mob under the caster's crosshair right now, within range and line
+     * of sight. A real ray-vs-hitbox trace (World.rayTraceEntities), not an
+     * angle check against a single eye point - the old cone approach got
+     * proportionally HARDER to land on a big, scaled-up mob (a Key Guardian
+     * spawns at 1.45-1.65x scale) since its eye point sits further from its
+     * visual centre, exactly backwards from what a soft-lock should feel
+     * like. deadeye-aim-forgiveness pads every hitbox by a flat margin on
+     * top of its real size, same idea as a controller's aim assist.
+     */
+    private fun raycastDeadeyeTarget(caster: Player): LivingEntity? {
+        val cfg = plugin.classesConfig
+        val range = cfg.getDouble("abilities.archer.deadeye-aim-range", 40.0).coerceAtLeast(1.0)
+        val forgiveness = cfg.getDouble("abilities.archer.deadeye-aim-forgiveness", 0.6).coerceIn(0.0, 3.0)
+        val eye = caster.eyeLocation
+        val hit = caster.world.rayTraceEntities(eye, eye.direction, range, forgiveness) { entity ->
+            entity is LivingEntity && entity !== caster && entity !is Player && !entity.isDead &&
+                !plugin.queries.isAllyMinion(entity) && (plugin.queries.isDungeonMob(entity) || entity is Monster)
+        } ?: return null
+        val mob = hit.hitEntity as? LivingEntity ?: return null
+        val distance = eye.distance(mob.eyeLocation)
+        if (caster.world.rayTraceBlocks(eye, eye.direction, distance, FluidCollisionMode.NEVER, true) != null) return null
+        return mob
+    }
+
+    private fun releaseAimGlow(targetId: UUID) {
+        val wasGlowing = originalMobGlowStates.remove(targetId) ?: return
+        (Bukkit.getEntity(targetId) as? LivingEntity)?.isGlowing = wasGlowing
+    }
+
+    /** The one arrow Deadeye ever fires - launched straight at the locked target's current position so it can't miss, or straight ahead with nothing locked. */
+    private fun fireDeadeyeShot(caster: Player, target: LivingEntity?) {
+        val cfg = plugin.classesConfig
+        val direction = if (target != null)
+            target.eyeLocation.toVector().subtract(caster.eyeLocation.toVector()).normalize()
+        else caster.eyeLocation.direction.normalize()
         val arrow = caster.launchProjectile(Arrow::class.java)
-        arrow.velocity = caster.eyeLocation.direction.normalize()
-            .multiply(cfg.getDouble("abilities.archer.deadeye-speed", 3.6))
+        arrow.velocity = direction.multiply(cfg.getDouble("abilities.archer.deadeye-speed", 3.6))
         arrow.isCritical = true
         arrow.isGlowing = true
         plugin.classItems.markDeadeyeShot(arrow)
         plugin.classFeedback.deadeyeFired(caster, arrow)
-        caster.sendActionBar(Component.text("§6§lDEADEYE"))
+        caster.sendActionBar(Component.text("§6§lDEADEYE!"))
     }
 
-    /** Stormcaller's Tempest: a ground-usable fan of arrows - unlike Skyfall, no airborne or spent-Focus requirement. */
-    private fun castTempestVolley(caster: Player) {
+    /** Whether Tempest is off cooldown - CoreListener checks this before routing a double-Left-Click to Tempest instead of Focus Shot. */
+    fun isTempestReady(playerId: UUID): Boolean = (tempestCooldownUntil[playerId] ?: 0L) <= System.currentTimeMillis()
+
+    /** Whether Rise could actually fire right now - off cooldown AND no batch still alive. PassiveService's HUD readout checks this since Necromancer has no Arcane Charge to show instead. */
+    fun isRiseReady(playerId: UUID): Boolean =
+        (riseCooldownUntil[playerId] ?: 0L) <= System.currentTimeMillis() && activeMinions[playerId].isNullOrEmpty()
+
+    /**
+     * Stormcaller's Tempest: a ground-usable fan of arrows - unlike Skyfall,
+     * no airborne or spent-Focus requirement. Fires on the SECOND of two
+     * Left-Clicks (see CoreListener.castRangedAttack), taking priority over
+     * Focus Shot on that second click whenever it's off cooldown; it never
+     * reads or spends the Focus bar. Unlike Deadeye it has no aim/channel to
+     * open first - the double-click itself is what's deliberate enough, and
+     * a lone Left-Click, or the first of a pair, always just tries Focus
+     * Shot like before.
+     */
+    fun castTempestVolley(caster: Player) {
         val cfg = plugin.classesConfig
         val now = System.currentTimeMillis()
         val remaining = (tempestCooldownUntil[caster.uniqueId] ?: 0L) - now

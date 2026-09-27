@@ -69,7 +69,17 @@ class DungeonKitService(private val plugin: DungeonPlugin) {
 
     private fun restoreInventory(player: Player) {
         val snapshot = snapshots.remove(player.uniqueId) ?: return
+        // Skill/Soul Shards earned mid-run - a dungeon-completion reward,
+        // chiefly - sit in the temporary kit inventory the same as
+        // anything else there. Carry them through explicitly before the
+        // blanket restore below overwrites the whole inventory with the
+        // pre-dungeon snapshot, or a reward the player was just told they
+        // got would silently disappear.
+        val earnedShards = (player.inventory.storageContents.toList() + player.inventory.itemInOffHand)
+            .filterNotNull()
+            .filter { plugin.classItems.isSkillShard(it) || plugin.classItems.isSoulShard(it) }
         snapshot.restore(player)
+        earnedShards.forEach { plugin.classItems.give(player, it) }
         save()
         player.updateInventory()
         player.sendMessage("§aYour pre-dungeon inventory has been restored.")

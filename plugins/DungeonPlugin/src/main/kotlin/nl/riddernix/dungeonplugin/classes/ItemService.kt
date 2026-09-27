@@ -42,6 +42,7 @@ class ItemService(private val plugin: DungeonPlugin) {
             when (subclassId) {
                 "support" -> add("§bShift + Right-click: Blessing")
                 "attack" -> add("§6Shift + Right-click: Meteor")
+                "necromancer" -> add("§8Shift + Right-click: Rise")
             }
         },
         STAFF_KIND

@@ -6,7 +6,7 @@
 # replaced with this bundled copy on the next load - the balance numbers
 # here move often and are meant to be tuned in the plugin, not held on the
 # server across updates. (Raised whenever the bundled defaults change.)
-config-version: 14
+config-version: 25
 
 classes:
   # Turning this off leaves a dungeons-only server: no classes, no kits, no
@@ -154,16 +154,18 @@ archer:
         name: "Stormcaller"
         description: "Wind Dash hits harder, and a landed Skyfall feeds back into it."
   # --- Sharpshooter: the mark ------------------------------------------
-  # Focus Shot and Deadeye (Shift+Right-click) mark their target for
-  # mark-duration-seconds; the SAME shooter's plain arrows deal bonus
-  # damage to a target they marked. mark-bonus-per-mastery-level is the
-  # mastery quest ladder's reward - see mastery-quests.yml (not written yet).
-  mark-duration-seconds: 5.0
+  # Focus Shot and Deadeye (two Left-Clicks right after a Wind Jump,
+  # priority over Focus Shot) mark their target; the SAME shooter's plain
+  # arrows deal bonus damage to a target they marked. A mark lasts until
+  # its mob dies - not a timer - so it is visible from a distance (a feet
+  # ring + a head pulse, see FeedbackService.markPulse).
+  # mark-bonus-per-mastery-level is the mastery quest ladder's reward.
   mark-bonus-damage-percent: 30.0
   mark-bonus-per-mastery-level: 3.0
-  # How many marks the same shooter can have active at once. Applying a new
-  # mark past capacity evicts the oldest one. Capacity grows every
-  # mark-capacity-per-mastery-levels mastery levels.
+  # How many marks the same shooter can have active at once. Once at
+  # capacity, marking a NEW target fails outright - the mob you already
+  # have marked has to die first to free a slot; there's no eviction any
+  # more. Capacity grows every mark-capacity-per-mastery-levels levels.
   mark-capacity: 1
   mark-capacity-per-mastery-levels: 4
   # Scope's Slow Falling stays universal (everyone at rank scope-min-rank+);
@@ -177,7 +179,9 @@ archer:
   # A landed Skyfall extends the Wind Jump window by skyfall-dash-refund-
   # seconds (enough to Wind Dash again while still descending) and its
   # radius grows by skyfall-radius-bonus-stormcaller. Its mastery ladder
-  # also adds flat damage per level.
+  # also adds flat damage per level. Every kill it lands (not just a hit)
+  # also tops the Wind Dash charge bank back up by one, capped at the
+  # live mastery cap - see AbilityService.grantWindDashCharge.
   skyfall-radius-bonus-stormcaller: 1.5
   skyfall-radius-bonus-per-mastery-level: 0.15
   skyfall-dash-refund-seconds: 2.5
@@ -341,6 +345,7 @@ mage:
   # this is what actually hands Battlemage the Magma Wand on mastery.
   subclass-wand-presets:
     attack: magma-wand
+    necromancer: bone-wand
   wand-presets:
     arcane-rod:
       name: "The Arcane Rod"
@@ -381,6 +386,28 @@ mage:
       trail-accent-every: 3
       trail-accent-2: small_flame
       surge-trail-color: "FFC24D"
+    bone-wand:
+      name: "The Bone Wand"
+      # Still the Breeze Rod for now, same as the default - Necromancer's own
+      # held item can wait; only the colour changes.
+      staff-item: BREEZE_ROD
+      orb-block: BONE_BLOCK
+      # Wither-flavoured rather than plain bone-block clacks - the shoot
+      # sound is literally the Wither's own projectile cue.
+      cast-sound: entity_wither_shoot
+      impact-sound: entity_wither_hurt
+      impact-particle: SOUL        # the main impact burst - no witch purple here
+      impact-lava: false
+      impact-particles: 12
+      # Same density as arcane-rod's locked trail, just recoloured grey/bone -
+      # no purple anywhere on this preset.
+      trail-color: "C9C2B0"        # bone/ivory grey
+      trail-size: 1.1
+      trail-spacing: 0.35          # lower = denser
+      trail-accent: soul
+      trail-accent-every: 3
+      trail-accent-2: ash
+      surge-trail-color: "E8E2D0"  # unreachable while Necromancer has no Surge - kept for parity if that changes
   # --- Arcane Charge -> Arcane Surge --------------------------------
   # Arcane Bolts that HIT a mob build Charge (charge-per-hit), plus a little
   # per cast (charge-per-cast). At charge-threshold your next bolt fires as
@@ -406,8 +433,10 @@ mage:
   # At unlock-level, within range of the skill tree (mastery.select-radius
   # below), a Mage picks one branch. Attack gets the Magma Wand (see
   # subclass-wand-presets above) and a harder/further Surge; support keeps
-  # the arcane-rod look and a mending Surge. Both get a Shift+Right-click
-  # ability (abilities.mage.blessing-*/meteor-* below). Swapping branches
+  # the arcane-rod look and a mending Surge; necromancer keeps the arcane-
+  # rod look too and commands temporary allies instead of casting on
+  # anyone directly. All three get a Shift+Right-click ability
+  # (abilities.mage.blessing-*/meteor-*/rise-* below). Swapping branches
   # later costs reset-soul-shard-cost Soul Shards (see /skills mastery).
   subclasses:
     unlock-level: 100
@@ -419,6 +448,9 @@ mage:
       support:
         name: "Enchanter"
         description: "Arcane Surge mends allies instead of striking foes."
+      necromancer:
+        name: "Necromancer"
+        description: "Rise calls skeletal allies to fight at your side."
 
 # F-key (Swap Hands) abilities per class. Right-clicking the tagged Mage
 # staff casts Healing Spell.
@@ -448,7 +480,7 @@ abilities:
     # horizontal speed.
     wind-jump-double-charge-min-rank: 4
     wind-dash-forward-multiplier: 1.7
-    wind-dash-charge-recharge-seconds: 8.0
+    wind-dash-charge-recharge-seconds: 4.0
     # How many charges can be banked at once - a per-subclass cap that grows
     # with mastery. Stormcaller (mobility-focused) grows every
     # wind-dash-charge-per-mastery-levels levels, reaching +2 at full
@@ -457,18 +489,49 @@ abilities:
     # reaching +1 at full mastery with the default of 10.
     wind-dash-charge-per-mastery-levels: 4
     wind-dash-charge-per-mastery-levels-precision: 10
-    # --- Mastery: Shift + Right-click ----------------------------------
-    # Sharpshooter's Deadeye: an instant, guaranteed-crit arrow independent
-    # of the Focus bar - always marks its target (see archer.mark-*).
+    # --- Mastery: two Left-Clicks, right after a Wind Jump ---------------
+    # Sharpshooter's Deadeye: the FIRST Left-Click after a Wind Jump (while
+    # still off the ground, isWindJumping) opens the aim instead of trying
+    # Focus Shot - that Wind-Jump gate is what keeps Deadeye from ever
+    # clashing with Focus Shot, which stays fully usable everywhere else
+    # (a lone Left-Click, grounded or not wind-jumped, always just tries
+    # Focus Shot like before). The SECOND Left-Click, while the aim is
+    # still open, fires it - Deadeye never reads or spends the Focus bar
+    # either way, so a full bar is simply left alone. The aim also closes
+    # itself, unfired, the instant the caster lands - deadeye-aim-seconds
+    # is only a safety cap for if they never land and never click again.
+    # Always marks its target (see archer.mark-*). While open, the caster
+    # is slowed (deadeye-aim-slowness-amplifier, an amplifier - 3 is
+    # Slowness IV) while whatever mob is under their crosshair, within
+    # deadeye-aim-range, glows; the arrow then fires straight at that
+    # locked mob for a guaranteed kill. deadeye-aim-forgiveness pads every
+    # candidate's real hitbox by a flat margin before the crosshair has to
+    # land on it - a real ray-vs-hitbox trace, not an angle check against a
+    # single eye point, so a big scaled-up mob (a Key Guardian spawns at
+    # 1.45-1.65x scale) is easier to lock onto, not harder. deadeye-
+    # damage-multiplier* only still matters against a dungeon boss, the
+    # one thing Deadeye can't just instakill.
     deadeye-cooldown-seconds: 12.0
     deadeye-speed: 3.6
+    deadeye-aim-seconds: 3.0
+    deadeye-aim-slowness-amplifier: 3
+    deadeye-aim-range: 40.0
+    deadeye-aim-forgiveness: 0.6
     deadeye-damage-multiplier: 2.2
     deadeye-damage-multiplier-per-mastery-level: 0.08
-    # Stormcaller's Tempest: a ground-usable fan of arrows, unlike
-    # Skyfall which needs airborne + a spent Focus bar.
+    # --- Mastery: double Left-Click --------------------------------------
+    # Stormcaller's Tempest: a ground-usable fan of arrows, unlike Skyfall
+    # which needs airborne + a spent Focus bar. Shares Focus Shot's
+    # trigger and takes priority over it without ever touching the Focus
+    # bar: the second Left-Click within tempest-double-click-window-
+    # seconds of the first fires Tempest instead, whenever it's off
+    # cooldown. Unlike Deadeye, Tempest has no aim/channel to gate the
+    # second click on - a lone Left-Click, or the first of a pair, always
+    # just tries Focus Shot like before.
     tempest-cooldown-seconds: 10.0
+    tempest-double-click-window-seconds: 0.4
     tempest-arrow-count: 5
-    tempest-spread-degrees: 30.0
+    tempest-spread-degrees: 20.0
     tempest-damage-multiplier: 0.6
     tempest-arrow-count-per-mastery-levels: 5   # +1 arrow every N levels
   paladin:
@@ -547,6 +610,30 @@ abilities:
     meteor-ally-damage-fraction: 0.25
     meteor-knockback: 0.7
     meteor-knockup: 0.35
+    # Necromancer's Rise. Raises rise-minion-count Skeletons (allies, never
+    # counted as dungeon mobs or targetable by anything that treats "a
+    # Monster" as "the enemy") around the caster; each fights whatever
+    # hostile dungeon mob is nearest within rise-minion-search-radius,
+    # dealing rise-minion-damage in melee at rise-minion-reach. They fall
+    # apart on their own after rise-minion-duration-seconds, or sooner if
+    # something kills them first. A fresh Rise refuses to cast at all while
+    # any of the current batch are still alive - the cooldown itself
+    # never changes with mastery, but stronger minions surviving closer to
+    # (or past) it means the felt downtime shrinks anyway.
+    rise-cooldown-seconds: 45.0
+    rise-mana-cost: 60.0
+    rise-spawn-radius: 2.0
+    rise-minion-reach: 2.5
+    rise-minion-search-radius: 32.0
+    rise-minion-count: 2
+    rise-minion-count-per-mastery-levels: 3     # +1 minion every N levels
+    rise-minion-duration-seconds: 15.0
+    # Comparable to a Difficulty 1 pack mob (health 32, damage 4) rather
+    # than a swarm mob (health 14, damage 2) - a fresh Necromancer's
+    # minions were losing straight fights even at the lowest difficulty.
+    rise-minion-damage: 5.0
+    rise-minion-health: 32.0
+    rise-minion-speed: 0.28                     # a little faster than vanilla Skeleton's own base, so they don't get kited
     # --- Mastery quest scaling ------------------------------------------
     # Claiming a mastery-quests.yml ladder step raises the player's mastery
     # level by 1 (0-10, one per claimed step). These per-level increments
@@ -559,4 +646,8 @@ abilities:
     heal-amplifier-per-mastery-levels: 5      # +1 Heal amplifier every N levels
     blessing-duration-per-mastery-level: 1.5  # seconds
     blessing-amplifier-per-mastery-levels: 3  # +1 Blessing amplifier every N levels
+    rise-minion-duration-per-mastery-level: 1.5  # seconds
+    rise-minion-damage-per-mastery-level: 0.6
+    rise-minion-health-per-mastery-level: 3.0
+    rise-minion-speed-per-mastery-level: 0.012
     blessing-effect-count-per-mastery-levels: 4  # +1 simultaneous effect every N levels
