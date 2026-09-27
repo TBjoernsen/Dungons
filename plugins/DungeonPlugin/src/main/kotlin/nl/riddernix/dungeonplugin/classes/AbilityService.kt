@@ -319,7 +319,7 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         val activated = when (classType) {
             ClassType.WARRIOR -> warriorDash(player)
             ClassType.ARCHER -> archerDoubleJump(player, forward = false)
-            ClassType.PALADIN -> paladinShield(player)
+            ClassType.PALADIN -> paladinShield(player, targetAlly = player.isSneaking)
             ClassType.MAGE -> mageBlink(player)
         }
         if (activated) cooldownUntil[player.uniqueId] = System.currentTimeMillis() + cooldownMillis(classType)
@@ -504,10 +504,22 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         plugin.classFeedback.windDashGust(origin, radius)
     }
 
-    private fun paladinShield(player: Player): Boolean {
+    /**
+     * Shield: plain F always targets the caster; Shift+F (targetAlly) looks
+     * for whoever is under the crosshair instead, falling back to self if
+     * nobody's there - so an emergency self-shield can never accidentally
+     * land on an ally you happened to be looking at, and vice versa. This
+     * is a stepping stone for Guardian's planned deeper shielding kit; for
+     * now the ally-targeting itself is available to every Paladin, and
+     * addMasteryProgress below only actually counts for whoever has a
+     * ladder line that reads ALLIES_SHIELDED (Guardian).
+     */
+    private fun paladinShield(player: Player, targetAlly: Boolean): Boolean {
         val cfg = plugin.classesConfig
         val rank = plugin.classes.signatureRank(player.uniqueId).coerceAtLeast(1)
-        val target = (player.getTargetEntity(12) as? Player)?.takeIf { it.world == player.world } ?: player
+        val target = if (targetAlly) {
+            (player.getTargetEntity(12) as? Player)?.takeIf { it.world == player.world } ?: player
+        } else player
         val seconds = cfg.getDouble("abilities.paladin.shield-seconds", 4.0)
         val hearts = cfg.getDouble("abilities.paladin.shield-hearts", 5.0) +
             cfg.getDouble("abilities.paladin.shield-hearts-per-rank", 1.0) * (rank - 1)
@@ -557,6 +569,7 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         val recipient = if (target == player) "yourself" else target.name
         player.sendActionBar(Component.text(
             (if (blessed) "Blessed & shielded " else "Shielded ") + recipient + ".", NamedTextColor.GOLD))
+        if (target != player) plugin.classes.addMasteryProgress(player, MasteryObjective.ALLIES_SHIELDED, 1)
         return true
     }
 
@@ -575,14 +588,19 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
             caster.sendActionBar(Component.text("Shockwave ready in ${ceil(remaining / 1000.0).toInt()}s.", NamedTextColor.GRAY))
             return
         }
-        val cooldownMillis = (cfg.getDouble("abilities.paladin.shockwave-cooldown-seconds", 20.0).coerceAtLeast(0.0) * 1000).toLong()
+        val cooldownMillis = (cfg.getDouble("abilities.paladin.shockwave-cooldown-seconds", 15.0).coerceAtLeast(0.0) * 1000).toLong()
         shockwaveCooldownUntil[caster.uniqueId] = now + cooldownMillis
 
-        val range = cfg.getDouble("abilities.paladin.shockwave-range", 8.0).coerceAtLeast(1.0)
-        val halfAngleCos = cos(Math.toRadians(
-            cfg.getDouble("abilities.paladin.shockwave-angle-degrees", 100.0).coerceIn(10.0, 180.0) / 2.0))
-        val damage = cfg.getDouble("abilities.paladin.shockwave-damage", 6.0).coerceAtLeast(0.0)
-        val knockUp = cfg.getDouble("abilities.paladin.shockwave-knockup", 0.4).coerceIn(0.0, 2.0)
+        val masteryLevel = plugin.classes.masteryLevelFor(caster.uniqueId, "guardian")
+        val range = cfg.getDouble("abilities.paladin.shockwave-range", 10.0) +
+            cfg.getDouble("abilities.paladin.shockwave-range-per-mastery-level", 0.3) * masteryLevel
+        val angleDegrees = (cfg.getDouble("abilities.paladin.shockwave-angle-degrees", 120.0) +
+            cfg.getDouble("abilities.paladin.shockwave-angle-per-mastery-level", 2.0) * masteryLevel).coerceIn(10.0, 360.0)
+        val halfAngleCos = cos(Math.toRadians(angleDegrees / 2.0))
+        val damage = cfg.getDouble("abilities.paladin.shockwave-damage", 6.0) +
+            cfg.getDouble("abilities.paladin.shockwave-damage-per-mastery-level", 0.5) * masteryLevel
+        val knockUp = cfg.getDouble("abilities.paladin.shockwave-knockup", 0.35).coerceIn(0.0, 2.0)
+        val knockback = cfg.getDouble("abilities.paladin.shockwave-knockback", 0.5).coerceAtLeast(0.0)
         val stunTicks = (cfg.getDouble("abilities.paladin.shockwave-stun-seconds", 2.5).coerceAtLeast(0.0) * 20).toLong()
 
         val origin = caster.location
@@ -597,8 +615,11 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
             }
         for (mob in hits) {
             mob.damage(damage, caster)
-            mob.velocity = mob.velocity.clone().setY(knockUp)
+            val push = mob.location.toVector().subtract(origin.toVector()).setY(0.0)
+            if (push.lengthSquared() > 0.0001) push.normalize() else push.zero()
+            mob.velocity = mob.velocity.clone().add(push.multiply(knockback)).setY(knockUp)
             knockDown(mob, stunTicks)
+            plugin.classes.addMasteryProgress(caster, MasteryObjective.SHOCKWAVE_STUNS, 1)
         }
         plugin.classFeedback.paladinShockwave(caster, range)
         caster.sendActionBar(Component.text("§6§lSHOCKWAVE!", NamedTextColor.GOLD))
@@ -620,6 +641,9 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
             if (mob.isValid && !mob.isDead) mob.setAI(true)
         }, stunTicks)
     }
+
+    /** Whether this entity is currently knocked down by Shockwave - MasteryQuestListener checks this to credit STUNNED_KILLS. */
+    fun isKnockedDown(entityId: UUID): Boolean = (stunnedMobs[entityId] ?: 0L) > System.currentTimeMillis()
 
     /**
      * Rouge's Earthquake: an omnidirectional pulse around the Paladin,

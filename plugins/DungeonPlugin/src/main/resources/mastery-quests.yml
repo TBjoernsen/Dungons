@@ -15,7 +15,7 @@
 # *-per-mastery-level keys in classes.yml). This is a starting set -
 # numbers and titles are all meant to be retuned after real testing.
 
-mastery-quests-version: 3
+mastery-quests-version: 4
 
 mage:
   attack:
@@ -94,3 +94,22 @@ archer:
       - { objective: skyfall_kills,   required: 35,  title: "Sky's Wrath",        description: "Kill 35 enemies with Skyfall." }
       - { objective: wind_dash_uses,  required: 90,  title: "Boundless Motion",   description: "Wind Dash 90 times." }
       - { objective: skyfall_kills,   required: 60,  title: "Herald of the Storm", description: "Kill 60 enemies with Skyfall." }
+
+paladin:
+  # Guardian interleaves all three of Shockwave's team-fight beats: how
+  # many enemies it's stunned, how many of those get finished off while
+  # down, and how many allies got shielded along the way. Rouge has no
+  # ladder yet.
+  guardian:
+    reward-xp: 150
+    ladder:
+      - { objective: shockwave_stuns, required: 10, title: "First Wave",           description: "Stun 10 enemies with Shockwave." }
+      - { objective: stunned_kills,   required: 8,  title: "Opening Strike",       description: "Kill 8 stunned enemies." }
+      - { objective: allies_shielded, required: 10, title: "Guardian's Oath",      description: "Shield 10 allies." }
+      - { objective: shockwave_stuns, required: 30, title: "Rolling Thunder",      description: "Stun 30 enemies with Shockwave." }
+      - { objective: stunned_kills,   required: 20, title: "Finish the Job",       description: "Kill 20 stunned enemies." }
+      - { objective: allies_shielded, required: 25, title: "Unbreakable Wall",     description: "Shield 25 allies." }
+      - { objective: shockwave_stuns, required: 60, title: "Earth-Shaker",         description: "Stun 60 enemies with Shockwave." }
+      - { objective: stunned_kills,   required: 40, title: "No Escape",            description: "Kill 40 stunned enemies." }
+      - { objective: allies_shielded, required: 50, title: "Beacon of Safety",     description: "Shield 50 allies." }
+      - { objective: stunned_kills,   required: 70, title: "Guardian's Reckoning", description: "Kill 70 stunned enemies." }

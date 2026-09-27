@@ -47,4 +47,12 @@ class MasteryQuestListener(private val plugin: DungeonPlugin) : Listener {
             plugin.classes.addMasteryProgress(shooter, MasteryObjective.FOCUS_SHOT_KILLS, 1)
         }
     }
+
+    /** Guardian's "kill something while it's knocked down by Shockwave." */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    fun onStunnedKill(event: EntityDeathEvent) {
+        if (!plugin.classAbilities.isKnockedDown(event.entity.uniqueId)) return
+        val killer = event.entity.killer ?: return
+        plugin.classes.addMasteryProgress(killer, MasteryObjective.STUNNED_KILLS, 1)
+    }
 }

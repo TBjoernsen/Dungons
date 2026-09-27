@@ -6,7 +6,7 @@
 # replaced with this bundled copy on the next load - the balance numbers
 # here move often and are meant to be tuned in the plugin, not held on the
 # server across updates. (Raised whenever the bundled defaults change.)
-config-version: 26
+config-version: 27
 
 classes:
   # Turning this off leaves a dungeons-only server: no classes, no kits, no
@@ -557,6 +557,11 @@ abilities:
     tempest-arrow-count-per-mastery-levels: 5   # +1 arrow every N levels
   paladin:
     cooldown-seconds: 7.5
+    # Plain F always shields the caster; Shift+F looks for whoever is under
+    # the crosshair instead (falling back to self if nobody's there) - see
+    # AbilityService.paladinShield. A future Guardian-specific shielding
+    # kit builds on top of this later; for now the ally-targeting itself
+    # works for every Paladin.
     shield-seconds: 4.0
     absorption-amplifier: 1
     shield-hearts: 5.0
@@ -568,15 +573,17 @@ abilities:
     # --- Mastery: Shift + Right-click ----------------------------------
     # Guardian's Shockwave: a Reinhardt-Earthshatter-style frontal cone in
     # whatever direction the Paladin is facing (not centred on them) -
-    # shockwave-range long, shockwave-angle-degrees wide. Everything it
-    # hits takes damage, a knock-up, and is knocked down for shockwave-
-    # stun-seconds (AI switched off entirely, not just slowed - a real
-    # "can't act" window for the team to punish).
-    shockwave-cooldown-seconds: 20.0
-    shockwave-range: 8.0
-    shockwave-angle-degrees: 100.0
+    # shockwave-range long, shockwave-angle-degrees wide, both widening
+    # further with mastery. Everything it hits takes damage, a knock-up
+    # and knockback, and is knocked down for shockwave-stun-seconds (AI
+    # switched off entirely, not just slowed - a real "can't act" window
+    # for the team to punish).
+    shockwave-cooldown-seconds: 15.0
+    shockwave-range: 10.0
+    shockwave-angle-degrees: 120.0
     shockwave-damage: 6.0
-    shockwave-knockup: 0.4
+    shockwave-knockup: 0.35
+    shockwave-knockback: 0.5
     shockwave-stun-seconds: 2.5
     # Rouge's Earthquake: an omnidirectional pulse around the Paladin
     # (earthquake-radius), unlike Shockwave's aimed cone - damage plus
@@ -588,6 +595,13 @@ abilities:
     earthquake-damage: 7.0
     earthquake-knockup: 0.25
     earthquake-daze-seconds: 4.0
+    # --- Mastery quest scaling ------------------------------------------
+    # Claiming a mastery-quests.yml ladder step raises the player's mastery
+    # level by 1 (0-10). Only Shockwave scales for now - Earthquake's own
+    # numbers are still a starting point, not yet tied to a ladder.
+    shockwave-range-per-mastery-level: 0.3
+    shockwave-angle-per-mastery-level: 2.0
+    shockwave-damage-per-mastery-level: 0.5
   mage:
     cooldown-seconds: 5.0
     blink-distance: 10.0
