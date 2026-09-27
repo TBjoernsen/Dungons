@@ -6,7 +6,7 @@
 # replaced with this bundled copy on the next load - the balance numbers
 # here move often and are meant to be tuned in the plugin, not held on the
 # server across updates. (Raised whenever the bundled defaults change.)
-config-version: 25
+config-version: 26
 
 classes:
   # Turning this off leaves a dungeons-only server: no classes, no kits, no
@@ -297,6 +297,27 @@ paladin:
   consecration-heal-per-damage: 5.0
   consecration-slow-amplifier: 0
   consecration-dot: 1.0
+  # --- Mastery subclass ------------------------------------------------
+  # Guardian leans into the support/control half of the existing kit
+  # (Taunt's stance, Shield, Consecrated Ground); Rouge (name a
+  # placeholder) leans into the offensive/earthbender half, still built
+  # on Taunt. Both get a Shift+Right-click signature ability
+  # (abilities.paladin.shockwave-*/earthquake-* below). No mastery quest
+  # ladder yet - this is mechanics first, content once tested. Same
+  # unlock gate and reset economy as the other classes' subclasses, but
+  # its own ids - mastery progress is keyed by subclass id alone, so
+  # these must not collide with any other class's ("attack", "support",
+  # "necromancer", "precision", "stormcaller").
+  subclasses:
+    unlock-level: 100
+    reset-soul-shard-cost: 20
+    options:
+      guardian:
+        name: "Guardian"
+        description: "Shockwave knocks down everything in front of you."
+      rouge:
+        name: "Rouge"
+        description: "Earthquake shakes the ground and dazes what it hits."
 
 # Mage Mana + Arcane Bolt (the baseline staff attack, left-click). Mana and
 # the bolt are usable from Difficulty 1; Difficulty 3 unlocks Arcane Charge,
@@ -544,6 +565,29 @@ abilities:
     # Weakness and grants Resistance I for shield-bless-seconds.
     shield-bless-min-rank: 3
     shield-bless-seconds: 3.0
+    # --- Mastery: Shift + Right-click ----------------------------------
+    # Guardian's Shockwave: a Reinhardt-Earthshatter-style frontal cone in
+    # whatever direction the Paladin is facing (not centred on them) -
+    # shockwave-range long, shockwave-angle-degrees wide. Everything it
+    # hits takes damage, a knock-up, and is knocked down for shockwave-
+    # stun-seconds (AI switched off entirely, not just slowed - a real
+    # "can't act" window for the team to punish).
+    shockwave-cooldown-seconds: 20.0
+    shockwave-range: 8.0
+    shockwave-angle-degrees: 100.0
+    shockwave-damage: 6.0
+    shockwave-knockup: 0.4
+    shockwave-stun-seconds: 2.5
+    # Rouge's Earthquake: an omnidirectional pulse around the Paladin
+    # (earthquake-radius), unlike Shockwave's aimed cone - damage plus
+    # Daze for earthquake-daze-seconds: the target's AI keeps running (it
+    # is NOT stunned) but is repeatedly stripped of its current target and
+    # sent wandering, so it neither attacks nor holds a formation.
+    earthquake-cooldown-seconds: 16.0
+    earthquake-radius: 6.0
+    earthquake-damage: 7.0
+    earthquake-knockup: 0.25
+    earthquake-daze-seconds: 4.0
   mage:
     cooldown-seconds: 5.0
     blink-distance: 10.0

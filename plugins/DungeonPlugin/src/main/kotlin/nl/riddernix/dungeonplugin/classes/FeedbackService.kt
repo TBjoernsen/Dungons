@@ -379,6 +379,45 @@ class FeedbackService(private val plugin: DungeonPlugin) {
         target.world.playSound(target.location, Sound.ITEM_ARMOR_EQUIP_GOLD, 0.7f, 1.2f)
     }
 
+    /** Guardian's Shockwave: a frontal cone of cracking ground, aimed the way the Paladin is facing - not a ring, unlike Earthquake below. */
+    fun paladinShockwave(caster: Player, range: Double) {
+        val world = caster.world
+        val origin = caster.location
+        val look = origin.direction.clone().setY(0.0).normalize()
+        val gold = Particle.DustOptions(Color.fromRGB(255, 205, 90), 1.4f)
+        val groundBlock = origin.clone().subtract(0.0, 1.0, 0.0).block.blockData
+        val steps = range.toInt().coerceAtLeast(4)
+        for (i in 1..steps) {
+            val distance = range * i / steps
+            val point = origin.clone().add(look.clone().multiply(distance))
+            world.spawnParticle(Particle.DUST, point, 5, 0.55, 0.1, 0.55, 0.0, gold)
+            world.spawnParticle(Particle.BLOCK, point, 10, 0.5, 0.15, 0.5, 0.0, groundBlock)
+            world.spawnParticle(Particle.CLOUD, point, 3, 0.35, 0.05, 0.35, 0.02)
+        }
+        world.playSound(origin, Sound.ENTITY_RAVAGER_STUNNED, 1.0f, 0.7f)
+        world.playSound(origin, Sound.ENTITY_GENERIC_EXPLODE, 0.7f, 0.5f)
+        world.playSound(origin, Sound.BLOCK_ANVIL_LAND, 0.6f, 0.6f)
+    }
+
+    /** Rouge's Earthquake: a full ring around the Paladin, unlike Shockwave's aimed cone - the omnidirectional pulse the name implies. */
+    fun paladinEarthquake(caster: Player, radius: Double) {
+        val world = caster.world
+        val centre = caster.location
+        val groundBlock = centre.clone().subtract(0.0, 1.0, 0.0).block.blockData
+        val brown = Particle.DustOptions(Color.fromRGB(140, 105, 70), 1.6f)
+        val points = (radius * 8).toInt().coerceIn(16, 100)
+        for (i in 0 until points) {
+            val a = Math.PI * 2 * i / points
+            val x = centre.x + kotlin.math.cos(a) * radius
+            val z = centre.z + kotlin.math.sin(a) * radius
+            world.spawnParticle(Particle.DUST, x, centre.y + 0.1, z, 2, 0.1, 0.1, 0.1, 0.0, brown)
+            world.spawnParticle(Particle.BLOCK, x, centre.y + 0.1, z, 3, 0.15, 0.15, 0.15, 0.0, groundBlock)
+        }
+        world.spawnParticle(Particle.CLOUD, centre.clone().add(0.0, 0.2, 0.0), 20, radius * 0.4, 0.1, radius * 0.4, 0.03)
+        world.playSound(centre, Sound.ENTITY_RAVAGER_ROAR, 0.8f, 0.6f)
+        world.playSound(centre, Sound.ENTITY_GENERIC_EXPLODE, 0.6f, 0.5f)
+    }
+
     /** True when the caster's Mage wand preset is the fiery kind (Magma Wand). */
     private fun mageFiery(subclassId: String?): Boolean = plugin.classesConfig.mageWandBoolean("impact-lava", false, subclassId)
 

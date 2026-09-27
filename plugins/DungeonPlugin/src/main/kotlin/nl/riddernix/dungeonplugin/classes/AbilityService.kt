@@ -79,10 +79,18 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
     private val deadeyeCooldownUntil = HashMap<UUID, Long>()
     private val tempestCooldownUntil = HashMap<UUID, Long>()
     private val riseCooldownUntil = HashMap<UUID, Long>()
+    private val shockwaveCooldownUntil = HashMap<UUID, Long>()
+    private val earthquakeCooldownUntil = HashMap<UUID, Long>()
     private val shieldExpiry = HashMap<UUID, Long>()
 
     /** Necromancer only: caster -> the UUIDs of their currently-alive Rise minions. A fresh Rise refuses to cast while this is non-empty. */
     private val activeMinions = HashMap<UUID, MutableList<UUID>>()
+
+    /** Guardian's Shockwave: mob UUID -> wall-clock ms until which its AI should stay switched off. */
+    private val stunnedMobs = HashMap<UUID, Long>()
+
+    /** Rouge's Earthquake: mob UUID -> wall-clock ms until which tickDazedMobs should keep stripping its target and sending it wandering. */
+    private val dazedMobs = HashMap<UUID, Long>()
 
     /** Per Archer: the wall-clock ms until which a Wind Jump still counts for a Skyfall shot. */
     private val windJumpUntil = HashMap<UUID, Long>()
@@ -182,6 +190,8 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         deadeyeCooldownUntil.remove(player.uniqueId)
         tempestCooldownUntil.remove(player.uniqueId)
         riseCooldownUntil.remove(player.uniqueId)
+        shockwaveCooldownUntil.remove(player.uniqueId)
+        earthquakeCooldownUntil.remove(player.uniqueId)
         windJumpUntil.remove(player.uniqueId)
         windDashCharges.remove(player.uniqueId)
         windDashChargeReadyAt.remove(player.uniqueId)
@@ -251,11 +261,17 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
      * player - if not, the click must NOT be cancelled/intercepted, or a
      * real weapon's own vanilla behaviour (an Archer's bow draw, chiefly)
      * gets silently blocked for nothing. Neither Archer mastery lives here
-     * any more - Deadeye and Tempest are both a double-Left-Click now -
-     * only the Mage's still does.
+     * any more - Deadeye and Tempest are both a double-Left-Click now - but
+     * the Mage's and Paladin's still do. Neither weapon (staff, axe) has any
+     * vanilla right-click behaviour to protect, so it is safe to always
+     * intercept for these two classes even before a subclass is chosen -
+     * castMasteryAbility's own noMasteryYet fallback handles that case.
      */
     private fun hasShiftRightClickAbility(player: Player): Boolean =
-        plugin.classes.activeClass(player.uniqueId) == ClassType.MAGE
+        when (plugin.classes.activeClass(player.uniqueId)) {
+            ClassType.MAGE, ClassType.PALADIN -> true
+            else -> false
+        }
 
     /** A Rise minion's death: no vanilla loot/exp (it was never really a mob), and its slot frees up immediately rather than waiting for the batch's duration timer. */
     @EventHandler(priority = EventPriority.MONITOR)
@@ -544,6 +560,141 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         return true
     }
 
+    /**
+     * Guardian's Shockwave: a Reinhardt-Earthshatter-style frontal cone,
+     * aimed wherever the Paladin is facing rather than centred on them.
+     * Everything it catches takes damage, a knock-up, and a real
+     * knockdown - AI switched off entirely for shockwave-stun-seconds, not
+     * just slowed - so the team has a clean window to punish it.
+     */
+    private fun castShockwave(caster: Player) {
+        val cfg = plugin.classesConfig
+        val now = System.currentTimeMillis()
+        val remaining = (shockwaveCooldownUntil[caster.uniqueId] ?: 0L) - now
+        if (remaining > 0) {
+            caster.sendActionBar(Component.text("Shockwave ready in ${ceil(remaining / 1000.0).toInt()}s.", NamedTextColor.GRAY))
+            return
+        }
+        val cooldownMillis = (cfg.getDouble("abilities.paladin.shockwave-cooldown-seconds", 20.0).coerceAtLeast(0.0) * 1000).toLong()
+        shockwaveCooldownUntil[caster.uniqueId] = now + cooldownMillis
+
+        val range = cfg.getDouble("abilities.paladin.shockwave-range", 8.0).coerceAtLeast(1.0)
+        val halfAngleCos = cos(Math.toRadians(
+            cfg.getDouble("abilities.paladin.shockwave-angle-degrees", 100.0).coerceIn(10.0, 180.0) / 2.0))
+        val damage = cfg.getDouble("abilities.paladin.shockwave-damage", 6.0).coerceAtLeast(0.0)
+        val knockUp = cfg.getDouble("abilities.paladin.shockwave-knockup", 0.4).coerceIn(0.0, 2.0)
+        val stunTicks = (cfg.getDouble("abilities.paladin.shockwave-stun-seconds", 2.5).coerceAtLeast(0.0) * 20).toLong()
+
+        val origin = caster.location
+        val look = origin.direction.clone().setY(0.0).normalize()
+        val hits = caster.world.getNearbyEntities(origin, range, range, range)
+            .filterIsInstance<LivingEntity>()
+            .filter { it != caster && it !is Player && !plugin.queries.isAllyMinion(it) &&
+                (plugin.queries.isDungeonMob(it) || it is Monster) }
+            .filter { mob ->
+                val toMob = mob.location.toVector().subtract(origin.toVector()).setY(0.0)
+                toMob.lengthSquared() > 0.0001 && toMob.normalize().dot(look) >= halfAngleCos
+            }
+        for (mob in hits) {
+            mob.damage(damage, caster)
+            mob.velocity = mob.velocity.clone().setY(knockUp)
+            knockDown(mob, stunTicks)
+        }
+        plugin.classFeedback.paladinShockwave(caster, range)
+        caster.sendActionBar(Component.text("§6§lSHOCKWAVE!", NamedTextColor.GOLD))
+    }
+
+    /** Guardian's knockdown: the mob's AI is fully switched off (not just slowed) until [stunTicks] pass, then restored - a real "can't act" window rather than a stronger Slowness. */
+    private fun knockDown(mob: LivingEntity, stunTicks: Long) {
+        if (mob !is Mob || stunTicks <= 0) return
+        val mobId = mob.uniqueId
+        val until = System.currentTimeMillis() + stunTicks * 50L
+        val alreadyStunned = (stunnedMobs[mobId] ?: 0L) > System.currentTimeMillis()
+        stunnedMobs[mobId] = until
+        if (!alreadyStunned) mob.setAI(false)
+        plugin.server.scheduler.runTaskLater(plugin, Runnable {
+            // A later Shockwave may have extended the window after this task
+            // was scheduled - only the LAST one scheduled restores AI.
+            if (stunnedMobs[mobId] != until) return@Runnable
+            stunnedMobs.remove(mobId)
+            if (mob.isValid && !mob.isDead) mob.setAI(true)
+        }, stunTicks)
+    }
+
+    /**
+     * Rouge's Earthquake: an omnidirectional pulse around the Paladin,
+     * unlike Shockwave's aimed cone. Everything it catches takes damage, a
+     * knock-up, and Daze - NOT a stun (AI keeps running): [tickDazedMobs]
+     * repeatedly strips its current target and sends it wandering instead,
+     * so it neither attacks nor holds a formation for earthquake-daze-
+     * seconds.
+     */
+    private fun castEarthquake(caster: Player) {
+        val cfg = plugin.classesConfig
+        val now = System.currentTimeMillis()
+        val remaining = (earthquakeCooldownUntil[caster.uniqueId] ?: 0L) - now
+        if (remaining > 0) {
+            caster.sendActionBar(Component.text("Earthquake ready in ${ceil(remaining / 1000.0).toInt()}s.", NamedTextColor.GRAY))
+            return
+        }
+        val cooldownMillis = (cfg.getDouble("abilities.paladin.earthquake-cooldown-seconds", 16.0).coerceAtLeast(0.0) * 1000).toLong()
+        earthquakeCooldownUntil[caster.uniqueId] = now + cooldownMillis
+
+        val radius = cfg.getDouble("abilities.paladin.earthquake-radius", 6.0).coerceAtLeast(1.0)
+        val damage = cfg.getDouble("abilities.paladin.earthquake-damage", 7.0).coerceAtLeast(0.0)
+        val knockUp = cfg.getDouble("abilities.paladin.earthquake-knockup", 0.25).coerceIn(0.0, 2.0)
+        val dazeTicks = (cfg.getDouble("abilities.paladin.earthquake-daze-seconds", 4.0).coerceAtLeast(0.0) * 20).toLong()
+
+        val origin = caster.location
+        val hits = caster.world.getNearbyEntities(origin, radius, radius, radius)
+            .filterIsInstance<LivingEntity>()
+            .filter { it != caster && it !is Player && !plugin.queries.isAllyMinion(it) &&
+                (plugin.queries.isDungeonMob(it) || it is Monster) }
+        for (mob in hits) {
+            mob.damage(damage, caster)
+            mob.velocity = mob.velocity.clone().setY(knockUp)
+            if (mob is Mob && dazeTicks > 0) {
+                dazedMobs[mob.uniqueId] = System.currentTimeMillis() + dazeTicks * 50L
+            }
+        }
+        plugin.classFeedback.paladinEarthquake(caster, radius)
+        caster.sendActionBar(Component.text("§6§lEARTHQUAKE!", NamedTextColor.GOLD))
+    }
+
+    /**
+     * Runs a few times a second: keeps every currently-Dazed mob target-
+     * less and wandering. Unlike Shockwave's knockdown, Daze never touches
+     * the mob's AI goals - it just keeps overriding target/movement each
+     * sweep - so there is nothing to restore when it expires; the entry
+     * simply stops being refreshed and the mob's own AI resumes on its own.
+     */
+    fun tickDazedMobs() {
+        if (dazedMobs.isEmpty()) return
+        val now = System.currentTimeMillis()
+        val iterator = dazedMobs.entries.iterator()
+        while (iterator.hasNext()) {
+            val entry = iterator.next()
+            if (entry.value <= now) {
+                iterator.remove()
+                continue
+            }
+            val mob = Bukkit.getEntity(entry.key) as? Mob
+            if (mob == null || !mob.isValid || mob.isDead) {
+                iterator.remove()
+                continue
+            }
+            mob.target = null
+            // Reissue a wander destination only some sweeps, not every one -
+            // let each stumble play out instead of jittering in place.
+            if (Math.random() < 0.3) {
+                val angle = Math.random() * 2 * Math.PI
+                val distance = 2.0 + Math.random() * 3.0
+                val dest = mob.location.clone().add(kotlin.math.cos(angle) * distance, 0.0, kotlin.math.sin(angle) * distance)
+                mob.pathfinder.moveTo(dest, 1.0)
+            }
+        }
+    }
+
     private fun mageBlink(player: Player): Boolean {
         val cfg = plugin.classesConfig
         val data = plugin.classes.data(player.uniqueId)
@@ -659,13 +810,25 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
      */
     private fun castMasteryAbility(caster: Player) {
         if (!plugin.queries.isInDungeon(caster)) return
-        if (plugin.classes.activeClass(caster.uniqueId) != ClassType.MAGE) return
-        if (!plugin.classItems.isStaff(caster.inventory.itemInMainHand)) return
-        when (plugin.classes.subclass(caster.uniqueId)) {
-            "support" -> castBlessing(caster)
-            "attack" -> castMeteor(caster)
-            "necromancer" -> castRise(caster)
-            else -> noMasteryYet(caster)
+        when (plugin.classes.activeClass(caster.uniqueId)) {
+            ClassType.MAGE -> {
+                if (!plugin.classItems.isStaff(caster.inventory.itemInMainHand)) return
+                when (plugin.classes.subclass(caster.uniqueId)) {
+                    "support" -> castBlessing(caster)
+                    "attack" -> castMeteor(caster)
+                    "necromancer" -> castRise(caster)
+                    else -> noMasteryYet(caster)
+                }
+            }
+            ClassType.PALADIN -> {
+                if (!plugin.classItems.isAllowedWeapon(ClassType.PALADIN, caster.inventory.itemInMainHand)) return
+                when (plugin.classes.subclass(caster.uniqueId)) {
+                    "guardian" -> castShockwave(caster)
+                    "rouge" -> castEarthquake(caster)
+                    else -> noMasteryYet(caster)
+                }
+            }
+            else -> {}
         }
     }
 
