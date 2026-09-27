@@ -179,13 +179,24 @@ class CoreListener(private val plugin: DungeonPlugin) : Listener {
         }
     }
 
+    /**
+     * Fires on sneak RELEASE, not press - Guardian's Shockwave/Earthquake
+     * are Shift+Right-click, and pressing Shift is the necessary first step
+     * of that combo too. Triggering Taunt the instant Shift goes down would
+     * fire it on every attempt at the OTHER ability, before the right-click
+     * half is even read. Waiting for release and checking
+     * consumeShiftRightClickFlag means: if a mastery ability already fired
+     * during this sneak hold, Taunt sits out this time.
+     */
     @EventHandler(ignoreCancelled = true)
     fun onPaladinSneak(event: PlayerToggleSneakEvent) {
-        if (!event.isSneaking) return
-        if (!plugin.queries.isInDungeon(event.player)) return
-        when (plugin.classPassives.activateTaunt(event.player)) {
+        if (event.isSneaking) return
+        val player = event.player
+        if (!plugin.queries.isInDungeon(player)) return
+        if (plugin.classAbilities.consumeShiftRightClickFlag(player.uniqueId)) return
+        when (plugin.classPassives.activateTaunt(player)) {
             TauntActivationResult.NOT_READY -> {
-                event.player.sendActionBar(Component.text("§7Taunt is not charged yet."))
+                player.sendActionBar(Component.text("§7Taunt is not charged yet."))
             }
             else -> Unit
         }

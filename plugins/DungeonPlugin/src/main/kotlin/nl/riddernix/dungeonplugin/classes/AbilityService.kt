@@ -86,6 +86,16 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
     /** Necromancer only: caster -> the UUIDs of their currently-alive Rise minions. A fresh Rise refuses to cast while this is non-empty. */
     private val activeMinions = HashMap<UUID, MutableList<UUID>>()
 
+    /**
+     * Players whose current sneak hold has already fired a Shift+Right-click
+     * mastery ability (Shockwave/Earthquake, Blessing/Meteor/Rise). A
+     * plain-Shift ability (Taunt, chiefly) that fires on sneak RELEASE
+     * checks and consumes this first, so pressing Shift to set up a
+     * Shift+Right-click combo doesn't also fire the class's baseline sneak
+     * ability the instant Shift goes down.
+     */
+    private val consumedShiftRightClick = HashSet<UUID>()
+
     /** Guardian's Shockwave: mob UUID -> wall-clock ms until which its AI should stay switched off. */
     private val stunnedMobs = HashMap<UUID, Long>()
 
@@ -201,6 +211,7 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         updateHoveredHealTarget(player, null)
         cancelDeadeyeAim(player.uniqueId, null)
         dismissMinions(player.uniqueId)
+        consumedShiftRightClick.remove(player.uniqueId)
     }
 
     /**
@@ -270,6 +281,15 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
      * intercept for these two classes even before a subclass is chosen -
      * castMasteryAbility's own noMasteryYet fallback handles that case.
      */
+    /**
+     * True if this player's current sneak hold already fired a
+     * Shift+Right-click mastery ability - consumes the flag (clears it) so
+     * it only ever suppresses ONE upcoming sneak-release ability, not every
+     * one from then on. Called by a plain-Shift ability's sneak-release
+     * handler (Taunt, chiefly) before it activates.
+     */
+    fun consumeShiftRightClickFlag(playerId: UUID): Boolean = consumedShiftRightClick.remove(playerId)
+
     private fun hasShiftRightClickAbility(player: Player): Boolean =
         when (plugin.classes.activeClass(player.uniqueId)) {
             ClassType.MAGE, ClassType.PALADIN -> true
@@ -885,6 +905,11 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
      */
     private fun castMasteryAbility(caster: Player) {
         if (!plugin.queries.isInDungeon(caster)) return
+        // Marked regardless of what happens below (on cooldown, no mastery
+        // yet, wrong weapon) - the player's INTENT was a Shift+Right-click
+        // combo, so the baseline sneak ability shouldn't fire as a
+        // consolation prize when they let go of Shift.
+        consumedShiftRightClick.add(caster.uniqueId)
         when (plugin.classes.activeClass(caster.uniqueId)) {
             ClassType.MAGE -> {
                 if (!plugin.classItems.isStaff(caster.inventory.itemInMainHand)) return
