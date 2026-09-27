@@ -626,7 +626,7 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         val chosen = blessingPool.shuffled().take(count)
         chosen.forEach { target.addPotionEffect(PotionEffect(it, duration, amplifier, true, true, true)) }
         plugin.classFeedback.mageBlessing(target)
-        val names = chosen.joinToString(", ") { it.name.lowercase(Locale.ROOT).replaceFirstChar(Char::uppercase) }
+        val names = chosen.joinToString(", ") { it.key.key.replace('_', ' ').replaceFirstChar(Char::uppercase) }
         if (target == caster) {
             caster.sendMessage(Component.text("You blessed yourself with $names. (-${cost.toInt()} Mana)", NamedTextColor.LIGHT_PURPLE))
         } else {

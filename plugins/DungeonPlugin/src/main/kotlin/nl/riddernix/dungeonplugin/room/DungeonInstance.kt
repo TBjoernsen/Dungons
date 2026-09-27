@@ -41,10 +41,30 @@ class DungeonInstance @JvmOverloads constructor(
 
     var isCompleted: Boolean = false
         private set
-    var isKeyObtained: Boolean = false
+    var isFailed: Boolean = false
         private set
+    private val obtainedKeys = LinkedHashSet<String>()
+
+    /**
+     * The party's shared respawn pool. -1 means the lives system is off for
+     * this run; otherwise a dungeon death spends one and the run fails at 0.
+     */
+    var livesRemaining: Int = -1
+        private set
+
+    val livesEnabled: Boolean get() = livesRemaining >= 0
     var mobKillCount: Int = 0
         private set
+
+    /** True once every key room has given up its key (or no door exists at all). */
+    val isKeyObtained: Boolean
+        get() = keyGate == null || obtainedKeys.containsAll(keyGate.guardianRoomIds)
+
+    fun keysRequired(): Int = keyGate?.guardianRoomIds?.size ?: 0
+
+    fun keysObtained(): Int = obtainedKeys.size
+
+    fun hasKeyFrom(guardianRoomId: String): Boolean = guardianRoomId in obtainedKeys
 
     /**
      * How many players the mob numbers are balanced for, fixed when the
@@ -67,8 +87,11 @@ class DungeonInstance @JvmOverloads constructor(
             val markers = scannedMarkers[room.id] ?: room.markers
             val doorways = prefabDoorways[room.id] ?: emptyList()
             val bounds = playableBounds[room.id] ?: room.bounds
-            indexedRooms[room.id] = DungeonRoom(room.id, room.type, bounds, room.bounds.minY + 1,
-                room.depth, room.variant, room.role, markers, doorways, id)
+            // Doors carry their own floors now, so the entry floor comes from
+            // the layout; the old minY+1 rule only covers legacy layouts.
+            indexedRooms[room.id] = DungeonRoom(room.id, room.type, bounds,
+                room.floorY ?: (room.bounds.minY + 1),
+                room.depth, room.variant, room.role, room.miniboss, markers, doorways, id)
         }
         this.roomsById = indexedRooms.toMap()
         this.tunnels = layout.tunnels.toList()
@@ -117,17 +140,35 @@ class DungeonInstance @JvmOverloads constructor(
     /** The schematic a room was built from, or null when it fell back to procedural stone. */
     fun prefabFile(roomId: String): String? = prefabFiles[roomId]
 
-    /** Grants the party's key once; returns false when it was already held. */
-    fun obtainKey(): Boolean {
-        if (isKeyObtained) return false
-        isKeyObtained = true
-        return true
+    /** Grants one key room's key; returns false when that key was already held. */
+    fun obtainKey(guardianRoomId: String): Boolean {
+        val gate = keyGate ?: return false
+        if (guardianRoomId !in gate.guardianRoomIds) return false
+        return obtainedKeys.add(guardianRoomId)
     }
 
     /** Marks this disposable instance complete once; returns false on duplicates. */
     fun complete(): Boolean {
         if (isCompleted) return false
         isCompleted = true
+        return true
+    }
+
+    /** Sets the starting life pool. Called once at registration; a value below 0 leaves the system off. */
+    fun initLives(count: Int) {
+        livesRemaining = if (count < 0) -1 else count
+    }
+
+    /** Spends one life if any remain; returns the count left afterwards. */
+    fun consumeLife(): Int {
+        if (livesRemaining > 0) livesRemaining--
+        return livesRemaining
+    }
+
+    /** Marks the run failed once; returns false on duplicates or if it already completed. */
+    fun fail(): Boolean {
+        if (isFailed || isCompleted) return false
+        isFailed = true
         return true
     }
 

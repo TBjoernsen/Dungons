@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     kotlin("jvm") version "2.4.10"
 }
@@ -43,3 +45,35 @@ tasks.processResources {
     inputs.properties(properties)
     filesMatching("plugin.yml") { expand(properties) }
 }
+
+// ------------------------------------------------------------
+//  Optional: copy the built jar straight into a test server.
+//  Put the path in a gitignored file called 'local.properties':
+//      serverPluginsDir=C:/servers/test/plugins
+//  Without it, build logs one line and the jar stays in build/libs -
+//  "I see no change on the server" has twice meant exactly this.
+// ------------------------------------------------------------
+tasks.register<Copy>("deploy") {
+    group = "dungeonplugin"
+    description = "Copies the built jar into your test server's plugins folder."
+
+    val localProps = Properties()
+    val localFile = rootProject.file("local.properties")
+    if (localFile.exists()) {
+        localFile.inputStream().use { stream -> localProps.load(stream) }
+    }
+    val target: String? = localProps.getProperty("serverPluginsDir")
+
+    onlyIf {
+        if (target == null) {
+            logger.lifecycle("No 'serverPluginsDir' in local.properties - skipping deploy." +
+                " The jar stays in build/libs and must reach the server by hand.")
+            false
+        } else true
+    }
+
+    from(tasks.jar)
+    if (target != null) into(target)
+}
+
+tasks.named("build") { finalizedBy("deploy") }

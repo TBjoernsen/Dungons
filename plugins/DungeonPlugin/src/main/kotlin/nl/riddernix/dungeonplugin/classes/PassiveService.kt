@@ -818,7 +818,7 @@ class PassiveService(private val plugin: DungeonPlugin) {
                 val taunt = activeTaunt
                 val active = taunt?.playerId == player.uniqueId && taunt.expiresAt > System.currentTimeMillis()
                 if (active) {
-                    val secs = ((taunt!!.expiresAt - System.currentTimeMillis()) / 1000.0).coerceAtLeast(0.0).roundToInt()
+                    val secs = ((taunt.expiresAt - System.currentTimeMillis()) / 1000.0).coerceAtLeast(0.0).roundToInt()
                     "Taunt $rank: §6ACTIVE ${secs}s §7| Zeal ${data.zeal.roundToInt()}/${zealThreshold().roundToInt()}"
                 }
                 else if (data.retributionUntil > System.currentTimeMillis() && data.retributionPower > 0.0) {
@@ -1189,7 +1189,7 @@ class PassiveService(private val plugin: DungeonPlugin) {
             }
             return
         }
-        targetMobsInRadius(player!!)
+        targetMobsInRadius(player)
     }
 
     private fun maxMana(rank: Int): Double =
