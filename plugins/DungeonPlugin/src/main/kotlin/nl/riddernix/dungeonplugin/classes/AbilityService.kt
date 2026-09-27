@@ -615,13 +615,18 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
             }
         for (mob in hits) {
             mob.damage(damage, caster)
+            // AI off (knockDown) BEFORE the velocity is set, not after - the
+            // knockback/knock-up needs to be the LAST thing touching the
+            // mob's motion this tick, or setAI(false) can quietly reset it
+            // and the shove only seems to land a moment later instead of
+            // right on impact.
+            knockDown(mob, stunTicks)
             val push = mob.location.toVector().subtract(origin.toVector()).setY(0.0)
             if (push.lengthSquared() > 0.0001) push.normalize() else push.zero()
             mob.velocity = mob.velocity.clone().add(push.multiply(knockback)).setY(knockUp)
-            knockDown(mob, stunTicks)
             plugin.classes.addMasteryProgress(caster, MasteryObjective.SHOCKWAVE_STUNS, 1)
         }
-        plugin.classFeedback.paladinShockwave(caster, range)
+        plugin.classFeedback.paladinShockwave(caster, range, angleDegrees)
         caster.sendActionBar(Component.text("§6§lSHOCKWAVE!", NamedTextColor.GOLD))
     }
 

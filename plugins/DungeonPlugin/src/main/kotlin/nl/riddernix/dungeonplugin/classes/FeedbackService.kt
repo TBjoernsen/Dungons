@@ -18,6 +18,7 @@ import org.bukkit.entity.Projectile
 import org.bukkit.scheduler.BukkitRunnable
 import org.bukkit.scoreboard.DisplaySlot
 import org.bukkit.scoreboard.Scoreboard
+import org.bukkit.util.Vector
 import java.util.Locale
 import java.util.UUID
 
@@ -380,23 +381,38 @@ class FeedbackService(private val plugin: DungeonPlugin) {
     }
 
     /** Guardian's Shockwave: a frontal cone of cracking ground, aimed the way the Paladin is facing - not a ring, unlike Earthquake below. */
-    fun paladinShockwave(caster: Player, range: Double) {
+    fun paladinShockwave(caster: Player, range: Double, angleDegrees: Double) {
         val world = caster.world
         val origin = caster.location
         val look = origin.direction.clone().setY(0.0).normalize()
         val gold = Particle.DustOptions(Color.fromRGB(255, 205, 90), 1.4f)
         val groundBlock = origin.clone().subtract(0.0, 1.0, 0.0).block.blockData
-        val steps = range.toInt().coerceAtLeast(4)
-        for (i in 1..steps) {
-            val distance = range * i / steps
-            val point = origin.clone().add(look.clone().multiply(distance))
-            world.spawnParticle(Particle.DUST, point, 5, 0.55, 0.1, 0.55, 0.0, gold)
-            world.spawnParticle(Particle.BLOCK, point, 10, 0.5, 0.15, 0.5, 0.0, groundBlock)
-            world.spawnParticle(Particle.CLOUD, point, 3, 0.35, 0.05, 0.35, 0.02)
+        val radialSteps = range.toInt().coerceAtLeast(4)
+        // One arc point roughly every 12 degrees - fans out across the
+        // REAL cone width, and grows with it as Shockwave's mastery-scaled
+        // angle widens, instead of drawing a single line down the middle.
+        val angularSteps = (angleDegrees / 12.0).toInt().coerceIn(2, 24)
+        for (r in 1..radialSteps) {
+            val distance = range * r / radialSteps
+            for (a in 0..angularSteps) {
+                val offsetDegrees = -angleDegrees / 2.0 + angleDegrees * a / angularSteps
+                val direction = rotateAroundY(look, Math.toRadians(offsetDegrees))
+                val point = origin.clone().add(direction.multiply(distance))
+                world.spawnParticle(Particle.DUST, point, 2, 0.2, 0.1, 0.2, 0.0, gold)
+                world.spawnParticle(Particle.BLOCK, point, 3, 0.2, 0.15, 0.2, 0.0, groundBlock)
+                if (a % 3 == 0) world.spawnParticle(Particle.CLOUD, point, 2, 0.15, 0.05, 0.15, 0.02)
+            }
         }
         world.playSound(origin, Sound.ENTITY_RAVAGER_STUNNED, 1.0f, 0.7f)
         world.playSound(origin, Sound.ENTITY_GENERIC_EXPLODE, 0.7f, 0.5f)
         world.playSound(origin, Sound.BLOCK_ANVIL_LAND, 0.6f, 0.6f)
+    }
+
+    /** Rotates a horizontal vector around the Y (up) axis by [radians] - used to fan Shockwave's particles across its real cone width. */
+    private fun rotateAroundY(vector: Vector, radians: Double): Vector {
+        val cosA = kotlin.math.cos(radians)
+        val sinA = kotlin.math.sin(radians)
+        return Vector(vector.x * cosA - vector.z * sinA, vector.y, vector.x * sinA + vector.z * cosA)
     }
 
     /** Rouge's Earthquake: a full ring around the Paladin, unlike Shockwave's aimed cone - the omnidirectional pulse the name implies. */
