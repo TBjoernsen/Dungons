@@ -430,9 +430,9 @@ class FeedbackService(private val plugin: DungeonPlugin) {
             w.spawnParticle(puff, origin.clone().add(0.0, 1.0, 0.0), 26, 0.3, 0.6, 0.3, 0.05)
             w.playSound(origin, when {
                 fiery -> Sound.ITEM_FIRECHARGE_USE
-                necro -> Sound.ENTITY_WITHER_SHOOT
+                necro -> Sound.ENTITY_VEX_CHARGE
                 else -> Sound.ENTITY_ENDERMAN_TELEPORT
-            }, 0.55f, if (fiery) 0.9f else if (necro) 0.7f else 1.6f)
+            }, 0.55f, if (fiery) 0.9f else if (necro) 0.8f else 1.6f)
         }
         destination.world?.let { w ->
             w.spawnParticle(puff, destination.clone().add(0.0, 1.0, 0.0), 26, 0.3, 0.6, 0.3, 0.05)
@@ -443,9 +443,11 @@ class FeedbackService(private val plugin: DungeonPlugin) {
             }, destination.clone().add(0.0, 1.0, 0.0), if (fiery) 6 else 12, 0.25, 0.5, 0.25, 0.03)
             w.playSound(destination, when {
                 fiery -> Sound.ENTITY_BLAZE_SHOOT
-                necro -> Sound.ENTITY_WITHER_SPAWN
+                // A void/portal beat instead of anything undead - Blink
+                // reads as crossing through somewhere, not summoning.
+                necro -> Sound.BLOCK_PORTAL_TRAVEL
                 else -> Sound.BLOCK_AMETHYST_BLOCK_CHIME
-            }, if (necro) 0.35f else 0.6f, if (fiery) 1.2f else if (necro) 0.8f else 1.4f)
+            }, 0.6f, if (fiery) 1.2f else if (necro) 1.0f else 1.4f)
         }
     }
 
