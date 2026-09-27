@@ -21,14 +21,14 @@ class ItemService(private val plugin: DungeonPlugin) {
     fun skillShard(): ItemStack = taggedItem(
         Material.PRISMARINE_CRYSTALS,
         "§bSkill Shard",
-        listOf("§7Right-click to open the skill tree.", "§7Right-click an unlocked node to revoke it."),
+        listOf("§7Used to refund your entire skill tree."),
         SKILL_SHARD_KIND
     )
 
     fun soulShard(): ItemStack = taggedItem(
         Material.ECHO_SHARD,
         "§dSoul Shard",
-        listOf("§7Right-click to open class switching.", "§cLocked changes reset the character to Level 1."),
+        listOf("§7Used to change classes once you're above Level 20."),
         SOUL_SHARD_KIND
     )
 
