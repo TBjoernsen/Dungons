@@ -966,8 +966,8 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
                 skeleton.isCustomNameVisible = true
                 skeleton.canPickupItems = false
                 skeleton.removeWhenFarAway = true
-                skeleton.equipment?.setItemInMainHand(ItemStack(Material.STONE_SWORD))
-                skeleton.equipment?.itemInMainHandDropChance = 0f
+                skeleton.equipment.setItemInMainHand(ItemStack(Material.STONE_SWORD))
+                skeleton.equipment.itemInMainHandDropChance = 0f
                 skeleton.addPotionEffect(PotionEffect(PotionEffectType.FIRE_RESISTANCE, Int.MAX_VALUE, 0, true, false, false))
                 setAttributeIfPresent(skeleton, Attribute.MAX_HEALTH, health)
                 skeleton.health = health
