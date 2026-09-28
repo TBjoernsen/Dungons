@@ -27,7 +27,10 @@ enum class MasteryObjective(val id: String) {
     MINION_KILLS("minion_kills"),
     SHOCKWAVE_STUNS("shockwave_stuns"),
     STUNNED_KILLS("stunned_kills"),
-    ALLIES_SHIELDED("allies_shielded");
+    ALLIES_SHIELDED("allies_shielded"),
+    EARTHQUAKE_DAZED("earthquake_dazed"),
+    EARTHQUAKE_KILLS("earthquake_kills"),
+    EARTHQUAKE_DAMAGE("earthquake_damage");
 
     companion object {
         fun fromId(raw: String?): MasteryObjective? = entries.firstOrNull { it.id.equals(raw, ignoreCase = true) }

@@ -6,7 +6,7 @@
 # replaced with this bundled copy on the next load - the balance numbers
 # here move often and are meant to be tuned in the plugin, not held on the
 # server across updates. (Raised whenever the bundled defaults change.)
-config-version: 27
+config-version: 28
 
 classes:
   # Turning this off leaves a dungeons-only server: no classes, no kits, no
@@ -302,9 +302,9 @@ paladin:
   # (Taunt's stance, Shield, Consecrated Ground); Rouge (name a
   # placeholder) leans into the offensive/earthbender half, still built
   # on Taunt. Both get a Shift+Right-click signature ability
-  # (abilities.paladin.shockwave-*/earthquake-* below). No mastery quest
-  # ladder yet - this is mechanics first, content once tested. Same
-  # unlock gate and reset economy as the other classes' subclasses, but
+  # (abilities.paladin.shockwave-*/earthquake-* below), each with its own
+  # mastery-quests.yml ladder. Same unlock gate and reset economy as the
+  # other classes' subclasses, but
   # its own ids - mastery progress is keyed by subclass id alone, so
   # these must not collide with any other class's ("attack", "support",
   # "necromancer", "precision", "stormcaller").
@@ -594,16 +594,18 @@ abilities:
     # sent wandering, so it neither attacks nor holds a formation.
     earthquake-cooldown-seconds: 16.0
     earthquake-radius: 6.0
-    earthquake-damage: 7.0
+    earthquake-damage: 14.0
     earthquake-knockup: 0.25
     earthquake-daze-seconds: 4.0
     # --- Mastery quest scaling ------------------------------------------
     # Claiming a mastery-quests.yml ladder step raises the player's mastery
-    # level by 1 (0-10). Only Shockwave scales for now - Earthquake's own
-    # numbers are still a starting point, not yet tied to a ladder.
+    # level by 1 (0-10).
     shockwave-range-per-mastery-level: 0.3
     shockwave-angle-per-mastery-level: 2.0
     shockwave-damage-per-mastery-level: 0.5
+    earthquake-radius-per-mastery-level: 0.2
+    earthquake-damage-per-mastery-level: 1.2
+    earthquake-daze-per-mastery-level: 0.15
   mage:
     cooldown-seconds: 5.0
     blink-distance: 10.0

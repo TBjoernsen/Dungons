@@ -41,6 +41,7 @@ import java.util.Locale
 import java.util.UUID
 import kotlin.math.ceil
 import kotlin.math.cos
+import kotlin.math.roundToInt
 
 /**
  * Blocks with a real menu or vanilla use worth preserving under a Heal cast.
@@ -104,6 +105,9 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
 
     /** Rouge's Earthquake: mob UUID -> wall-clock ms until which tickDazedMobs should keep stripping its target and sending it wandering. */
     private val dazedMobs = HashMap<UUID, Long>()
+
+    /** Rouge's Earthquake: mob UUID -> wall-clock ms it was last hit, so MasteryQuestListener can credit EARTHQUAKE_KILLS on a death soon after. */
+    private val earthquakeHitMobs = HashMap<UUID, Long>()
 
     /** Per Archer: the wall-clock ms until which a Wind Jump still counts for a Skyfall shot. */
     private val windJumpUntil = HashMap<UUID, Long>()
@@ -735,26 +739,42 @@ class AbilityService(private val plugin: DungeonPlugin) : Listener {
         val cooldownMillis = (cfg.getDouble("abilities.paladin.earthquake-cooldown-seconds", 16.0).coerceAtLeast(0.0) * 1000).toLong()
         earthquakeCooldownUntil[caster.uniqueId] = now + cooldownMillis
 
-        val radius = cfg.getDouble("abilities.paladin.earthquake-radius", 6.0).coerceAtLeast(1.0)
-        val damage = cfg.getDouble("abilities.paladin.earthquake-damage", 7.0).coerceAtLeast(0.0)
+        val masteryLevel = plugin.classes.masteryLevelFor(caster.uniqueId, "rouge")
+        val radius = (cfg.getDouble("abilities.paladin.earthquake-radius", 6.0) +
+            cfg.getDouble("abilities.paladin.earthquake-radius-per-mastery-level", 0.2) * masteryLevel).coerceAtLeast(1.0)
+        val damage = (cfg.getDouble("abilities.paladin.earthquake-damage", 14.0) +
+            cfg.getDouble("abilities.paladin.earthquake-damage-per-mastery-level", 1.2) * masteryLevel).coerceAtLeast(0.0)
         val knockUp = cfg.getDouble("abilities.paladin.earthquake-knockup", 0.25).coerceIn(0.0, 2.0)
-        val dazeTicks = (cfg.getDouble("abilities.paladin.earthquake-daze-seconds", 4.0).coerceAtLeast(0.0) * 20).toLong()
+        val dazeTicks = ((cfg.getDouble("abilities.paladin.earthquake-daze-seconds", 4.0) +
+            cfg.getDouble("abilities.paladin.earthquake-daze-per-mastery-level", 0.15) * masteryLevel).coerceAtLeast(0.0) * 20).toLong()
 
         val origin = caster.location
         val hits = caster.world.getNearbyEntities(origin, radius, radius, radius)
             .filterIsInstance<LivingEntity>()
             .filter { it != caster && it !is Player && !plugin.queries.isAllyMinion(it) &&
                 (plugin.queries.isDungeonMob(it) || it is Monster) }
+        var totalDamage = 0.0
+        var dazedCount = 0
         for (mob in hits) {
+            // Marked BEFORE damage() - a kill can happen synchronously inside
+            // that call, and MasteryQuestListener needs the flag set by then.
+            earthquakeHitMobs[mob.uniqueId] = System.currentTimeMillis()
             mob.damage(damage, caster)
             mob.velocity = mob.velocity.clone().setY(knockUp)
+            totalDamage += damage
             if (mob is Mob && dazeTicks > 0) {
                 dazedMobs[mob.uniqueId] = System.currentTimeMillis() + dazeTicks * 50L
+                dazedCount++
             }
         }
+        if (totalDamage > 0) plugin.classes.addMasteryProgress(caster, MasteryObjective.EARTHQUAKE_DAMAGE, totalDamage.roundToInt())
+        if (dazedCount > 0) plugin.classes.addMasteryProgress(caster, MasteryObjective.EARTHQUAKE_DAZED, dazedCount)
         plugin.classFeedback.paladinEarthquake(caster, radius)
         caster.sendActionBar(Component.text("§6§lEARTHQUAKE!", NamedTextColor.GOLD))
     }
+
+    /** Whether this entity was just hit by Earthquake - MasteryQuestListener checks this to credit EARTHQUAKE_KILLS. */
+    fun isEarthquakeHit(entityId: UUID): Boolean = (earthquakeHitMobs[entityId] ?: 0L) > System.currentTimeMillis() - 300L
 
     /**
      * Runs a few times a second: keeps every currently-Dazed mob target-

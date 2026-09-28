@@ -55,4 +55,12 @@ class MasteryQuestListener(private val plugin: DungeonPlugin) : Listener {
         val killer = event.entity.killer ?: return
         plugin.classes.addMasteryProgress(killer, MasteryObjective.STUNNED_KILLS, 1)
     }
+
+    /** Rouge's "kill x enemies with Earthquake" - Earthquake's damage looks like any other hit, so this checks a short-lived hit timestamp instead of the damage cause (Earthquake/dazedMobs.EARTHQUAKE_DAMAGE/DAZED are credited directly from castEarthquake instead, since that call site already knows the numbers). */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    fun onEarthquakeKill(event: EntityDeathEvent) {
+        if (!plugin.classAbilities.isEarthquakeHit(event.entity.uniqueId)) return
+        val killer = event.entity.killer ?: return
+        plugin.classes.addMasteryProgress(killer, MasteryObjective.EARTHQUAKE_KILLS, 1)
+    }
 }

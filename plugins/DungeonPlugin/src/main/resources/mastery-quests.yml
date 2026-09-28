@@ -15,7 +15,7 @@
 # *-per-mastery-level keys in classes.yml). This is a starting set -
 # numbers and titles are all meant to be retuned after real testing.
 
-mastery-quests-version: 4
+mastery-quests-version: 5
 
 mage:
   attack:
@@ -98,8 +98,7 @@ archer:
 paladin:
   # Guardian interleaves all three of Shockwave's team-fight beats: how
   # many enemies it's stunned, how many of those get finished off while
-  # down, and how many allies got shielded along the way. Rouge has no
-  # ladder yet.
+  # down, and how many allies got shielded along the way.
   guardian:
     reward-xp: 150
     ladder:
@@ -113,3 +112,19 @@ paladin:
       - { objective: stunned_kills,   required: 40, title: "No Escape",            description: "Kill 40 stunned enemies." }
       - { objective: allies_shielded, required: 50, title: "Beacon of Safety",     description: "Shield 50 allies." }
       - { objective: stunned_kills,   required: 70, title: "Guardian's Reckoning", description: "Kill 70 stunned enemies." }
+  # Rouge interleaves Earthquake's three beats the same way Guardian does:
+  # how many enemies it's dazed, how many of those get finished off with
+  # Earthquake itself, and total damage dealt with it.
+  rouge:
+    reward-xp: 150
+    ladder:
+      - { objective: earthquake_dazed,  required: 10,   title: "First Tremor",        description: "Daze 10 enemies with Earthquake." }
+      - { objective: earthquake_kills,  required: 8,    title: "Opening Fault",       description: "Kill 8 enemies with Earthquake." }
+      - { objective: earthquake_damage, required: 150,  title: "Fracture Point",      description: "Deal 150 damage with Earthquake." }
+      - { objective: earthquake_dazed,  required: 30,   title: "Rolling Tremors",     description: "Daze 30 enemies with Earthquake." }
+      - { objective: earthquake_kills,  required: 20,   title: "Fault Line",          description: "Kill 20 enemies with Earthquake." }
+      - { objective: earthquake_damage, required: 500,  title: "Seismic Pressure",    description: "Deal 500 damage with Earthquake." }
+      - { objective: earthquake_dazed,  required: 60,   title: "Ground Zero",         description: "Daze 60 enemies with Earthquake." }
+      - { objective: earthquake_kills,  required: 40,   title: "Cataclysmic Fault",   description: "Kill 40 enemies with Earthquake." }
+      - { objective: earthquake_damage, required: 1200, title: "Tectonic Wrath",      description: "Deal 1,200 damage with Earthquake." }
+      - { objective: earthquake_kills,  required: 70,   title: "Rouge's Reckoning",   description: "Kill 70 enemies with Earthquake." }
