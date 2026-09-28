@@ -418,20 +418,31 @@ class FeedbackService(private val plugin: DungeonPlugin) {
     /** Rouge's Earthquake: a full ring around the Paladin, unlike Shockwave's aimed cone - the omnidirectional pulse the name implies. */
     fun paladinEarthquake(caster: Player, radius: Double) {
         val world = caster.world
-        val centre = caster.location
+        val centre = caster.location.clone()
         val groundBlock = centre.clone().subtract(0.0, 1.0, 0.0).block.blockData
         val brown = Particle.DustOptions(Color.fromRGB(140, 105, 70), 1.6f)
-        val points = (radius * 8).toInt().coerceIn(16, 100)
-        for (i in 0 until points) {
-            val a = Math.PI * 2 * i / points
-            val x = centre.x + kotlin.math.cos(a) * radius
-            val z = centre.z + kotlin.math.sin(a) * radius
-            world.spawnParticle(Particle.DUST, x, centre.y + 0.1, z, 2, 0.1, 0.1, 0.1, 0.0, brown)
-            world.spawnParticle(Particle.BLOCK, x, centre.y + 0.1, z, 3, 0.15, 0.15, 0.15, 0.0, groundBlock)
-        }
         world.spawnParticle(Particle.CLOUD, centre.clone().add(0.0, 0.2, 0.0), 20, radius * 0.4, 0.1, radius * 0.4, 0.03)
-        world.playSound(centre, Sound.ENTITY_RAVAGER_ROAR, 0.8f, 0.6f)
         world.playSound(centre, Sound.ENTITY_GENERIC_EXPLODE, 0.6f, 0.5f)
+
+        val steps = 10
+        object : BukkitRunnable() {
+            var step = 1
+            override fun run() {
+                if (step > steps || !caster.isOnline) {
+                    cancel(); return
+                }
+                val ringRadius = radius * step / steps
+                val points = (ringRadius * 8).toInt().coerceIn(8, 100)
+                for (i in 0 until points) {
+                    val a = Math.PI * 2 * i / points
+                    val x = centre.x + kotlin.math.cos(a) * ringRadius
+                    val z = centre.z + kotlin.math.sin(a) * ringRadius
+                    world.spawnParticle(Particle.DUST, x, centre.y + 0.1, z, 2, 0.1, 0.1, 0.1, 0.0, brown)
+                    world.spawnParticle(Particle.BLOCK, x, centre.y + 0.1, z, 3, 0.15, 0.15, 0.15, 0.0, groundBlock)
+                }
+                step++
+            }
+        }.runTaskTimer(plugin, 0L, 1L)
     }
 
     /** True when the caster's Mage wand preset is the fiery kind (Magma Wand). */
