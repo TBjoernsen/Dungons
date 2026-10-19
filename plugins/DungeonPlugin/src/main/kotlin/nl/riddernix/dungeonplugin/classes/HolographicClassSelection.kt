@@ -222,12 +222,30 @@ class HolographicClassSelection(private val plugin: DungeonPlugin) : Listener {
         // Wield panel used to occupy.
         session.entities += text(player, at(2.6, 2.15), Component.text("PASSIVE • ${type.passiveName}", color(type)))
         session.entities += text(player, at(2.6, .95), Component.text(passiveDescription(type), NamedTextColor.WHITE))
+        // Between the panels and the buttons: what the class can specialise
+        // into, so it can be seen before committing to the class.
+        session.entities += text(player, at(1.0, -.15), masteryText(type), .75f, lineWidth = 380)
         session.entities += text(player, at(-1.55, -.85), Component.text("[ BACK ]", NamedTextColor.GRAY))
         session.entities += text(player, at(1.05, -.85), Component.text("[ SELECT ${type.displayName.uppercase()} ]", NamedTextColor.GREEN))
         session.entities += text(player, at(3.85, -.85), Component.text("[ CLOSE ]", NamedTextColor.RED))
         session.entities += hitbox(player, at(-1.55, -.85), "back", 1.6f, .65f)
         session.entities += hitbox(player, at(1.05, -.85), "select:${type.name}", 2.5f, .65f)
         session.entities += hitbox(player, at(3.85, -.85), "close", 1.4f, .65f)
+    }
+
+    /** Header plus one short line per mastery subclass of [type]; a class with none yet says so. */
+    private fun masteryText(type: ClassType): Component {
+        val cfg = plugin.classesConfig
+        val options = cfg.subclassOptions(type.id)
+        var out = Component.text("MASTERY", NamedTextColor.GOLD)
+        if (options.isEmpty()) return out.append(Component.text(" • coming soon", NamedTextColor.GRAY))
+        out = out.append(Component.text(" • unlocks at level ${cfg.subclassUnlockLevel(type.id)}", NamedTextColor.GRAY))
+        for (option in options) {
+            out = out.append(Component.newline())
+                .append(Component.text(option.name, color(type)))
+                .append(Component.text(" – ${option.summary}", NamedTextColor.WHITE))
+        }
+        return out
     }
 
     @EventHandler
@@ -304,13 +322,13 @@ class HolographicClassSelection(private val plugin: DungeonPlugin) : Listener {
             private(player, it)
         }
 
-    private fun text(player: Player, loc: Location, component: Component, scale: Float = 1f) =
+    private fun text(player: Player, loc: Location, component: Component, scale: Float = 1f, lineWidth: Int = 170) =
         player.world.spawn(loc, TextDisplay::class.java) {
             it.billboard = Display.Billboard.FIXED
             it.setRotation((sessions[player.uniqueId]?.yaw ?: player.location.yaw) + 180f, 0f)
             it.alignment = TextDisplay.TextAlignment.CENTER
             it.text(component)
-            it.lineWidth = 170
+            it.lineWidth = lineWidth
             it.isSeeThrough = true
             if (scale != 1f) it.transformation = scaleTransformation(scale)
             private(player, it)

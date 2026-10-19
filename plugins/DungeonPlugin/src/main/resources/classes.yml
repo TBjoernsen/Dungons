@@ -6,7 +6,7 @@
 # replaced with this bundled copy on the next load - the balance numbers
 # here move often and are meant to be tuned in the plugin, not held on the
 # server across updates. (Raised whenever the bundled defaults change.)
-config-version: 28
+config-version: 29
 
 classes:
   # Turning this off leaves a dungeons-only server: no classes, no kits, no
@@ -150,9 +150,11 @@ archer:
       precision:
         name: "Sharpshooter"
         description: "Focus Shot marks its target; follow-up arrows punish the mark."
+        summary: "Deadeye: a lock-on that never misses"
       stormcaller:
         name: "Stormcaller"
         description: "Wind Dash hits harder, and a landed Skyfall feeds back into it."
+        summary: "Tempest arrow fans and Wind Dash speed"
   # --- Sharpshooter: the mark ------------------------------------------
   # Focus Shot and Deadeye (two Left-Clicks right after a Wind Jump,
   # priority over Focus Shot) mark their target; the SAME shooter's plain
@@ -315,9 +317,11 @@ paladin:
       guardian:
         name: "Guardian"
         description: "Shockwave knocks down everything in front of you."
+        summary: "Shockwave: stun and protect your team"
       rouge:
         name: "Rouge"
         description: "Earthquake shakes the ground and dazes what it hits."
+        summary: "Earthquake: heavy AoE damage and Daze"
 
 # Mage Mana + Arcane Bolt (the baseline staff attack, left-click). Mana and
 # the bolt are usable from Difficulty 1; Difficulty 3 unlocks Arcane Charge,
@@ -466,12 +470,15 @@ mage:
       attack:
         name: "Battlemage"
         description: "Arcane Surge hits harder and reaches further."
+        summary: "Meteor: raw firepower from above"
       support:
         name: "Enchanter"
         description: "Arcane Surge mends allies instead of striking foes."
+        summary: "Blessing: heal and empower allies"
       necromancer:
         name: "Necromancer"
         description: "Rise calls skeletal allies to fight at your side."
+        summary: "Rise: raise skeletal allies to fight"
 
 # F-key (Swap Hands) abilities per class. Right-clicking the tagged Mage
 # staff casts Healing Spell.

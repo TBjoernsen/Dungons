@@ -120,7 +120,8 @@ class ClassesConfig(private val plugin: DungeonPlugin) {
         val section = yaml.getConfigurationSection("$classId.subclasses.options") ?: return emptyList()
         return section.getKeys(false).map { key ->
             val path = "$classId.subclasses.options.$key."
-            SubclassOption(key.lowercase(), getString(path + "name", key), getString(path + "description", ""))
+            val description = getString(path + "description", "")
+            SubclassOption(key.lowercase(), getString(path + "name", key), description, getString(path + "summary", description))
         }
     }
 
@@ -133,4 +134,4 @@ class ClassesConfig(private val plugin: DungeonPlugin) {
 }
 
 /** One mastery branch a class's subclass step offers, read from `<class>.subclasses.options.<id>`. */
-data class SubclassOption(val id: String, val name: String, val description: String)
+data class SubclassOption(val id: String, val name: String, val description: String, val summary: String = description)
