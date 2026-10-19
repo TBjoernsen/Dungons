@@ -140,13 +140,18 @@ class QuestConfig(private val plugin: DungeonPlugin) {
                 continue
             }
             val required = entry.getInt("required", 1).coerceAtLeast(1)
+            val classDescriptions = entry.getConfigurationSection("class-descriptions")
+                ?.getKeys(false)
+                ?.mapNotNull { key -> entry.getString("class-descriptions.$key")?.let { key.lowercase(Locale.ROOT) to it } }
+                ?.toMap() ?: emptyMap()
             out.add(QuestDefinition(
                 id = id,
                 title = entry.getString("title", id) ?: id,
                 description = entry.getString("description", "") ?: "",
                 objective = objective,
                 required = required,
-                rewardXp = entry.getInt("reward-xp", 0).coerceAtLeast(0)
+                rewardXp = entry.getInt("reward-xp", 0).coerceAtLeast(0),
+                classDescriptions = classDescriptions
             ))
         }
         return out

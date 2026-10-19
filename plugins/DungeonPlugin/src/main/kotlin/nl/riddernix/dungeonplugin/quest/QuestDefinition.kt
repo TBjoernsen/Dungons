@@ -42,8 +42,13 @@ data class QuestDefinition(
     val description: String,
     val objective: QuestObjective,
     val required: Int,
-    val rewardXp: Int
+    val rewardXp: Int,
+    val classDescriptions: Map<String, String> = emptyMap()
 ) {
+    /** The wording for [classId] (a lowercase class id), or the generic [description] when none is written for it. */
+    fun descriptionFor(classId: String?): String =
+        classId?.let { classDescriptions[it.lowercase(Locale.ROOT)] } ?: description
+
     /** Progress clamped into 0..[required], for display and completion checks. */
     fun clamp(counter: Int): Int = counter.coerceIn(0, required)
 

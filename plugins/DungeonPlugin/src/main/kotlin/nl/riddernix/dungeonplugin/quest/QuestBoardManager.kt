@@ -617,7 +617,7 @@ class QuestBoardManager(private val plugin: DungeonPlugin) {
             cfg("timer-format", "<color:#6b5836>Refreshes in <time>").replace("<time>", until(nextRefresh))
         else cfg("timer-none", "<color:#6b5836>No timed refresh"))
 
-        lines.add(cfg("description-format", "<color:#3b2a12><desc>").replace("<desc>", definition.description))
+        lines.add(cfg("description-format", "<color:#3b2a12><desc>").replace("<desc>", definition.descriptionFor(plugin.queries.activeClass(player))))
 
         val segments = yaml.getInt("board.card.bar-segments", 10).coerceIn(4, 40)
         val filled = if (definition.required <= 0) segments else (shown * segments) / definition.required

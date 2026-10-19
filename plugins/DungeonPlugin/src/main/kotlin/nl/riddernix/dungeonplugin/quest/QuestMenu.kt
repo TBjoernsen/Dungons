@@ -238,7 +238,7 @@ class QuestMenu(private val plugin: DungeonPlugin) {
             meta.displayName(line("<gold>${definition.title}"))
             val lore = ArrayList<Component>()
             lore.add(Component.empty())
-            lore.add(line("<gray>${definition.description}"))
+            lore.add(line("<gray>${definition.descriptionFor(plugin.queries.activeClass(player))}"))
             lore.add(Component.empty())
             lore.add(line("<yellow>Progress: <white>$shown<gray>/<white>${definition.required}"))
             lore.add(line("<yellow>Reward: <white>${definition.rewardXp} <gray>Dungeon XP"))

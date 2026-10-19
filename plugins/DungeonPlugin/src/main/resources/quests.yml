@@ -33,6 +33,10 @@ timing:
 # Each entry:
 #   title       - shown as the item name
 #   description - the objective, in words
+#   class-descriptions - optional per-class wording (warrior / archer /
+#                 paladin / mage) shown instead of description to a player
+#                 of that class. Wording only: progress is counted the same
+#                 for everyone.
 #   objective   - kill_any (count mob kills) or deal_damage (sum damage dealt)
 #   required    - the counter target
 #   reward-xp   - dungeon XP granted on claim, toward class levelling. It is
@@ -46,24 +50,44 @@ pool:
     d_cull_the_horde:
       title: "Cull the Horde"
       description: "Slay 10 monsters."
+      class-descriptions:
+        warrior: "Slay 10 monsters with your sword."
+        archer: "Slay 10 monsters with your bow."
+        paladin: "Slay 10 monsters with your axe."
+        mage: "Slay 10 monsters with Arcane Bolt."
       objective: kill_any
       required: 10
       reward-xp: 150
     d_bruiser:
       title: "Bruiser"
       description: "Deal 200 damage to monsters."
+      class-descriptions:
+        warrior: "Deal 200 damage with your sword."
+        archer: "Deal 200 damage with your arrows."
+        paladin: "Deal 200 damage with your axe."
+        mage: "Deal 200 damage with Arcane Bolt."
       objective: deal_damage
       required: 200
       reward-xp: 200
     d_exterminator:
       title: "Exterminator"
       description: "Slay 20 monsters."
+      class-descriptions:
+        warrior: "Slay 20 monsters with your sword."
+        archer: "Slay 20 monsters with your bow."
+        paladin: "Slay 20 monsters with your axe."
+        mage: "Slay 20 monsters with Arcane Bolt."
       objective: kill_any
       required: 20
       reward-xp: 200
     d_heavy_hitter:
       title: "Heavy Hitter"
       description: "Deal 500 damage to monsters."
+      class-descriptions:
+        warrior: "Deal 500 damage with your sword."
+        archer: "Deal 500 damage with your arrows."
+        paladin: "Deal 500 damage with your axe."
+        mage: "Deal 500 damage with Arcane Bolt."
       objective: deal_damage
       required: 500
       reward-xp: 300
@@ -72,24 +96,44 @@ pool:
     w_weekly_slayer:
       title: "Weekly Slayer"
       description: "Slay 100 monsters this week."
+      class-descriptions:
+        warrior: "Slay 100 monsters with your sword this week."
+        archer: "Slay 100 monsters with your bow this week."
+        paladin: "Slay 100 monsters with your axe this week."
+        mage: "Slay 100 monsters with Arcane Bolt this week."
       objective: kill_any
       required: 100
       reward-xp: 800
     w_devastation:
       title: "Devastation"
       description: "Deal 5000 damage this week."
+      class-descriptions:
+        warrior: "Deal 5000 damage with your sword this week."
+        archer: "Deal 5000 damage with your arrows this week."
+        paladin: "Deal 5000 damage with your axe this week."
+        mage: "Deal 5000 damage with Arcane Bolt this week."
       objective: deal_damage
       required: 5000
       reward-xp: 1000
     w_monster_hunter:
       title: "Monster Hunter"
       description: "Slay 250 monsters this week."
+      class-descriptions:
+        warrior: "Slay 250 monsters with your sword this week."
+        archer: "Slay 250 monsters with your bow this week."
+        paladin: "Slay 250 monsters with your axe this week."
+        mage: "Slay 250 monsters with Arcane Bolt this week."
       objective: kill_any
       required: 250
       reward-xp: 1200
     w_onslaught:
       title: "Onslaught"
       description: "Deal 10000 damage this week."
+      class-descriptions:
+        warrior: "Deal 10000 damage with your sword this week."
+        archer: "Deal 10000 damage with your arrows this week."
+        paladin: "Deal 10000 damage with your axe this week."
+        mage: "Deal 10000 damage with Arcane Bolt this week."
       objective: deal_damage
       required: 10000
       reward-xp: 1500
@@ -98,24 +142,44 @@ pool:
     g_first_blood:
       title: "First Blood"
       description: "Slay your first monster."
+      class-descriptions:
+        warrior: "Slay your first monster with your sword."
+        archer: "Slay your first monster with your bow."
+        paladin: "Slay your first monster with your axe."
+        mage: "Slay your first monster with Arcane Bolt."
       objective: kill_any
       required: 1
       reward-xp: 100
     g_getting_started:
       title: "Getting Started"
       description: "Slay 50 monsters."
+      class-descriptions:
+        warrior: "Slay 50 monsters with your sword."
+        archer: "Slay 50 monsters with your bow."
+        paladin: "Slay 50 monsters with your axe."
+        mage: "Slay 50 monsters with Arcane Bolt."
       objective: kill_any
       required: 50
       reward-xp: 500
     g_warmup:
       title: "Warm-up"
       description: "Deal 1000 damage to monsters."
+      class-descriptions:
+        warrior: "Deal 1000 damage with your sword."
+        archer: "Deal 1000 damage with your arrows."
+        paladin: "Deal 1000 damage with your axe."
+        mage: "Deal 1000 damage with Arcane Bolt."
       objective: deal_damage
       required: 1000
       reward-xp: 500
     g_veteran:
       title: "Veteran"
       description: "Slay 500 monsters."
+      class-descriptions:
+        warrior: "Slay 500 monsters with your sword."
+        archer: "Slay 500 monsters with your bow."
+        paladin: "Slay 500 monsters with your axe."
+        mage: "Slay 500 monsters with Arcane Bolt."
       objective: kill_any
       required: 500
       reward-xp: 1500
