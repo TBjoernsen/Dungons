@@ -102,9 +102,12 @@ class HolographicClassSelection(private val plugin: DungeonPlugin) : Listener {
         session.entities += hitbox(player, left, "prev", 1.3f, 1.7f)
         session.entities += hitbox(player, right, "next", 1.3f, 1.7f)
 
-        val pick = place(origin, direction, 0.0, 0.1)
+        // Raised to just under the front cube and pushed back, so its hitbox
+        // sits clear of (and behind) Info and Close rather than over them.
+        val pick = place(origin, direction, 0.0, 0.25)
+            .add(direction.clone().setY(0.0).normalize().multiply(SELECT_DEPTH))
         session.entities += text(player, pick, Component.text("Select", NamedTextColor.YELLOW), 1.6f)
-        session.entities += hitbox(player, pick, "pick", 2.2f, .7f)
+        session.entities += hitbox(player, pick, "pick", 2.0f, .5f)
 
         val info = place(origin, direction, -1.3, -0.6)
         session.entities += text(player, info, Component.text("[ INFO ]", NamedTextColor.GRAY))
@@ -398,6 +401,7 @@ class HolographicClassSelection(private val plugin: DungeonPlugin) : Listener {
         /** How far in front of the player the wheel sits, and the extra entity reach that keeps its buttons clickable from there. */
         const val WHEEL_DISTANCE = 5.5
         const val EXTRA_REACH = 4.0
+        const val SELECT_DEPTH = 0.4
         const val CARD_Y = 1.15
         const val CUBE_SIZE = 1.4f
         const val LABEL_SCALE = 1.5f
