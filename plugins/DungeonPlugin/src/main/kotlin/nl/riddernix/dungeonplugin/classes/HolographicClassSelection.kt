@@ -9,6 +9,7 @@ import org.bukkit.Material
 import org.bukkit.NamespacedKey
 import org.bukkit.Sound
 import org.bukkit.attribute.Attribute
+import org.bukkit.attribute.AttributeModifier
 import org.bukkit.entity.BlockDisplay
 import org.bukkit.entity.Display
 import org.bukkit.entity.Entity
@@ -37,6 +38,7 @@ class HolographicClassSelection(private val plugin: DungeonPlugin) : Listener {
     private val sessions = HashMap<UUID, Session>()
     private val actionKey = NamespacedKey(plugin, "class-hologram-action")
     private val sessionKey = NamespacedKey(plugin, "class-hologram-session")
+    private val reachKey = NamespacedKey(plugin, "class-hologram-reach")
 
     fun open(player: Player) = openCards(player)
 
@@ -48,6 +50,7 @@ class HolographicClassSelection(private val plugin: DungeonPlugin) : Listener {
         }
         restoreIfStuck(player)
         removeTagged(player.uniqueId)
+        releaseReach(player)
     }
 
     /** Restores all active viewers before plugin reload/disable can discard their saved speeds. */
@@ -57,6 +60,7 @@ class HolographicClassSelection(private val plugin: DungeonPlugin) : Listener {
                 remove(session)
                 player.walkSpeed = session.walkSpeed
                 player.flySpeed = session.flySpeed
+                releaseReach(player)
             }
         }
         sessions.clear()
@@ -280,7 +284,7 @@ class HolographicClassSelection(private val plugin: DungeonPlugin) : Listener {
 
     private fun origin(player: Player): Location {
         val forward = player.location.direction.clone().setY(0.0).normalize()
-        return player.location.clone().add(forward.multiply(3.0)).add(0.0, 1.0, 0.0)
+        return player.location.clone().add(forward.multiply(WHEEL_DISTANCE)).add(0.0, 1.0, 0.0)
     }
 
     private fun place(origin: Location, direction: Vector, x: Double, y: Double): Location {
@@ -331,7 +335,19 @@ class HolographicClassSelection(private val plugin: DungeonPlugin) : Listener {
         player.walkSpeed = 0f
         player.flySpeed = 0f
         player.velocity = Vector()
+        extendReach(player)
         return session
+    }
+
+    /** The wheel sits further out than the default entity reach, so its buttons need a temporary reach bonus (transient: never saved with the player). */
+    private fun extendReach(player: Player) {
+        val reach = player.getAttribute(Attribute.ENTITY_INTERACTION_RANGE) ?: return
+        reach.removeModifier(reachKey)
+        reach.addTransientModifier(AttributeModifier(reachKey, EXTRA_REACH, AttributeModifier.Operation.ADD_NUMBER))
+    }
+
+    private fun releaseReach(player: Player) {
+        player.getAttribute(Attribute.ENTITY_INTERACTION_RANGE)?.removeModifier(reachKey)
     }
 
     private fun restoreIfStuck(player: Player) {
@@ -379,6 +395,9 @@ class HolographicClassSelection(private val plugin: DungeonPlugin) : Listener {
     private class Pose(val lateral: Double, val depth: Double, val scale: Float)
 
     private companion object {
+        /** How far in front of the player the wheel sits, and the extra entity reach that keeps its buttons clickable from there. */
+        const val WHEEL_DISTANCE = 5.5
+        const val EXTRA_REACH = 4.0
         const val CARD_Y = 1.15
         const val CUBE_SIZE = 1.4f
         const val LABEL_SCALE = 1.5f
