@@ -3,10 +3,13 @@ package nl.riddernix.dungeonplugin.classes
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.format.NamedTextColor
 import nl.riddernix.dungeonplugin.DungeonPlugin
+import org.bukkit.Bukkit
 import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.NamespacedKey
+import org.bukkit.Sound
 import org.bukkit.attribute.Attribute
+import org.bukkit.entity.BlockDisplay
 import org.bukkit.entity.Display
 import org.bukkit.entity.Entity
 import org.bukkit.entity.Interaction
@@ -20,8 +23,13 @@ import org.bukkit.event.player.PlayerJoinEvent
 import org.bukkit.event.player.PlayerQuitEvent
 import org.bukkit.inventory.ItemStack
 import org.bukkit.persistence.PersistentDataType
+import org.bukkit.util.Transformation
 import org.bukkit.util.Vector
+import org.joml.AxisAngle4f
+import org.joml.Vector3f
 import java.util.UUID
+import kotlin.math.cos
+import kotlin.math.sin
 
 /** Two-stage, display-entity class selection: class cards followed by a detail card. */
 class HolographicClassSelection(private val plugin: DungeonPlugin) : Listener {
@@ -58,28 +66,127 @@ class HolographicClassSelection(private val plugin: DungeonPlugin) : Listener {
         player: Player,
         anchoredOrigin: Location? = null,
         anchoredDirection: Vector? = null,
-        anchoredYaw: Float? = null
+        anchoredYaw: Float? = null,
+        startIndex: Int? = null
     ) {
         close(player)
         val origin = anchoredOrigin?.clone() ?: origin(player)
         val direction = anchoredDirection?.clone() ?: player.location.direction.clone()
         val session = lock(player, origin, direction, anchoredYaw ?: player.location.yaw)
+        val count = ClassType.entries.size
+        // Open on the player's current class so the wheel starts on "you".
+        session.index = Math.floorMod(
+            startIndex ?: plugin.classes.activeClass(player.uniqueId)?.let { ClassType.entries.indexOf(it) } ?: 0,
+            count
+        )
         sessions[player.uniqueId] = session
-        ClassType.entries.forEachIndexed { index, type ->
-            val card = place(origin, direction, -3.9 + index * 2.6, 0.0)
-            session.entities += text(player, card.clone().add(0.0, 2.1, 0.0), Component.text(type.displayName, color(type)))
-            session.entities += item(player, card.clone().add(0.0, 1.15, 0.0), type.icon)
-            session.entities += text(player, card.clone().add(0.0, 0.35, 0.0), Component.text("[ SELECT ]", NamedTextColor.GREEN))
-            // Only the visible Select label is interactive; inspecting a
-            // class is intentional.
-            session.entities += hitbox(player, card.clone().add(0.0, 0.35, 0.0), "detail:${type.name}", 1.55f, .55f)
+
+        ClassType.entries.forEachIndexed { i, type ->
+            val card = spawnCard(player, session, type, pose(i - session.index, count))
+            session.cards += card
+            session.entities += card.cube
+            session.entities += card.label
         }
-        session.entities += text(player, origin.clone().add(0.0, 3.1, 0.0), Component.text("CHOOSE YOUR CLASS", NamedTextColor.GOLD))
-        session.entities += text(player, origin.clone().add(0.0, 2.55, 0.0), Component.text("Right-click a class Select button to inspect it", NamedTextColor.GRAY))
-        val close = place(origin, direction, 0.0, -0.8)
-        session.entities += text(player, close, Component.text("[ CLOSE MENU ]", NamedTextColor.RED))
-        session.entities += hitbox(player, close, "close", 2.1f, .65f)
+
+        session.entities += text(player, place(origin, direction, 0.0, 3.15), Component.text("Select Your Class", NamedTextColor.YELLOW), 2.2f)
+
+        // Wheel arrows: each rotates the wheel one card.
+        val left = place(origin, direction, -ARROW_OFFSET, CARD_Y)
+        val right = place(origin, direction, ARROW_OFFSET, CARD_Y)
+        session.entities += text(player, left, Component.text("<", NamedTextColor.YELLOW), 5f)
+        session.entities += text(player, right, Component.text(">", NamedTextColor.YELLOW), 5f)
+        session.entities += hitbox(player, left, "prev", 1.3f, 1.7f)
+        session.entities += hitbox(player, right, "next", 1.3f, 1.7f)
+
+        val pick = place(origin, direction, 0.0, 0.1)
+        session.entities += text(player, pick, Component.text("Select", NamedTextColor.YELLOW), 1.6f)
+        session.entities += hitbox(player, pick, "pick", 2.2f, .7f)
+
+        val info = place(origin, direction, -1.3, -0.6)
+        session.entities += text(player, info, Component.text("[ INFO ]", NamedTextColor.GRAY))
+        session.entities += hitbox(player, info, "info", 1.5f, .6f)
+        val close = place(origin, direction, 1.3, -0.6)
+        session.entities += text(player, close, Component.text("[ CLOSE ]", NamedTextColor.RED))
+        session.entities += hitbox(player, close, "close", 1.5f, .6f)
     }
+
+    /** Where one card sits on the wheel: [slot] 0 is front and centre, then round the circle. */
+    private fun pose(slot: Int, count: Int): Pose {
+        val theta = Math.PI * 2 * slot / count
+        val facing = cos(theta)
+        val scale = if (facing < -0.5) HIDDEN_SCALE else (0.6 + 0.4 * (1 + facing) / 2).toFloat()
+        return Pose(WHEEL_LATERAL * sin(theta), WHEEL_DEPTH * (1 - facing), scale)
+    }
+
+    private fun wheelLocation(session: Session, pose: Pose, y: Double): Location {
+        val flat = session.direction.clone().setY(0.0).normalize()
+        val loc = place(session.origin, session.direction, pose.lateral, y).add(flat.multiply(pose.depth))
+        // Teleports (the rotation animation) must keep the card facing the viewer.
+        loc.yaw = session.yaw + 180f
+        loc.pitch = 0f
+        return loc
+    }
+
+    /** Placeholder cube per class - swap [WheelCard.cube] for the real card model later. */
+    private fun spawnCard(player: Player, session: Session, type: ClassType, pose: Pose): WheelCard {
+        val size = CUBE_SIZE * pose.scale
+        val cube = player.world.spawn(wheelLocation(session, pose, CARD_Y), BlockDisplay::class.java) {
+            it.block = Bukkit.createBlockData(placeholderBlock(type))
+            it.billboard = Display.Billboard.FIXED
+            it.interpolationDelay = 0
+            it.interpolationDuration = ROTATE_TICKS
+            it.teleportDuration = ROTATE_TICKS
+            it.transformation = cubeTransformation(size)
+            private(player, it)
+        }
+        val label = player.world.spawn(wheelLocation(session, pose, labelY(size, pose)), TextDisplay::class.java) {
+            it.billboard = Display.Billboard.FIXED
+            it.setRotation(session.yaw + 180f, 0f)
+            it.alignment = TextDisplay.TextAlignment.CENTER
+            it.text(Component.text(type.displayName, color(type)))
+            it.lineWidth = 170
+            it.isSeeThrough = true
+            it.interpolationDelay = 0
+            it.interpolationDuration = ROTATE_TICKS
+            it.teleportDuration = ROTATE_TICKS
+            it.transformation = scaleTransformation(pose.scale * LABEL_SCALE)
+            private(player, it)
+        }
+        return WheelCard(type, cube, label)
+    }
+
+    private fun labelY(size: Float, pose: Pose) = CARD_Y + size / 2.0 + 0.25 * pose.scale
+
+    private fun applyPose(session: Session, card: WheelCard, pose: Pose) {
+        val size = CUBE_SIZE * pose.scale
+        card.cube.transformation = cubeTransformation(size)
+        card.cube.teleport(wheelLocation(session, pose, CARD_Y))
+        card.label.transformation = scaleTransformation(pose.scale * LABEL_SCALE)
+        card.label.teleport(wheelLocation(session, pose, labelY(size, pose)))
+    }
+
+    private fun rotate(player: Player, step: Int) {
+        val session = sessions[player.uniqueId] ?: return
+        val count = session.cards.size
+        if (count == 0) return
+        session.index = Math.floorMod(session.index + step, count)
+        session.cards.forEachIndexed { i, card -> applyPose(session, card, pose(i - session.index, count)) }
+        player.playSound(player.location, Sound.UI_BUTTON_CLICK, 0.6f, 1.3f)
+    }
+
+    private fun placeholderBlock(type: ClassType) = when (type) {
+        ClassType.WARRIOR -> Material.RED_CONCRETE
+        ClassType.ARCHER -> Material.LIME_CONCRETE
+        ClassType.PALADIN -> Material.GOLD_BLOCK
+        ClassType.MAGE -> Material.PURPLE_CONCRETE
+    }
+
+    /** A block display's origin is its corner, so the translation pulls the cube's centre onto the entity. */
+    private fun cubeTransformation(size: Float) =
+        Transformation(Vector3f(-size / 2f, -size / 2f, -size / 2f), AxisAngle4f(), Vector3f(size, size, size), AxisAngle4f())
+
+    private fun scaleTransformation(scale: Float) =
+        Transformation(Vector3f(), AxisAngle4f(), Vector3f(scale, scale, scale), AxisAngle4f())
 
     private fun openDetail(player: Player, type: ClassType) {
         // Replace the picker at precisely its original anchor. Do not use the
@@ -91,6 +198,8 @@ class HolographicClassSelection(private val plugin: DungeonPlugin) : Listener {
         val yaw = previous?.yaw ?: player.location.yaw
         close(player)
         val session = lock(player, origin, direction, yaw)
+        // Remember which card the wheel was on, so Back returns to it.
+        session.index = previous?.index ?: 0
         sessions[player.uniqueId] = session
         // The detail card is wider on its passive side than the four-card
         // picker. Offset its contents left and slightly up so its visual
@@ -120,11 +229,13 @@ class HolographicClassSelection(private val plugin: DungeonPlugin) : Listener {
         val action = interaction.persistentDataContainer.get(actionKey, PersistentDataType.STRING) ?: return
         event.isCancelled = true
         if (event.player.uniqueId !in sessions) return
+        val session = sessions[event.player.uniqueId]
         when {
-            action == "back" -> {
-                val session = sessions[event.player.uniqueId]
-                openCards(event.player, session?.origin, session?.direction, session?.yaw)
-            }
+            action == "prev" -> rotate(event.player, -1)
+            action == "next" -> rotate(event.player, 1)
+            action == "pick" -> session?.let { select(event.player, ClassType.entries[it.index]) }
+            action == "info" -> session?.let { openDetail(event.player, ClassType.entries[it.index]) }
+            action == "back" -> openCards(event.player, session?.origin, session?.direction, session?.yaw, session?.index)
             action == "close" -> close(event.player)
             action.startsWith("detail:") -> ClassType.fromInput(action.substringAfter(':'))?.let { openDetail(event.player, it) }
             action.startsWith("select:") -> ClassType.fromInput(action.substringAfter(':'))?.let { select(event.player, it) }
@@ -186,7 +297,7 @@ class HolographicClassSelection(private val plugin: DungeonPlugin) : Listener {
             private(player, it)
         }
 
-    private fun text(player: Player, loc: Location, component: Component) =
+    private fun text(player: Player, loc: Location, component: Component, scale: Float = 1f) =
         player.world.spawn(loc, TextDisplay::class.java) {
             it.billboard = Display.Billboard.FIXED
             it.setRotation((sessions[player.uniqueId]?.yaw ?: player.location.yaw) + 180f, 0f)
@@ -194,6 +305,7 @@ class HolographicClassSelection(private val plugin: DungeonPlugin) : Listener {
             it.text(component)
             it.lineWidth = 170
             it.isSeeThrough = true
+            if (scale != 1f) it.transformation = scaleTransformation(scale)
             private(player, it)
         }
 
@@ -255,5 +367,25 @@ class HolographicClassSelection(private val plugin: DungeonPlugin) : Listener {
         val direction: Vector,
         val yaw: Float,
         val entities: MutableList<Entity> = mutableListOf()
-    )
+    ) {
+        /** Which class is at the front of the wheel (an index into [ClassType.entries]). */
+        var index: Int = 0
+        val cards: MutableList<WheelCard> = mutableListOf()
+    }
+
+    private class WheelCard(val type: ClassType, val cube: BlockDisplay, val label: TextDisplay)
+
+    /** [lateral] is right of the wheel's centre, [depth] is away from the viewer, [scale] shrinks cards as they turn round the back. */
+    private class Pose(val lateral: Double, val depth: Double, val scale: Float)
+
+    private companion object {
+        const val CARD_Y = 1.15
+        const val CUBE_SIZE = 1.4f
+        const val LABEL_SCALE = 1.5f
+        const val WHEEL_LATERAL = 2.4
+        const val WHEEL_DEPTH = 1.0
+        const val ARROW_OFFSET = 4.6
+        const val ROTATE_TICKS = 8
+        const val HIDDEN_SCALE = 0.0001f
+    }
 }
