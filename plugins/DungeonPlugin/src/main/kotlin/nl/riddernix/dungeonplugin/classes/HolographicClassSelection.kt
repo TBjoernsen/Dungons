@@ -134,17 +134,34 @@ class HolographicClassSelection(private val plugin: DungeonPlugin) : Listener {
         return loc
     }
 
-    /** Placeholder cube per class - swap [WheelCard.cube] for the real card model later. */
+    /**
+     * One card per class: the resource pack's card model for players who have
+     * it, otherwise a plain coloured cube. Both are placeholders for the real
+     * card art.
+     */
     private fun spawnCard(player: Player, session: Session, type: ClassType, pose: Pose): WheelCard {
         val size = CUBE_SIZE * pose.scale
-        val cube = player.world.spawn(wheelLocation(session, pose, CARD_Y), BlockDisplay::class.java) {
-            it.block = Bukkit.createBlockData(placeholderBlock(type))
-            it.billboard = Display.Billboard.FIXED
-            it.interpolationDelay = 0
-            it.interpolationDuration = ROTATE_TICKS
-            it.teleportDuration = ROTATE_TICKS
-            it.transformation = cubeTransformation(size)
-            private(player, it)
+        val packArt = plugin.resourcePack.useCardModels(player)
+        val cube: Display = if (packArt) {
+            player.world.spawn(wheelLocation(session, pose, CARD_Y), ItemDisplay::class.java) {
+                it.setItemStack(cardItem(type))
+                it.billboard = Display.Billboard.FIXED
+                it.interpolationDelay = 0
+                it.interpolationDuration = ROTATE_TICKS
+                it.teleportDuration = ROTATE_TICKS
+                it.transformation = scaleTransformation(size)
+                private(player, it)
+            }
+        } else {
+            player.world.spawn(wheelLocation(session, pose, CARD_Y), BlockDisplay::class.java) {
+                it.block = Bukkit.createBlockData(placeholderBlock(type))
+                it.billboard = Display.Billboard.FIXED
+                it.interpolationDelay = 0
+                it.interpolationDuration = ROTATE_TICKS
+                it.teleportDuration = ROTATE_TICKS
+                it.transformation = cubeTransformation(size)
+                private(player, it)
+            }
         }
         val label = player.world.spawn(wheelLocation(session, pose, labelY(size, pose)), TextDisplay::class.java) {
             it.billboard = Display.Billboard.FIXED
@@ -162,11 +179,17 @@ class HolographicClassSelection(private val plugin: DungeonPlugin) : Listener {
         return WheelCard(type, cube, label)
     }
 
+    /** The pack's `dungeonplugin:class_<id>` item model on a plain paper item. */
+    private fun cardItem(type: ClassType) = ItemStack(Material.PAPER).also { stack ->
+        stack.editMeta { it.itemModel = NamespacedKey.fromString("dungeonplugin:class_${type.id}") }
+    }
+
     private fun labelY(size: Float, pose: Pose) = CARD_Y + size / 2.0 + 0.25 * pose.scale
 
     private fun applyPose(session: Session, card: WheelCard, pose: Pose) {
         val size = CUBE_SIZE * pose.scale
-        card.cube.transformation = cubeTransformation(size)
+        // An item model is already centred on the entity; a block's corner is not.
+        card.cube.transformation = if (card.cube is ItemDisplay) scaleTransformation(size) else cubeTransformation(size)
         card.cube.teleport(wheelLocation(session, pose, CARD_Y))
         card.label.transformation = scaleTransformation(pose.scale * LABEL_SCALE)
         card.label.teleport(wheelLocation(session, pose, labelY(size, pose)))
@@ -410,7 +433,7 @@ class HolographicClassSelection(private val plugin: DungeonPlugin) : Listener {
         val cards: MutableList<WheelCard> = mutableListOf()
     }
 
-    private class WheelCard(val type: ClassType, val cube: BlockDisplay, val label: TextDisplay)
+    private class WheelCard(val type: ClassType, val cube: Display, val label: TextDisplay)
 
     /** [lateral] is right of the wheel's centre, [depth] is away from the viewer, [scale] shrinks cards as they turn round the back. */
     private class Pose(val lateral: Double, val depth: Double, val scale: Float)

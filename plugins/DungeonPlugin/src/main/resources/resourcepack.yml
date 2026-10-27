@@ -1,0 +1,29 @@
+# =====================================================================
+#  Resource pack
+# =====================================================================
+# The pack's source lives in the project's resourcepack/ folder. Build it with
+#     gradle resourcePack
+# which writes build/resourcepack/DungeonPlugin-pack.zip and prints its
+# SHA-1. Upload the zip somewhere with a DIRECT download link, then paste
+# that URL and the hash below. This file is never replaced on updates, only
+# topped up with any new keys.
+
+# Nothing is sent while this is false or the url is empty.
+enabled: false
+url: ""
+# 40 hex characters, printed by the resourcePack task.
+sha1: ""
+# true kicks players who decline the pack. Leave false while it is placeholders.
+required: false
+prompt: "DungeonPlugin art pack"
+
+# Whether menus (the class picker so far) show pack art or the plain vanilla
+# fallback for a player. The fallback is a plain cube per class, standing in
+# for where each real card will go; the pack's placeholder card models are
+# kept but switched off until real card art replaces them.
+#   never  - always the cubes (the default for now)
+#   auto   - pack art only for players the server saw load the pack
+#   always - pack art for everyone; use this to test with the pack installed
+#            by hand in your own resourcepacks folder, where the server
+#            cannot see it
+card-models: never

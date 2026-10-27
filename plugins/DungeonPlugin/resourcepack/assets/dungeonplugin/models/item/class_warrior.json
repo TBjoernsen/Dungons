@@ -1,0 +1,6 @@
+{
+  "parent": "dungeonplugin:item/card",
+  "textures": {
+    "front": "dungeonplugin:item/card_warrior"
+  }
+}

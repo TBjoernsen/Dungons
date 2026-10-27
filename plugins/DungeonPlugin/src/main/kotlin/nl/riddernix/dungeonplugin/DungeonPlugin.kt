@@ -12,6 +12,7 @@ import nl.riddernix.dungeonplugin.classes.FeedbackService
 import nl.riddernix.dungeonplugin.classes.HolographicClassSelection
 import nl.riddernix.dungeonplugin.classes.ItemService
 import nl.riddernix.dungeonplugin.classes.MasteryQuestLibrary
+import nl.riddernix.dungeonplugin.pack.ResourcePackService
 import nl.riddernix.dungeonplugin.classes.MasteryQuestListener
 import nl.riddernix.dungeonplugin.classes.MasterySelectionUI
 import nl.riddernix.dungeonplugin.classes.PassiveService
@@ -195,6 +196,8 @@ class DungeonPlugin : JavaPlugin() {
         private set
     lateinit var classPicker: HolographicClassSelection
         private set
+    lateinit var resourcePack: ResourcePackService
+        private set
     lateinit var masterySelection: MasterySelectionUI
         private set
 
@@ -273,6 +276,7 @@ class DungeonPlugin : JavaPlugin() {
         classAbilities = AbilityService(this)
         classFeedback = FeedbackService(this)
         classPicker = HolographicClassSelection(this)
+        resourcePack = ResourcePackService(this)
         masterySelection = MasterySelectionUI(this)
 
         skillPanels = SkillPanelManager(this)
@@ -307,6 +311,7 @@ class DungeonPlugin : JavaPlugin() {
         command = DungeonCommand(this)
         dungeonCommand.setExecutor(command)
         dungeonCommand.tabCompleter = command
+        server.pluginManager.registerEvents(resourcePack, this)
         server.pluginManager.registerEvents(PartyListener(this), this)
         server.pluginManager.registerEvents(PartyMenuListener(this), this)
         server.pluginManager.registerEvents(mobs, this)
@@ -481,6 +486,7 @@ class DungeonPlugin : JavaPlugin() {
         // counts as passed.
         quests.checkScheduledRefresh()
         questBoards.reload()
+        resourcePack.reload()
         startRoomScanTask()
     }
 

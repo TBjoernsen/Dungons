@@ -1,3 +1,4 @@
+import java.security.MessageDigest
 import java.util.Properties
 
 plugins {
@@ -77,3 +78,27 @@ tasks.register<Copy>("deploy") {
 }
 
 tasks.named("build") { finalizedBy("deploy") }
+
+// ------------------------------------------------------------
+//  Resource pack: zips ./resourcepack and prints the SHA-1 that
+//  resourcepack.yml needs. Upload the zip anywhere with a direct
+//  download link, then paste the URL and hash into that file.
+// ------------------------------------------------------------
+tasks.register<Zip>("resourcePack") {
+    group = "dungeonplugin"
+    description = "Builds build/resourcepack/DungeonPlugin-pack.zip and prints its SHA-1."
+    from("resourcepack")
+    archiveFileName.set("DungeonPlugin-pack.zip")
+    destinationDirectory.set(layout.buildDirectory.dir("resourcepack"))
+    // Reproducible, so the hash only changes when the pack's content does.
+    isPreserveFileTimestamps = false
+    isReproducibleFileOrder = true
+    doLast {
+        val zip = archiveFile.get().asFile
+        val sha1 = MessageDigest.getInstance("SHA-1").digest(zip.readBytes())
+            .joinToString("") { "%02x".format(it) }
+        File(zip.parentFile, "DungeonPlugin-pack.sha1").writeText(sha1)
+        logger.lifecycle("Resource pack: $zip")
+        logger.lifecycle("SHA-1: $sha1")
+    }
+}
