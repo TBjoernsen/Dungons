@@ -28,6 +28,7 @@ class ResourcePackService(private val plugin: DungeonPlugin) : Listener {
     private val file = File(plugin.dataFolder, FILE_NAME)
     private lateinit var yaml: YamlConfiguration
     private val loaded = HashSet<UUID>()
+    private var loggedNoHash = false
 
     init {
         reload()
@@ -58,8 +59,9 @@ class ResourcePackService(private val plugin: DungeonPlugin) : Listener {
         val url = yaml.getString("url").orEmpty().trim()
         if (!yaml.getBoolean("enabled", false) || url.isEmpty()) return
         val hash = decodeSha1(yaml.getString("sha1").orEmpty())
-        if (hash == null) {
-            plugin.logger.warning("$FILE_NAME: sha1 is missing or not 40 hex characters - clients will re-download the pack on every join.")
+        if (hash == null && !loggedNoHash) {
+            loggedNoHash = true
+            plugin.logger.info("$FILE_NAME: no valid sha1 set - clients re-download the pack on every join, so they always get the newest one.")
         }
         val prompt = Component.text(yaml.getString("prompt") ?: "")
         player.setResourcePack(url, hash, prompt, yaml.getBoolean("required", false))

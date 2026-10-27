@@ -11,7 +11,10 @@
 # Nothing is sent while this is false or the url is empty.
 enabled: false
 url: ""
-# 40 hex characters, printed by the resourcePack task.
+# 40 hex characters, printed by the resourcePack task. Leave EMPTY to have
+# every player re-download the pack on each join, so a link that always points
+# at the newest file (e.g. a GitHub "releases/latest/download" link) always
+# delivers the newest pack. Set it only for a fixed file, to let clients cache.
 sha1: ""
 # true kicks players who decline the pack. Leave false while it is placeholders.
 required: false
