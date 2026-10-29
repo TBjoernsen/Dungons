@@ -90,21 +90,22 @@ class HolographicClassSelection(private val plugin: DungeonPlugin) : Listener {
             session.cards += card
             session.entities += card.cube
             session.entities += card.label
+            card.icon?.let { session.entities += it }
         }
 
-        session.entities += text(player, place(origin, direction, 0.0, 3.15), Component.text("Select Your Class", NamedTextColor.YELLOW), 2.2f)
+        session.entities += text(player, place(origin, direction, 0.0, 3.65), Component.text("Select Your Class", NamedTextColor.YELLOW), 2.2f)
 
         // Wheel arrows: each rotates the wheel one card.
         val left = place(origin, direction, -ARROW_OFFSET, CARD_Y)
         val right = place(origin, direction, ARROW_OFFSET, CARD_Y)
-        session.entities += text(player, left, Component.text("<", NamedTextColor.YELLOW), 5f)
-        session.entities += text(player, right, Component.text(">", NamedTextColor.YELLOW), 5f)
+        session.entities += text(player, left, Component.text("<", NamedTextColor.YELLOW), 6f)
+        session.entities += text(player, right, Component.text(">", NamedTextColor.YELLOW), 6f)
         session.entities += hitbox(player, left, "prev", 1.3f, 1.7f)
         session.entities += hitbox(player, right, "next", 1.3f, 1.7f)
 
         // Raised to just under the front cube and pushed back, so its hitbox
         // sits clear of (and behind) Info and Close rather than over them.
-        val pick = place(origin, direction, 0.0, 0.25)
+        val pick = place(origin, direction, 0.0, 0.0)
             .add(direction.clone().setY(0.0).normalize().multiply(SELECT_DEPTH))
         session.entities += text(player, pick, Component.text("Select", NamedTextColor.YELLOW), 1.6f)
         session.entities += hitbox(player, pick, "pick", 2.0f, .5f)
@@ -125,9 +126,10 @@ class HolographicClassSelection(private val plugin: DungeonPlugin) : Listener {
         return Pose(WHEEL_LATERAL * sin(theta), WHEEL_DEPTH * (1 - facing), scale)
     }
 
-    private fun wheelLocation(session: Session, pose: Pose, y: Double): Location {
+    /** [towardViewer] pulls the spot out of the card's plane, towards whoever is looking at the wheel. */
+    private fun wheelLocation(session: Session, pose: Pose, y: Double, towardViewer: Double = 0.0): Location {
         val flat = session.direction.clone().setY(0.0).normalize()
-        val loc = place(session.origin, session.direction, pose.lateral, y).add(flat.multiply(pose.depth))
+        val loc = place(session.origin, session.direction, pose.lateral, y).add(flat.multiply(pose.depth - towardViewer))
         // Teleports (the rotation animation) must keep the card facing the viewer.
         loc.yaw = session.yaw + 180f
         loc.pitch = 0f
@@ -146,6 +148,7 @@ class HolographicClassSelection(private val plugin: DungeonPlugin) : Listener {
             player.world.spawn(wheelLocation(session, pose, CARD_Y), ItemDisplay::class.java) {
                 it.setItemStack(cardItem(type))
                 it.billboard = Display.Billboard.FIXED
+                it.brightness = Display.Brightness(15, 15)
                 it.interpolationDelay = 0
                 it.interpolationDuration = ROTATE_TICKS
                 it.teleportDuration = ROTATE_TICKS
@@ -156,6 +159,7 @@ class HolographicClassSelection(private val plugin: DungeonPlugin) : Listener {
             player.world.spawn(wheelLocation(session, pose, CARD_Y), BlockDisplay::class.java) {
                 it.block = Bukkit.createBlockData(placeholderBlock(type))
                 it.billboard = Display.Billboard.FIXED
+                it.brightness = Display.Brightness(15, 15)
                 it.interpolationDelay = 0
                 it.interpolationDuration = ROTATE_TICKS
                 it.teleportDuration = ROTATE_TICKS
@@ -165,6 +169,7 @@ class HolographicClassSelection(private val plugin: DungeonPlugin) : Listener {
         }
         val label = player.world.spawn(wheelLocation(session, pose, labelY(size, pose)), TextDisplay::class.java) {
             it.billboard = Display.Billboard.FIXED
+            it.brightness = Display.Brightness(15, 15)
             it.setRotation(session.yaw + 180f, 0f)
             it.alignment = TextDisplay.TextAlignment.CENTER
             it.text(Component.text(type.displayName, color(type)))
@@ -176,7 +181,30 @@ class HolographicClassSelection(private val plugin: DungeonPlugin) : Listener {
             it.transformation = scaleTransformation(pose.scale * LABEL_SCALE)
             private(player, it)
         }
-        return WheelCard(type, cube, label)
+        // The class's real weapon sits in the card's empty circle. It is the
+        // game's own item model, so no Minecraft art has to ship in the pack.
+        val icon = if (!packArt) null else player.world.spawn(iconLocation(session, pose), ItemDisplay::class.java) {
+            it.setItemStack(ItemStack(weaponFor(type)))
+            it.itemDisplayTransform = ItemDisplay.ItemDisplayTransform.GUI
+            it.billboard = Display.Billboard.FIXED
+            it.brightness = Display.Brightness(15, 15)
+            it.interpolationDelay = 0
+            it.interpolationDuration = ROTATE_TICKS
+            it.teleportDuration = ROTATE_TICKS
+            it.transformation = scaleTransformation(pose.scale * ICON_SCALE)
+            private(player, it)
+        }
+        return WheelCard(type, cube, label, icon)
+    }
+
+    private fun iconLocation(session: Session, pose: Pose) =
+        wheelLocation(session, pose, CARD_Y + ICON_RISE * pose.scale, ICON_FORWARD * pose.scale)
+
+    private fun weaponFor(type: ClassType) = when (type) {
+        ClassType.WARRIOR -> Material.NETHERITE_SWORD
+        ClassType.ARCHER -> Material.BOW
+        ClassType.PALADIN -> Material.NETHERITE_AXE
+        ClassType.MAGE -> Material.BREEZE_ROD
     }
 
     /** The pack's `dungeonplugin:class_<id>` item model on a plain paper item. */
@@ -184,7 +212,7 @@ class HolographicClassSelection(private val plugin: DungeonPlugin) : Listener {
         stack.editMeta { it.itemModel = NamespacedKey.fromString("dungeonplugin:class_${type.id}") }
     }
 
-    private fun labelY(size: Float, pose: Pose) = CARD_Y + size / 2.0 + 0.25 * pose.scale
+    private fun labelY(size: Float, pose: Pose) = CARD_Y + size / 2.0 + 0.35 * pose.scale
 
     private fun applyPose(session: Session, card: WheelCard, pose: Pose) {
         val size = CUBE_SIZE * pose.scale
@@ -193,6 +221,10 @@ class HolographicClassSelection(private val plugin: DungeonPlugin) : Listener {
         card.cube.teleport(wheelLocation(session, pose, CARD_Y))
         card.label.transformation = scaleTransformation(pose.scale * LABEL_SCALE)
         card.label.teleport(wheelLocation(session, pose, labelY(size, pose)))
+        card.icon?.let {
+            it.transformation = scaleTransformation(pose.scale * ICON_SCALE)
+            it.teleport(iconLocation(session, pose))
+        }
     }
 
     private fun rotate(player: Player, step: Int) {
@@ -328,7 +360,7 @@ class HolographicClassSelection(private val plugin: DungeonPlugin) : Listener {
 
     private fun origin(player: Player): Location {
         val forward = player.location.direction.clone().setY(0.0).normalize()
-        return player.location.clone().add(forward.multiply(WHEEL_DISTANCE)).add(0.0, 1.0, 0.0)
+        return player.location.clone().add(forward.multiply(WHEEL_DISTANCE)).add(0.0, 0.8, 0.0)
     }
 
     private fun place(origin: Location, direction: Vector, x: Double, y: Double): Location {
@@ -433,7 +465,7 @@ class HolographicClassSelection(private val plugin: DungeonPlugin) : Listener {
         val cards: MutableList<WheelCard> = mutableListOf()
     }
 
-    private class WheelCard(val type: ClassType, val cube: Display, val label: TextDisplay)
+    private class WheelCard(val type: ClassType, val cube: Display, val label: TextDisplay, val icon: ItemDisplay?)
 
     /** [lateral] is right of the wheel's centre, [depth] is away from the viewer, [scale] shrinks cards as they turn round the back. */
     private class Pose(val lateral: Double, val depth: Double, val scale: Float)
@@ -441,14 +473,18 @@ class HolographicClassSelection(private val plugin: DungeonPlugin) : Listener {
     private companion object {
         /** How far in front of the player the wheel sits, and the extra entity reach that keeps its buttons clickable from there. */
         const val WHEEL_DISTANCE = 5.5
-        const val EXTRA_REACH = 4.0
+        const val EXTRA_REACH = 6.0
         const val SELECT_DEPTH = 0.4
-        const val CARD_Y = 1.15
-        const val CUBE_SIZE = 1.4f
-        const val LABEL_SCALE = 1.5f
-        const val WHEEL_LATERAL = 2.4
+        const val CARD_Y = 1.7
+        const val CUBE_SIZE = 2.45f
+        const val LABEL_SCALE = 2.0f
+        /** The weapon over a card: its size, how far it sits above the card's centre, and how far in front of the card's face. */
+        const val ICON_SCALE = 1.5f
+        const val ICON_RISE = 0.09
+        const val ICON_FORWARD = 0.1
+        const val WHEEL_LATERAL = 3.0
         const val WHEEL_DEPTH = 1.0
-        const val ARROW_OFFSET = 4.6
+        const val ARROW_OFFSET = 5.4
         const val ROTATE_TICKS = 8
         const val HIDDEN_SCALE = 0.0001f
     }
